@@ -11,15 +11,17 @@ import (
 // HeartbeatConfig holds the scheduling parameters.
 type HeartbeatConfig struct {
 	Interval   time.Duration
-	QuietStart int // hour (0-23), -1 = no quiet hours
-	QuietEnd   int // hour (0-23)
+	QuietStart int  // hour (0-23), -1 = no quiet hours
+	QuietEnd   int  // hour (0-23)
+	AutoResume bool // auto-resume when token window expires (default true)
 }
 
 // ParseHeartbeatConfig parses interval and quiet hours strings from config.
-func ParseHeartbeatConfig(interval, quietHours string) HeartbeatConfig {
+func ParseHeartbeatConfig(interval, quietHours string, autoResume bool) HeartbeatConfig {
 	hc := HeartbeatConfig{
 		Interval:   30 * time.Minute,
 		QuietStart: -1,
+		AutoResume: autoResume,
 	}
 
 	if interval != "" {
@@ -63,6 +65,16 @@ func (a *Agent) StartHeartbeat(ctx context.Context, hc HeartbeatConfig) {
 				if isQuietHour(hc) {
 					continue
 				}
+
+				// Check if agent is paused by a cost window
+				if w := checkCostWindows(a.CostWindows); w != nil {
+					if hc.AutoResume {
+						// Window still active — skip this tick, will auto-resume when expired
+						log.Printf("heartbeat for %s: paused ($%.2f %s limit, resets in %s)", a.ID, w.LimitCents, w.formatWindow(), w.remaining().Round(time.Minute))
+					}
+					continue
+				}
+
 				_, err := a.Chat(ctx, a.Workspace.Heartbeat, nil)
 				if err != nil {
 					log.Printf("heartbeat for %s: %v", a.ID, err)

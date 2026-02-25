@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"smithly.dev/internal/agent"
 	"smithly.dev/internal/db"
@@ -537,68 +538,52 @@ func TestChatUnknownToolError(t *testing.T) {
 	}
 }
 
-func TestChatTokenLimitPauses(t *testing.T) {
-	// Each response is ~100 tokens (400 chars / 4), limit is 150
-	// First response fits, second should trigger pause
+func TestChatCostWindowPauses(t *testing.T) {
+	// Each response is ~100 output tokens (400 chars / 4)
+	// At Sonnet pricing ($15/1M output), 100 tokens = $0.0015
+	// Set limit to $0.001 so first response exceeds it
 	mock := &mockLLM{
 		responses: []mockResponse{
-			{content: strings.Repeat("a", 400)}, // ~100 tokens
-			{content: strings.Repeat("b", 400)}, // ~100 tokens — total ~200, over 150 limit
+			{content: strings.Repeat("a", 400)}, // ~100 output tokens = ~$0.0015
+			{content: "should not reach this"},
 		},
 	}
 	srv := httptest.NewServer(mock)
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.TokenLimit = 150
+	a.Pricing = agent.LookupPricing("claude-sonnet-4-6-20250514")
+	a.CostWindows = []*agent.CostWindow{{LimitCents: 0.001, Window: time.Hour}}
 
-	// First chat should work
+	// First chat should trigger pause (output cost exceeds $0.001)
 	_, err := a.Chat(context.Background(), "hello", nil)
-	if err != nil {
-		t.Fatalf("first Chat: %v", err)
-	}
-	if a.Paused {
-		t.Fatal("should not be paused after first chat")
-	}
-
-	// Second chat should hit the limit
-	_, err = a.Chat(context.Background(), "hello again", nil)
 	if err != agent.ErrTokenLimitReached {
 		t.Errorf("expected ErrTokenLimitReached, got %v", err)
 	}
-	if !a.Paused {
+	if !a.Paused() {
 		t.Error("agent should be paused")
-	}
-
-	// Unpause should reset
-	a.Unpause()
-	if a.Paused {
-		t.Error("agent should not be paused after Unpause")
-	}
-	if a.TokensUsed != 0 {
-		t.Errorf("tokens used = %d, want 0 after Unpause", a.TokensUsed)
 	}
 }
 
-func TestChatTokenLimitCallsOnPaused(t *testing.T) {
+func TestChatCostWindowCallsOnPaused(t *testing.T) {
 	mock := &mockLLM{
 		responses: []mockResponse{
-			{content: strings.Repeat("x", 400)}, // ~100 tokens
+			{content: strings.Repeat("x", 400)}, // ~100 output tokens
 		},
 	}
 	srv := httptest.NewServer(mock)
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.TokenLimit = 10 // Will be exceeded on first response
+	a.Pricing = agent.LookupPricing("claude-sonnet-4-6-20250514")
+	a.CostWindows = []*agent.CostWindow{{LimitCents: 0.0001, Window: time.Hour}}
 
 	var pausedCalled bool
-	var pausedUsed, pausedLimit int
+	var pausedWindow string
 	cb := &agent.Callbacks{
-		OnPaused: func(used int, limit int) {
+		OnPaused: func(window string, remaining time.Duration) {
 			pausedCalled = true
-			pausedUsed = used
-			pausedLimit = limit
+			pausedWindow = window
 		},
 	}
 
@@ -609,11 +594,8 @@ func TestChatTokenLimitCallsOnPaused(t *testing.T) {
 	if !pausedCalled {
 		t.Error("OnPaused callback was not called")
 	}
-	if pausedLimit != 10 {
-		t.Errorf("limit = %d, want 10", pausedLimit)
-	}
-	if pausedUsed <= 0 {
-		t.Error("used should be > 0")
+	if pausedWindow != "1 hour" {
+		t.Errorf("window = %q, want '1 hour'", pausedWindow)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"smithly.dev/internal/db"
 	"smithly.dev/internal/tools"
@@ -19,22 +20,22 @@ import (
 )
 
 // ErrTokenLimitReached is returned when the agent's token usage limit is reached.
+// ErrTokenLimitReached is returned when any token usage window is exceeded.
 var ErrTokenLimitReached = fmt.Errorf("agent paused: token usage limit reached")
 
 // Agent represents a running agent with its workspace, memory, tools, and LLM connection.
 type Agent struct {
-	ID         string
-	Model      string
-	BaseURL    string
-	APIKey     string
-	MaxContext int // max context window in tokens (0 = default 128k)
-	TokenLimit int // max tokens before pausing (0 = unlimited)
-	TokensUsed int // running total of estimated tokens used
-	Paused     bool
-	Workspace  *workspace.Workspace
-	Store      db.Store
-	Tools      *tools.Registry
-	client     *http.Client
+	ID          string
+	Model       string
+	BaseURL     string
+	APIKey      string
+	MaxContext  int // max context window in tokens (0 = default 128k)
+	CostWindows []*CostWindow
+	Pricing     ModelPricing
+	Workspace   *workspace.Workspace
+	Store       db.Store
+	Tools       *tools.Registry
+	client      *http.Client
 }
 
 // New creates a new agent.
@@ -75,9 +76,9 @@ type Callbacks struct {
 	// Returns true if the user approves.
 	Approve tools.ApprovalFunc
 
-	// OnPaused is called when the agent hits its token limit.
-	// Receives tokens used and the limit.
-	OnPaused func(used int, limit int)
+	// OnPaused is called when the agent hits a token limit window.
+	// Receives the window description and time until reset.
+	OnPaused func(window string, remaining time.Duration)
 }
 
 // chatMessage is a message in the OpenAI chat format, extended for tool use.
@@ -107,10 +108,9 @@ type chatRequest struct {
 	Stream   bool               `json:"stream"`
 }
 
-// Unpause resets the agent's token counter and unpauses it.
-func (a *Agent) Unpause() {
-	a.TokensUsed = 0
-	a.Paused = false
+// Paused returns true if any cost window is exceeded.
+func (a *Agent) Paused() bool {
+	return checkCostWindows(a.CostWindows) != nil
 }
 
 // Boot runs the BOOT.md content as the first message if it exists.
@@ -125,7 +125,10 @@ func (a *Agent) Boot(ctx context.Context, cb *Callbacks) (string, error) {
 // Chat sends a user message, runs the agent loop (possibly multiple LLM round-trips
 // if tool calls are involved), and returns the final text response.
 func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (string, error) {
-	if a.Paused {
+	if w := checkCostWindows(a.CostWindows); w != nil {
+		if cb != nil && cb.OnPaused != nil {
+			cb.OnPaused(w.formatWindow(), w.remaining())
+		}
 		return "", ErrTokenLimitReached
 	}
 	if cb == nil {
@@ -180,11 +183,10 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 			return "", err
 		}
 
-		// Track token usage from API response (or estimate)
-		a.trackUsage(response)
-		if a.Paused {
+		// Track cost across all spending windows
+		if w := a.trackCost(response); w != nil {
 			if cb.OnPaused != nil {
-				cb.OnPaused(a.TokensUsed, a.TokenLimit)
+				cb.OnPaused(w.formatWindow(), w.remaining())
 			}
 			return "", ErrTokenLimitReached
 		}
@@ -283,27 +285,35 @@ type llmResponse struct {
 	ToolCalls    []toolCall
 	PromptTokens int // from API usage field, 0 if not available
 	OutputTokens int // from API usage field, 0 if not available
+	CachedTokens int // cached input tokens (cheaper), 0 if not available
 }
 
-// trackUsage updates the agent's token counter and pauses if limit is reached.
-func (a *Agent) trackUsage(resp *llmResponse) {
-	if a.TokenLimit <= 0 {
-		return
+// trackCost records spending across all cost windows.
+// Returns the first exceeded window, or nil.
+func (a *Agent) trackCost(resp *llmResponse) *CostWindow {
+	if len(a.CostWindows) == 0 {
+		return nil
 	}
 
-	tokens := resp.PromptTokens + resp.OutputTokens
-	if tokens == 0 {
-		// Fallback: estimate from response content
-		tokens = estimateTokens(resp.Content)
+	inputTokens := resp.PromptTokens
+	outputTokens := resp.OutputTokens
+	cachedTokens := resp.CachedTokens
+
+	// If API didn't return usage, estimate from response content
+	if inputTokens == 0 && outputTokens == 0 {
+		outputTokens = estimateTokens(resp.Content)
 		for _, tc := range resp.ToolCalls {
-			tokens += estimateTokens(tc.Function.Arguments)
+			outputTokens += estimateTokens(tc.Function.Arguments)
 		}
 	}
 
-	a.TokensUsed += tokens
-	if a.TokensUsed >= a.TokenLimit {
-		a.Paused = true
+	// Subtract cached from input (they're counted separately)
+	if cachedTokens > 0 && inputTokens >= cachedTokens {
+		inputTokens -= cachedTokens
 	}
+
+	cost := calculateCost(a.Pricing, inputTokens, outputTokens, cachedTokens)
+	return recordCostWindows(a.CostWindows, cost)
 }
 
 func (a *Agent) sendChat(ctx context.Context, messages []chatMessage, toolDefs []tools.OpenAITool, onDelta func(string)) (*llmResponse, error) {
@@ -438,6 +448,8 @@ func (a *Agent) readFull(body io.Reader) (*llmResponse, error) {
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
+			CacheReadTokens  int `json:"cache_read_input_tokens"`  // Anthropic
+			CachedTokens     int `json:"prompt_tokens_details"`    // OpenAI (simplified)
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(body).Decode(&apiResp); err != nil {
@@ -452,5 +464,6 @@ func (a *Agent) readFull(body io.Reader) (*llmResponse, error) {
 		ToolCalls:    apiResp.Choices[0].Message.ToolCalls,
 		PromptTokens: apiResp.Usage.PromptTokens,
 		OutputTokens: apiResp.Usage.CompletionTokens,
+		CachedTokens: apiResp.Usage.CacheReadTokens + apiResp.Usage.CachedTokens,
 	}, nil
 }

@@ -44,15 +44,27 @@ type AgentConfig struct {
 	APIKey     string           `toml:"api_key"`
 	BaseURL    string           `toml:"base_url"`
 	MaxContext int              `toml:"max_context"` // Context window in tokens (0 = 128k default)
-	TokenLimit int              `toml:"token_limit"` // Max tokens before pausing agent (0 = unlimited)
-	Tools      []string         `toml:"tools"`       // Allowed tool names (empty = all)
-	Heartbeat  *HeartbeatConfig `toml:"heartbeat"`
+	CostLimits []struct {
+		Dollars float64 `toml:"dollars"` // Max spend in USD for this window
+		Window  string  `toml:"window"`  // Duration: "8h", "24h", "daily", "weekly", "monthly"
+	} `toml:"cost_limits"` // Rolling spending windows
+	Pricing   *PricingConfig   `toml:"pricing"`   // Override auto-detected model pricing
+	Tools     []string         `toml:"tools"`     // Allowed tool names (empty = all)
+	Heartbeat *HeartbeatConfig `toml:"heartbeat"`
+}
+
+// PricingConfig allows overriding auto-detected model pricing (dollars per million tokens).
+type PricingConfig struct {
+	InputPerMillion  float64 `toml:"input_per_million"`  // Cost per 1M input tokens
+	OutputPerMillion float64 `toml:"output_per_million"` // Cost per 1M output tokens
+	CachedPerMillion float64 `toml:"cached_per_million"` // Cost per 1M cached input tokens
 }
 
 type HeartbeatConfig struct {
 	Enabled    bool   `toml:"enabled"`
 	Interval   string `toml:"interval"`
 	QuietHours string `toml:"quiet_hours"`
+	AutoResume bool   `toml:"auto_resume"` // Resume paused agent when window expires (default true)
 }
 
 type SearchConfig struct {

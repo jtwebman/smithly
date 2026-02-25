@@ -162,7 +162,7 @@ func cmdStart() {
 
 		// Start heartbeat if configured
 		if ac.Heartbeat != nil && ac.Heartbeat.Enabled && a.Workspace.Heartbeat != "" {
-			hc := agent.ParseHeartbeatConfig(ac.Heartbeat.Interval, ac.Heartbeat.QuietHours)
+			hc := agent.ParseHeartbeatConfig(ac.Heartbeat.Interval, ac.Heartbeat.QuietHours, ac.Heartbeat.AutoResume)
 			a.StartHeartbeat(ctx, hc)
 			log.Printf("heartbeat started for %s (every %s)", a.ID, hc.Interval)
 		}
@@ -502,7 +502,24 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store) (*agen
 
 	a := agent.New(ac.ID, ac.Model, ac.BaseURL, ac.APIKey, ws, store)
 	a.MaxContext = ac.MaxContext
-	a.TokenLimit = ac.TokenLimit
+
+	// Configure cost-based spending limits
+	a.Pricing = agent.LookupPricing(ac.Model)
+	if ac.Pricing != nil {
+		a.Pricing = agent.ModelPricing{
+			InputPerMillion:       ac.Pricing.InputPerMillion,
+			OutputPerMillion:      ac.Pricing.OutputPerMillion,
+			CachedInputPerMillion: ac.Pricing.CachedPerMillion,
+		}
+	}
+	var costConfigs []agent.CostLimitConfig
+	for _, cl := range ac.CostLimits {
+		costConfigs = append(costConfigs, agent.CostLimitConfig{
+			Dollars: cl.Dollars,
+			Window:  cl.Window,
+		})
+	}
+	a.CostWindows = agent.ParseCostWindows(costConfigs)
 
 	// Register built-in tools (filtered by agent's tool config)
 	registerTools(a.Tools, cfg.Search, ac.Tools)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"smithly.dev/internal/agent"
 )
@@ -36,7 +37,12 @@ func (c *CLI) Run(ctx context.Context) error {
 	}
 
 	toolCount := len(c.Agent.Tools.All())
-	fmt.Fprintf(c.Output, "Smithly — chatting with %s (%d tools available, type 'exit' to quit)\n\n", name, toolCount)
+	fmt.Fprintf(c.Output, "Smithly — chatting with %s (%d tools available, type 'exit' to quit)\n", name, toolCount)
+	if len(c.Agent.CostWindows) > 0 {
+		fmt.Fprintf(c.Output, "  Cost limits active. Note: cost estimates are approximate and may not\n")
+		fmt.Fprintf(c.Output, "  match your provider's billing. Monitor your provider dashboard.\n")
+	}
+	fmt.Fprintln(c.Output)
 
 	for {
 		fmt.Fprint(c.Output, "you> ")
@@ -82,9 +88,8 @@ func (c *CLI) Run(ctx context.Context) error {
 				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 				return answer == "y" || answer == "yes"
 			},
-			OnPaused: func(used int, limit int) {
-				fmt.Fprintf(c.Output, "\n  [paused] Token limit reached: %d / %d tokens used.\n", used, limit)
-				fmt.Fprintf(c.Output, "  Agent will not respond until the limit is raised or reset.\n\n")
+			OnPaused: func(window string, remaining time.Duration) {
+				fmt.Fprintf(c.Output, "\n  [paused] %s spending limit reached. Resets in %s.\n\n", window, remaining.Round(time.Minute))
 			},
 		}
 
