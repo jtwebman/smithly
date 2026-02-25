@@ -1,0 +1,17 @@
+[skill]
+name = "code-review"
+version = "1.0.0"
+description = "Structured code review with security and quality checks"
+author = "smithly"
+
+[[triggers]]
+type = "keyword"
+pattern = "review"
+
+[[triggers]]
+type = "keyword"
+pattern = "code review"
+
+[[triggers]]
+type = "regex"
+pattern = "\\bPR[- ]?\\d+\\b"

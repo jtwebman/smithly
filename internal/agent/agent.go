@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"smithly.dev/internal/db"
+	"smithly.dev/internal/skills"
 	"smithly.dev/internal/tools"
 	"smithly.dev/internal/workspace"
 )
 
-// ErrTokenLimitReached is returned when the agent's token usage limit is reached.
-// ErrTokenLimitReached is returned when any token usage window is exceeded.
+// ErrTokenLimitReached is returned when any cost spending window is exceeded.
 var ErrTokenLimitReached = fmt.Errorf("agent paused: token usage limit reached")
 
 // Agent represents a running agent with its workspace, memory, tools, and LLM connection.
@@ -35,6 +35,7 @@ type Agent struct {
 	Workspace   *workspace.Workspace
 	Store       db.Store
 	Tools       *tools.Registry
+	Skills      *skills.Registry
 	client      *http.Client
 }
 
@@ -56,6 +57,7 @@ func NewWithClient(id, model, baseURL, apiKey string, ws *workspace.Workspace, s
 		Workspace: ws,
 		Store:     store,
 		Tools:     tools.NewRegistry(),
+		Skills:    skills.NewRegistry(),
 		client:    client,
 	}
 }
@@ -146,8 +148,13 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 		return "", fmt.Errorf("save user message: %w", err)
 	}
 
-	// Build message list: system prompt + recent history
+	// Build message list: system prompt + skill summary + recent history
 	systemPrompt := a.Workspace.SystemPrompt()
+	if a.Skills != nil {
+		if summary := a.Skills.Summary(); summary != "" {
+			systemPrompt += "\n\n---\n\n" + summary
+		}
+	}
 	messages := []chatMessage{
 		{Role: "system", Content: systemPrompt},
 	}

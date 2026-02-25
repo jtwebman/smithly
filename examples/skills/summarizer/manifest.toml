@@ -1,0 +1,17 @@
+[skill]
+name = "summarizer"
+version = "1.0.0"
+description = "Summarize text, articles, or documents concisely"
+author = "smithly"
+
+[[triggers]]
+type = "keyword"
+pattern = "summarize"
+
+[[triggers]]
+type = "keyword"
+pattern = "summary"
+
+[[triggers]]
+type = "keyword"
+pattern = "tldr"

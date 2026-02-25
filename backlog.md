@@ -97,17 +97,32 @@
 
 ---
 
-## Phase 3: Skills — Both Types
+## Phase 3: Instruction Skills ✅
 
-### Instruction Skills
-- [ ] Markdown loader — read INSTRUCTIONS.md from skill directory
-- [ ] Manifest parser (`manifest.toml` with type, triggers, requires)
-- [ ] Trigger matching — load instruction skill into context when relevant
-- [ ] Dependency declaration — requires code skills, tools, domains
-- [ ] Injection scanner — content firewall patterns against Markdown at install time
-- [ ] Author identity tracking — tied to author account
+### Skill Package
+- [x] Skill struct, Manifest parser (`manifest.toml` with triggers, requires)
+- [x] INSTRUCTIONS.md loader from skill directory
+- [x] Trigger matching — keyword, regex, always trigger types
+- [x] Registry — Add/Remove/Get/All/Match
+- [x] Lightweight system prompt injection — name + description only (Summary)
+- [x] `read_skill` tool — agent loads full instructions on demand
+- [x] Skill loading from workspace `skills/` directory on agent startup
+- [x] Example skills: code-review, summarizer, safety
 
-### Code Skills
+### Skill CLI
+- [x] `smithly skill list [--agent ID]` — show installed skills
+- [x] `smithly skill add <path> [--agent ID]` — install from directory (validates manifest)
+- [x] `smithly skill remove <name> [--agent ID]` — uninstall skill
+- [x] Duplicate install guard with helpful error message
+
+### Tests
+- [x] Skill loading: 4 tests (load, missing name, bad trigger type, bad regex)
+- [x] Trigger matching: 5 tests (keyword, regex, always, no triggers, multiple)
+- [x] Registry: 7 tests (add, duplicate, remove, all, match, summary, summary empty)
+- [x] read_skill tool: 3 tests (read existing, not found, empty name)
+- [x] Example skills integration: loads all 3 from disk, verifies triggers + summary
+
+### Deferred to Phase 3b: Code Skills
 - [ ] Ed25519 key generation (`smithly key generate`)
 - [ ] Key management (`smithly key list/export`)
 - [ ] Skill signing (`smithly skill sign`)
@@ -116,7 +131,9 @@
 - [ ] AST-based static scanner
 - [ ] Scan report generation
 - [ ] Install flow: verify → scan → user review → approve
-- [ ] `smithly skill add/remove/list/scan/update`
+- [ ] Dependency declaration — requires code skills, tools, domains
+- [ ] Injection scanner — content firewall patterns against Markdown at install time
+- [ ] Author identity tracking — tied to author account
 
 ---
 

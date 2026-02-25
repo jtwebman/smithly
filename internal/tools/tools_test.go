@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"smithly.dev/internal/skills"
 	"smithly.dev/internal/tools"
 )
 
@@ -391,6 +392,51 @@ func TestClaudeCodeTool(t *testing.T) {
 	_, err := cc.Run(context.Background(), json.RawMessage(`{"prompt":""}`))
 	if err == nil {
 		t.Error("expected error for empty prompt")
+	}
+}
+
+func TestReadSkillTool(t *testing.T) {
+	sr := skills.NewRegistry()
+	sr.Add(&skills.Skill{
+		Manifest: skills.Manifest{
+			Skill: skills.SkillMeta{Name: "test-skill", Description: "A test skill"},
+		},
+		Content: "Do the thing when asked.",
+	})
+
+	rs := tools.NewReadSkill(sr)
+	if rs.Name() != "read_skill" {
+		t.Errorf("name = %q", rs.Name())
+	}
+	if rs.NeedsApproval() {
+		t.Error("read_skill should not need approval")
+	}
+
+	// Read existing skill
+	result, err := rs.Run(context.Background(), json.RawMessage(`{"name":"test-skill"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result != "Do the thing when asked." {
+		t.Errorf("result = %q", result)
+	}
+
+	// Read non-existent skill should list available
+	result, err = rs.Run(context.Background(), json.RawMessage(`{"name":"nope"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(result, "not found") {
+		t.Errorf("expected 'not found' message, got %q", result)
+	}
+	if !strings.Contains(result, "test-skill") {
+		t.Errorf("expected available skills list, got %q", result)
+	}
+
+	// Empty name should error
+	_, err = rs.Run(context.Background(), json.RawMessage(`{"name":""}`))
+	if err == nil {
+		t.Error("expected error for empty name")
 	}
 }
 

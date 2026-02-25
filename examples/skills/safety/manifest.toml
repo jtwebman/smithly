@@ -1,0 +1,8 @@
+[skill]
+name = "safety"
+version = "1.0.0"
+description = "Safety guidelines applied to all interactions"
+author = "smithly"
+
+[[triggers]]
+type = "always"
