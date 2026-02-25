@@ -244,10 +244,16 @@
 - [ ] Starter templates for enterprise use cases
 
 ### LLM Cost Control
-- [ ] Per-agent token/spending limits
-- [ ] Per-heartbeat-tick token budgets
+- [x] Per-agent cost-based spending limits (done in Phase 2)
+- [ ] Per-heartbeat-tick cost budgets
 - [ ] Alerts when spending spikes
-- [ ] Auto-pause agent if budget exceeded
+- [x] Auto-pause agent if budget exceeded (done in Phase 2)
+
+### Model Resilience
+- [ ] Fallback/backup model — if primary returns 5xx, rate limit, or timeout, try backup
+- [ ] Multi-model routing — use cheaper model for simple tasks, capable model for complex ones
+- [ ] Per-model cost tracking (separate budgets per model within an agent)
+- [ ] Model health monitoring — track error rates, auto-switch on sustained failures
 
 ### Error Handling
 - [ ] LLM API rate limits → exponential backoff + retry
