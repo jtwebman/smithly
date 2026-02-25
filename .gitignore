@@ -1,0 +1,6 @@
+/smithly
+smithly.db
+smithly.db-wal
+smithly.db-shm
+data/
+*.exe

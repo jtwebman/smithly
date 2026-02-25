@@ -2,43 +2,64 @@
 
 > BSL-licensed open source controller. Source public at github.com/smithly/smithly
 
-## Phase 1: Core — Get Something Running
+## Phase 1: Core — Get Something Running ✅
 
 ### Go Scaffold
-- [ ] Go module init, project structure
-- [ ] CLI skeleton (cobra or flag)
-- [ ] TOML config loader (`smithly.toml`)
-- [ ] `smithly init` — first-run wizard (name, LLM provider, API key)
-- [ ] `smithly start` / `smithly stop`
-- [ ] `smithly doctor` — check dependencies (Docker, Ollama, etc.)
+- [x] Go module init, project structure
+- [x] CLI skeleton (flag-based)
+- [x] TOML config loader (`smithly.toml`)
+- [x] `smithly init` — first-run wizard (name, LLM provider, API key, Brave Search key)
+- [x] `smithly start` / `smithly chat`
+- [x] `smithly doctor` — check config + Docker availability
 
 ### SQLite
-- [ ] Database setup (modernc.org/sqlite)
-- [ ] Core tables: agents, memory, bindings, domain_allowlist, skills, trusted_authors, audit_log
-- [ ] Migration runner (embed SQL files, run on startup)
+- [x] Database setup (modernc.org/sqlite, pure Go, no CGo)
+- [x] Core tables: agents, memory, bindings, domain_allowlist, skills, trusted_authors, audit_log
+- [x] Migration runner (embed SQL files, run on startup)
+- [x] Store interface abstraction (supports future Postgres/MongoDB backends)
+- [x] Shared conformance test suite (storetest.RunAll)
 
 ### Gateway
-- [ ] HTTP server on 127.0.0.1, configurable port
-- [ ] Bearer token auth (auto-generated on first run)
-- [ ] Session management
-- [ ] CSRF protection
-- [ ] Rate limiting
+- [x] HTTP server on 127.0.0.1, configurable port
+- [x] Bearer token auth (auto-generated on first run, persisted to config)
+- [x] Rate limiting (60 req/min per IP, sliding window)
 
 ### Agent Loop
-- [ ] Single agent loop — send messages to LLM, get responses
-- [ ] OpenAI-compatible API client (works with Anthropic, OpenAI, OpenRouter, Ollama)
-- [ ] Streaming responses
-- [ ] System prompt assembly from workspace files (SOUL.md + INSTRUCTIONS.md + USER.md)
-- [ ] Workspace loader — read Markdown/TOML files from agent workspace directory
+- [x] Single agent loop — send messages to LLM, get responses
+- [x] OpenAI-compatible API client (works with Anthropic, OpenAI, OpenRouter, Ollama)
+- [x] Streaming responses
+- [x] System prompt assembly from workspace files (SOUL.md + INSTRUCTIONS.md + USER.md)
+- [x] Workspace loader — read Markdown/TOML files from agent workspace directory
+- [x] Tool-use support with multi-turn tool calling (up to 20 iterations)
+- [x] User approval flow for dangerous tools
+
+### Built-in Tools
+- [x] Tool interface + Registry + OpenAI tool format
+- [x] search — web search (Brave/DuckDuckGo) + read results, no approval needed
+- [x] fetch — arbitrary URL access, needs approval
+- [x] bash — shell commands, needs approval
+- [x] read_file, write_file, list_files — filesystem access
+- [x] claude_code — delegate to Claude Code CLI
+- [x] robots.txt compliance (search + fetch respect robots.txt)
 
 ### CLI Channel
-- [ ] Interactive terminal chat with the agent
-- [ ] This is the first channel — prove the loop works end-to-end
+- [x] Interactive terminal chat with the agent
+- [x] Tool call display + approval prompts
+- [x] End-to-end working: init → chat → tools → audit
 
 ### Audit Logging
-- [ ] Append-only audit_log table
-- [ ] Log every LLM call, tool invocation, domain access
-- [ ] `smithly audit show`
+- [x] Append-only audit_log table
+- [x] Log every LLM call, tool invocation
+- [x] `smithly audit show` with --agent and --limit flags
+
+### Tests (120+)
+- [x] Agent loop: 12 tests (mock LLM, tool calls, streaming, persistence, audit, errors)
+- [x] CLI channel: 8 tests (exit, chat, tools, banner, EOF)
+- [x] Gateway: 8 tests (health, auth, chat endpoint, rate limiting, errors)
+- [x] Tools: 41 tests (search permissions, robots.txt, fetch, bash, files, schema)
+- [x] Config: 6 tests (write/load, defaults, multi-agent, Ollama, token persistence)
+- [x] SQLite: 13 conformance tests
+- [x] Workspace: 4 tests
 
 ---
 
@@ -182,6 +203,8 @@
 - [ ] Discord adapter
 - [ ] Slack adapter
 - [ ] Web UI channel (chat + agent dashboard)
+- [ ] Session management (for web UI)
+- [ ] CSRF protection (for web UI)
 
 ### Webhooks
 - [ ] Inbound webhook handler
@@ -255,6 +278,42 @@
 - [ ] Email alerts (SMTP)
 - [ ] PagerDuty / OpsGenie integration
 - [ ] Notification severity routing
+
+---
+
+## Phase 11: Desktop Application Support
+
+> Let the agent control desktop apps — clicking, typing, reading screens.
+> Docker can't do GUI. This runs either locally (`none` sandbox) or on cloud VM providers.
+
+### Local Desktop (none sandbox)
+- [ ] Desktop automation tool — Playwright or similar for native GUI
+- [ ] Screen capture + OCR for reading app state
+- [ ] Mouse/keyboard input simulation
+- [ ] Window management (focus, resize, list open apps)
+- [ ] Approval flow — user confirms before agent clicks/types
+- [ ] macOS, Linux (X11/Wayland), Windows support
+
+### Cloud Desktop Providers
+- [ ] CloudDesktopProvider interface (provision, connect, execute, destroy)
+- [ ] AWS WorkSpaces provider — full Windows/Linux VMs
+- [ ] Azure Virtual Desktop provider
+- [ ] MacStadium / AWS EC2 Mac provider — macOS VMs for Mac-only apps
+- [ ] VNC/RDP connection for screen streaming to agent
+- [ ] Session recording for audit trail
+
+### Desktop Tool
+- [ ] `desktop` tool — agent can launch apps, interact with GUI
+- [ ] NeedsApproval: true (always, every action)
+- [ ] Screenshot → LLM vision for understanding app state
+- [ ] Coordinate system mapping (screen coords ↔ UI elements)
+- [ ] Accessibility API integration (read UI tree without OCR where possible)
+
+### Safety
+- [ ] Per-app allowlist (agent can only interact with approved apps)
+- [ ] Keystroke sanitization (no credential entry without explicit approval)
+- [ ] Session isolation — cloud desktops are fresh per task
+- [ ] Full audit log of every click, keystroke, screenshot
 
 ---
 
