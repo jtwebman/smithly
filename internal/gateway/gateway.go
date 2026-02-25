@@ -131,12 +131,17 @@ func (g *Gateway) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.RUnlock()
 
 	type agentInfo struct {
-		ID    string `json:"id"`
-		Model string `json:"model"`
+		ID     string `json:"id"`
+		Model  string `json:"model"`
+		Paused bool   `json:"paused"`
 	}
 	var agents []agentInfo
 	for _, a := range g.agents {
-		agents = append(agents, agentInfo{ID: a.ID, Model: a.Model})
+		agents = append(agents, agentInfo{
+			ID:     a.ID,
+			Model:  a.Model,
+			Paused: a.Paused(),
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agents)

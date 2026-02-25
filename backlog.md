@@ -63,20 +63,27 @@
 
 ---
 
-## Phase 2: Multi-Agent + Soul
+## Phase 2: Multi-Agent + Soul ✅
 
 ### Multi-Agent
 - [x] Per-agent LLM model configuration
 - [x] Per-agent tool configuration (`tools = ["search", "fetch"]`)
 - [x] Agent management CLI (`smithly agent add/remove/list`)
-- [ ] Multiple agent loops under one gateway
-- [ ] Per-agent workspace isolation (soul, identity, memory, permissions)
-- [ ] Per-agent skill bindings
+- [x] Multiple agent loops under one gateway (each with own workspace/tools/heartbeat)
+- [x] Per-agent workspace isolation (soul, identity, memory, permissions)
+- [x] Gateway routes by agent ID (`POST /agents/{id}/chat`, `GET /agents`)
+- [x] CLI chat with agent selection (`smithly chat [agent-id]`)
 
-### Channel Bindings
-- [ ] Route channels → agents via binding rules
-- [ ] Priority-based matching (most specific wins)
-- [ ] Default catch-all agent
+### Cost Controls
+- [x] Cost-based spending limits with rolling windows (`$50/daily`, `$200/monthly`)
+- [x] Built-in pricing for Claude, GPT-4o, o3/o4 models
+- [x] Cached input tokens tracked at reduced rate
+- [x] Config-level pricing override for unknown models
+- [x] Auto-resume via heartbeat when spending window expires
+- [x] Disclaimer: estimates are approximate, monitor provider dashboard
+- [x] Loop detection — repeated tool calls trigger nudge + audit log
+
+### Channel Bindings (moved to Phase 8)
 
 ### Workspace Files
 - [x] SOUL.md — behavioral philosophy
@@ -201,6 +208,11 @@
 - [ ] Web UI channel (chat + agent dashboard)
 - [ ] Session management (for web UI)
 - [ ] CSRF protection (for web UI)
+
+### Channel Bindings
+- [ ] Route channels → agents via binding rules
+- [ ] Priority-based matching (most specific wins)
+- [ ] Default catch-all agent
 
 ### Webhooks
 - [ ] Inbound webhook handler
