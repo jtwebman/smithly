@@ -1,0 +1,21 @@
+[skill]
+name = "gmail"
+version = "1.0.0"
+description = "Read and summarize Gmail emails"
+
+[[triggers]]
+type = "keyword"
+pattern = "email"
+
+[[triggers]]
+type = "keyword"
+pattern = "gmail"
+
+[[triggers]]
+type = "keyword"
+pattern = "inbox"
+
+[requires]
+tools = ["oauth2", "api_call"]
+oauth2 = ["google"]
+domains = ["gmail.googleapis.com"]

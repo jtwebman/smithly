@@ -12,11 +12,14 @@ import (
 )
 
 type Config struct {
-	Gateway GatewayConfig `toml:"gateway"`
-	Sandbox SandboxConfig `toml:"sandbox"`
-	Storage StorageConfig `toml:"storage"`
-	Search  SearchConfig  `toml:"search"`
-	Agents  []AgentConfig `toml:"agents"`
+	Gateway     GatewayConfig     `toml:"gateway"`
+	Sandbox     SandboxConfig     `toml:"sandbox"`
+	Storage     StorageConfig     `toml:"storage"`
+	Search      SearchConfig      `toml:"search"`
+	OAuth2      []OAuth2Config    `toml:"oauth2"`
+	Notify      NotifyConfig      `toml:"notify"`
+	Credentials CredentialsConfig `toml:"credentials"`
+	Agents      []AgentConfig     `toml:"agents"`
 }
 
 
@@ -70,6 +73,26 @@ type HeartbeatConfig struct {
 type SearchConfig struct {
 	Provider string `toml:"provider"` // "brave" (default), "duckduckgo"
 	APIKey   string `toml:"api_key"`  // Brave Search API key
+}
+
+type OAuth2Config struct {
+	Name         string   `toml:"name"`
+	ClientID     string   `toml:"client_id"`
+	ClientSecret string   `toml:"client_secret"`
+	Scopes       []string `toml:"scopes"`
+	AuthURL      string   `toml:"auth_url"`
+	TokenURL     string   `toml:"token_url"`
+}
+
+type NotifyConfig struct {
+	Provider   string `toml:"provider"`    // "ntfy" (default)
+	NtfyTopic  string `toml:"ntfy_topic"`
+	NtfyServer string `toml:"ntfy_server"` // default: "https://ntfy.sh"
+}
+
+type CredentialsConfig struct {
+	Provider string `toml:"provider"` // "file" (default)
+	Path     string `toml:"path"`     // file path for file provider
 }
 
 func DefaultConfig() Config {

@@ -3,18 +3,23 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"smithly.dev/internal/agent"
 	"smithly.dev/internal/channels"
 	"smithly.dev/internal/config"
+	"smithly.dev/internal/credentials"
 	"smithly.dev/internal/db"
 	"smithly.dev/internal/db/sqlite"
 	"smithly.dev/internal/gateway"
@@ -40,6 +45,8 @@ func main() {
 		cmdAgent()
 	case "skill":
 		cmdSkill()
+	case "oauth2":
+		cmdOAuth2()
 	case "audit":
 		cmdAudit()
 	case "doctor":
@@ -64,6 +71,7 @@ Commands:
   chat      Interactive terminal chat with an agent
   agent     Manage agents (list, add, remove)
   skill     Manage instruction skills (list, add, remove)
+  oauth2    Manage OAuth2 providers (auth, list)
   audit     Show audit log
   doctor    Check dependencies
   version   Print version
@@ -140,6 +148,7 @@ func cmdInit() {
 func cmdStart() {
 	cfg, store := loadConfig()
 	defer store.Close()
+	credStore := loadCredentialStore(cfg)
 
 	gw := gateway.New(cfg.Gateway.Bind, cfg.Gateway.Port, cfg.Gateway.Token, cfg.Gateway.RateLimit, store)
 
@@ -149,7 +158,7 @@ func cmdStart() {
 
 	// Register agents
 	for _, ac := range cfg.Agents {
-		a, err := loadAgent(ac, cfg, store)
+		a, err := loadAgent(ac, cfg, store, credStore)
 		if err != nil {
 			log.Fatalf("Failed to load agent %s: %v", ac.ID, err)
 		}
@@ -193,6 +202,7 @@ func cmdStart() {
 func cmdChat() {
 	cfg, store := loadConfig()
 	defer store.Close()
+	credStore := loadCredentialStore(cfg)
 
 	// Pick agent — first one, or specified via flag
 	agentID := ""
@@ -214,7 +224,7 @@ func cmdChat() {
 		log.Fatal("No agents configured. Run 'smithly init' first.")
 	}
 
-	a, err := loadAgent(*ac, cfg, store)
+	a, err := loadAgent(*ac, cfg, store, credStore)
 	if err != nil {
 		log.Fatalf("Failed to load agent: %v", err)
 	}
@@ -450,6 +460,23 @@ func cmdSkillAdd() {
 	}
 
 	fmt.Printf("Installed skill %q into %s\n", s.Manifest.Skill.Name, destDir)
+
+	// Warn about OAuth2 requirements
+	if s.Manifest.Requires != nil && len(s.Manifest.Requires.OAuth2) > 0 {
+		cfg, err := config.Load("smithly.toml")
+		if err == nil {
+			configured := make(map[string]bool)
+			for _, p := range cfg.OAuth2 {
+				configured[p.Name] = true
+			}
+			for _, provider := range s.Manifest.Requires.OAuth2 {
+				if !configured[provider] {
+					fmt.Printf("\n  Warning: skill requires OAuth2 provider %q which is not configured.\n", provider)
+					fmt.Printf("  Add a [[oauth2]] section to smithly.toml, then run: smithly oauth2 auth %s\n", provider)
+				}
+			}
+		}
+	}
 }
 
 func cmdSkillRemove() {
@@ -597,6 +624,203 @@ func promptLLMConfig(reader *bufio.Reader) (provider, baseURL, model, apiKey str
 	return
 }
 
+// cmdOAuth2 manages OAuth2 providers (auth, list).
+func cmdOAuth2() {
+	if len(os.Args) < 3 {
+		fmt.Println(`Usage: smithly oauth2 <subcommand>
+
+Subcommands:
+  auth <provider>   Authorize an OAuth2 provider (opens browser)
+  list              List configured providers and auth status`)
+		return
+	}
+
+	switch os.Args[2] {
+	case "auth":
+		cmdOAuth2Auth()
+	case "list":
+		cmdOAuth2List()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown oauth2 subcommand: %s\n", os.Args[2])
+		os.Exit(1)
+	}
+}
+
+func cmdOAuth2Auth() {
+	if len(os.Args) < 4 {
+		fmt.Println("Usage: smithly oauth2 auth <provider>")
+		return
+	}
+	providerName := os.Args[3]
+
+	cfg, err := config.Load("smithly.toml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Find the OAuth2 provider config
+	var providerCfg *config.OAuth2Config
+	for i := range cfg.OAuth2 {
+		if cfg.OAuth2[i].Name == providerName {
+			providerCfg = &cfg.OAuth2[i]
+			break
+		}
+	}
+	if providerCfg == nil {
+		fmt.Fprintf(os.Stderr, "OAuth2 provider %q not found in smithly.toml\n", providerName)
+		fmt.Fprintf(os.Stderr, "\nConfigured providers:\n")
+		for _, p := range cfg.OAuth2 {
+			fmt.Fprintf(os.Stderr, "  - %s\n", p.Name)
+		}
+		os.Exit(1)
+	}
+
+	credStore := loadCredentialStore(cfg)
+
+	// Start local callback server
+	callbackPort := 18790
+	codeCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			errCh <- fmt.Errorf("no authorization code in callback")
+			fmt.Fprintf(w, "Error: no authorization code received.")
+			return
+		}
+		codeCh <- code
+		fmt.Fprintf(w, "Authorization successful! You can close this tab.")
+	})
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf("localhost:%d", callbackPort),
+		Handler: mux,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	// Build auth URL
+	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackPort)
+	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=offline&prompt=consent",
+		providerCfg.AuthURL,
+		providerCfg.ClientID,
+		redirectURI,
+		strings.Join(providerCfg.Scopes, " "),
+	)
+
+	fmt.Printf("Opening browser for %s authorization...\n", providerName)
+	fmt.Printf("\nIf the browser doesn't open, visit:\n%s\n\n", authURL)
+
+	// Try to open browser
+	openBrowser(authURL)
+
+	fmt.Println("Waiting for authorization callback...")
+
+	// Wait for callback
+	select {
+	case code := <-codeCh:
+		// Exchange code for tokens
+		data := fmt.Sprintf("grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
+			code, redirectURI, providerCfg.ClientID, providerCfg.ClientSecret)
+
+		resp, err := http.Post(providerCfg.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
+		if err != nil {
+			log.Fatalf("Token exchange failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var tokenResp struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			TokenType    string `json:"token_type"`
+			ExpiresIn    int    `json:"expires_in"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+			log.Fatalf("Failed to parse token response: %v", err)
+		}
+
+		if resp.StatusCode != 200 {
+			log.Fatalf("Token endpoint returned HTTP %d", resp.StatusCode)
+		}
+
+		token := &credentials.OAuth2Token{
+			AccessToken:  tokenResp.AccessToken,
+			RefreshToken: tokenResp.RefreshToken,
+			TokenType:    tokenResp.TokenType,
+		}
+		if tokenResp.ExpiresIn > 0 {
+			token.Expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+		}
+
+		if err := credStore.Put(context.Background(), providerName, token); err != nil {
+			log.Fatalf("Failed to save credentials: %v", err)
+		}
+
+		fmt.Printf("\n%s authorized successfully! Token saved.\n", providerName)
+
+	case err := <-errCh:
+		log.Fatalf("Authorization failed: %v", err)
+	}
+
+	srv.Shutdown(context.Background())
+}
+
+func cmdOAuth2List() {
+	cfg, err := config.Load("smithly.toml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	if len(cfg.OAuth2) == 0 {
+		fmt.Println("No OAuth2 providers configured.")
+		fmt.Println("\nAdd providers to smithly.toml:")
+		fmt.Println("  [[oauth2]]")
+		fmt.Println("  name = \"google\"")
+		fmt.Println("  client_id = \"...\"")
+		fmt.Println("  client_secret = \"...\"")
+		fmt.Println("  scopes = [\"https://www.googleapis.com/auth/gmail.readonly\"]")
+		fmt.Println("  auth_url = \"https://accounts.google.com/o/oauth2/auth\"")
+		fmt.Println("  token_url = \"https://oauth2.googleapis.com/token\"")
+		return
+	}
+
+	credStore := loadCredentialStore(cfg)
+
+	fmt.Printf("%-20s %-12s %s\n", "PROVIDER", "STATUS", "SCOPES")
+	for _, p := range cfg.OAuth2 {
+		status := "not authorized"
+		tok, err := credStore.Get(context.Background(), p.Name)
+		if err == nil && tok != nil {
+			if tok.RefreshToken != "" {
+				status = "authorized"
+			} else {
+				status = "no refresh token"
+			}
+		}
+		scopes := strings.Join(p.Scopes, ", ")
+		if len(scopes) > 50 {
+			scopes = scopes[:50] + "..."
+		}
+		fmt.Printf("%-20s %-12s %s\n", p.Name, status, scopes)
+	}
+}
+
+func openBrowser(url string) {
+	// Try common browser openers
+	for _, cmd := range []string{"xdg-open", "open", "wslview"} {
+		if _, err := exec.LookPath(cmd); err == nil {
+			exec.Command(cmd, url).Start()
+			return
+		}
+	}
+}
+
 // cmdAudit shows the audit log.
 func cmdAudit() {
 	_, store := loadConfig()
@@ -698,7 +922,15 @@ func loadConfig() (*config.Config, db.Store) {
 	return cfg, store
 }
 
-func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store) (*agent.Agent, error) {
+func loadCredentialStore(cfg *config.Config) credentials.Store {
+	path := cfg.Credentials.Path
+	if path == "" {
+		path = "credentials.json"
+	}
+	return credentials.NewFileStore(path)
+}
+
+func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credStore credentials.Store) (*agent.Agent, error) {
 	ws, err := workspace.Load(ac.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load workspace for %s: %w", ac.ID, err)
@@ -748,7 +980,7 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store) (*agen
 	a.Skills = skillRegistry
 
 	// Register built-in tools (filtered by agent's tool config)
-	registerTools(a.Tools, cfg.Search, ac.Tools, skillRegistry)
+	registerTools(a.Tools, cfg, ac.Tools, skillRegistry, credStore)
 
 	// Ensure agent exists in DB
 	if _, err := store.GetAgent(context.Background(), ac.ID); err != nil {
@@ -762,7 +994,7 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store) (*agen
 	return a, nil
 }
 
-func registerTools(registry *tools.Registry, searchCfg config.SearchConfig, allowedTools []string, skillRegistry *skills.Registry) {
+func registerTools(registry *tools.Registry, cfg *config.Config, allowedTools []string, skillRegistry *skills.Registry, credStore credentials.Store) {
 	// Build allowed set (empty = all allowed)
 	allowed := make(map[string]bool)
 	for _, t := range allowedTools {
@@ -774,11 +1006,11 @@ func registerTools(registry *tools.Registry, searchCfg config.SearchConfig, allo
 
 	// Pick search provider based on config
 	var searchProvider tools.SearchProvider
-	switch searchCfg.Provider {
+	switch cfg.Search.Provider {
 	case "duckduckgo":
 		searchProvider = tools.NewDuckDuckGoSearch()
 	default: // "brave" or empty
-		apiKey := searchCfg.APIKey
+		apiKey := cfg.Search.APIKey
 		if apiKey == "" {
 			apiKey = os.Getenv("BRAVE_API_KEY")
 		}
@@ -791,6 +1023,12 @@ func registerTools(registry *tools.Registry, searchCfg config.SearchConfig, allo
 		}
 	}
 
+	// Build OAuth2 tool from config
+	var oauth2Tool *tools.OAuth2Tool
+	if len(cfg.OAuth2) > 0 && credStore != nil {
+		oauth2Tool = tools.NewOAuth2Tool(cfg.OAuth2, credStore)
+	}
+
 	allTools := []tools.Tool{
 		tools.NewSearchWithProvider(searchProvider),
 		tools.NewFetch(),
@@ -800,6 +1038,19 @@ func registerTools(registry *tools.Registry, searchCfg config.SearchConfig, allo
 		tools.NewListFiles(""),
 		tools.NewClaudeCode(),
 	}
+
+	// Add OAuth2 + API call tools if OAuth2 providers are configured
+	if oauth2Tool != nil {
+		allTools = append(allTools, oauth2Tool)
+		allTools = append(allTools, tools.NewAPICall(oauth2Tool))
+	}
+
+	// Add notify tool if configured
+	if cfg.Notify.NtfyTopic != "" {
+		provider := tools.NewNtfyProvider(cfg.Notify.NtfyTopic, cfg.Notify.NtfyServer)
+		allTools = append(allTools, tools.NewNotify(provider))
+	}
+
 	// Add read_skill tool if there are skills installed
 	if skillRegistry != nil && len(skillRegistry.All()) > 0 {
 		allTools = append(allTools, tools.NewReadSkill(skillRegistry))

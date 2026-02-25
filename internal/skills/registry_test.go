@@ -177,9 +177,9 @@ func TestLoadExampleSkills(t *testing.T) {
 		}
 	}
 
-	// Should have loaded all three example skills
-	if len(r.All()) != 3 {
-		t.Fatalf("loaded %d skills, want 3", len(r.All()))
+	// Should have loaded all example skills
+	if len(r.All()) != 4 {
+		t.Fatalf("loaded %d skills, want 4", len(r.All()))
 	}
 
 	// code-review should trigger on "review"
