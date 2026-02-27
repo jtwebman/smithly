@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"smithly.dev/internal/db"
+	"smithly.dev/internal/sandbox"
 	"smithly.dev/internal/skills"
 	"smithly.dev/internal/tools"
 	"smithly.dev/internal/workspace"
@@ -37,7 +38,7 @@ type Agent struct {
 	Tools       *tools.Registry
 	Skills      *skills.Registry
 	Services    *Services
-	CodeRunner  *skills.Runner
+	CodeRunner  sandbox.Provider
 	client      *http.Client
 }
 

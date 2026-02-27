@@ -24,6 +24,7 @@ import (
 	"smithly.dev/internal/db/sqlite"
 	"smithly.dev/internal/gatekeeper"
 	"smithly.dev/internal/gateway"
+	"smithly.dev/internal/sandbox"
 	"smithly.dev/internal/sidecar"
 	"smithly.dev/internal/skills"
 	"smithly.dev/internal/store"
@@ -215,7 +216,12 @@ func cmdStart() {
 	if gkProxy != nil {
 		fmt.Printf("Gatekeeper: http://%s\n", gkProxy.Addr())
 	}
+	fmt.Printf("Sandbox:    %s\n", cfg.Sandbox.Provider)
 	fmt.Printf("Token:      %s\n\n", cfg.Gateway.Token)
+
+	if cfg.Sandbox.Provider == "" || cfg.Sandbox.Provider == "none" {
+		log.Println("warning: sandbox provider is \"none\" — code skills run as unsandboxed subprocesses")
+	}
 
 	if err := gw.Start(); err != nil && ctx.Err() == nil {
 		log.Fatalf("Gateway error: %v", err)
@@ -1060,16 +1066,47 @@ func cmdDoctor() {
 
 	// Check for smithly.toml
 	if _, err := os.Stat("smithly.toml"); err == nil {
-		fmt.Println("  ✓ smithly.toml found")
+		fmt.Println("  [ok] smithly.toml found")
 	} else {
-		fmt.Println("  ✗ smithly.toml not found (run 'smithly init')")
+		fmt.Println("  [--] smithly.toml not found (run 'smithly init')")
 	}
 
-	// Check for Docker
-	if _, err := os.Stat("/var/run/docker.sock"); err == nil {
-		fmt.Println("  ✓ Docker socket found")
+	// Active sandbox provider
+	var activeProvider string
+	if cfg, err := config.Load("smithly.toml"); err == nil {
+		activeProvider = cfg.Sandbox.Provider
+	}
+	if activeProvider == "" {
+		activeProvider = "none"
+	}
+	fmt.Printf("  [ok] sandbox provider: %s\n", activeProvider)
+
+	// Docker
+	if ok, detail := sandbox.CheckDocker(); ok {
+		fmt.Printf("  [ok] %s\n", detail)
 	} else {
-		fmt.Println("  - Docker not available (optional, needed for sandbox)")
+		fmt.Printf("  [--] %s\n", detail)
+	}
+
+	// Fly
+	if ok, detail := sandbox.CheckFly(); ok {
+		fmt.Printf("  [ok] %s\n", detail)
+	} else {
+		fmt.Printf("  [--] %s\n", detail)
+	}
+
+	// Ollama
+	if _, err := exec.LookPath("ollama"); err == nil {
+		fmt.Println("  [ok] ollama found")
+	} else {
+		fmt.Println("  [--] ollama not found")
+	}
+
+	// KVM
+	if _, err := os.Stat("/dev/kvm"); err == nil {
+		fmt.Println("  [ok] KVM available")
+	} else {
+		fmt.Println("  [--] KVM not available")
 	}
 
 	fmt.Println()
@@ -1152,12 +1189,12 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 	}
 	a.Skills = skillRegistry
 
-	// Create code skill runner with proxy gating
-	runner := skills.NewRunner(30*time.Second, sc, cfg.DataStores)
-	if proxyAddr != "" {
-		runner.SetProxy(proxyAddr)
+	// Create sandbox provider for code skill execution
+	provider, err := sandbox.NewProvider(cfg.Sandbox, sc, cfg.DataStores, proxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	a.CodeRunner = runner
+	a.CodeRunner = provider
 
 	// Populate services info for system prompt injection
 	var svc agent.Services

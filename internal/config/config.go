@@ -36,6 +36,8 @@ type GatewayConfig struct {
 
 type SandboxConfig struct {
 	Provider string `toml:"provider"`
+	Memory   string `toml:"memory"` // Docker memory limit (default "256m")
+	CPUs     string `toml:"cpus"`   // Docker CPU limit (default "1")
 }
 
 type StorageConfig struct {
