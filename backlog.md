@@ -115,51 +115,111 @@
 - [x] `smithly skill remove <name> [--agent ID]` — uninstall skill
 - [x] Duplicate install guard with helpful error message
 
+### OAuth2 + API Call + Notify + Code Runner
+- [x] OAuth2 tool — get bearer tokens, transparent refresh, multi-provider
+- [x] API call tool — HTTP requests with optional OAuth2 auth
+- [x] Notify tool — push notifications via ntfy (pluggable provider interface)
+- [x] Credentials store — FileStore backend with 0600 permissions
+- [x] Code skill runner — subprocess execution with JSON I/O, build step, timeout, process groups
+- [x] OAuth2 CLI — `smithly oauth2 auth <provider>` with local callback server
+- [x] Example skill: gmail (code skill with OAuth2 requirement)
+
 ### Tests
 - [x] Skill loading: 4 tests (load, missing name, bad trigger type, bad regex)
 - [x] Trigger matching: 5 tests (keyword, regex, always, no triggers, multiple)
 - [x] Registry: 7 tests (add, duplicate, remove, all, match, summary, summary empty)
 - [x] read_skill tool: 3 tests (read existing, not found, empty name)
 - [x] Example skills integration: loads all 3 from disk, verifies triggers + summary
-
-
----
-
-## Phase 4: Skill Storage
-
-### StorageProvider Interface
-- [ ] Interface definition (table ops + file ops + cross-skill reads)
-- [ ] Access control enforcement (private/public read, never public write)
-
-### Local Storage
-- [ ] SQLite tables namespaced as `skill_{name}_{table}`
-- [ ] Local files under `data/skills/{name}/`
-- [ ] Storage manifest in skill TOML (table definitions, file paths, access levels)
-- [ ] Cross-skill public reads with access check
-- [ ] Audit logging for all storage operations
-
-### Docker Storage Sidecar
-- [ ] Small Go binary that runs in container
-- [ ] Proxies storage calls back to host over Unix socket
-- [ ] JSON protocol for skill ↔ sidecar communication
+- [x] OAuth2: 6 tests (get token, refresh, unknown provider, not authorized, expired)
+- [x] Notify: 3 tests (send, default priority, missing fields)
+- [x] Runner: 7 tests (basic script, env vars, exit codes, timeout, build, missing config)
+- [x] Credentials: 5 tests (put/get, list, delete, file persistence)
 
 ---
 
-## Phase 5: Network Gatekeeper + Search
+## Phase 4: Sidecar API + Skill Runtime ✅
 
-### Search Tool
-- [ ] Built-in agent tool — read any URL, search any query
-- [ ] Configurable search provider (DuckDuckGo, Google, SearXNG)
-- [ ] GET-only, never POSTs data
-- [ ] Runs in controller, not in skill sandboxes
+> Code skills run as subprocesses and need access to controller services.
+> Core philosophy: **your agent writes its own tools.** No abstraction tax.
+
+### Sidecar Server
+- [x] Sidecar HTTP server on localhost:18791 (`internal/sidecar/sidecar.go`)
+- [x] Per-invocation token management (issue, revoke, expiry)
+- [x] `requireToken` middleware — validates bearer token, injects skill name
+- [x] `GET /health` — unauthenticated health check
+- [x] `GET /oauth2/{provider}` — returns fresh bearer token (secrets stay in controller)
+- [x] `POST /notify` — send notification via configured provider
+- [x] `POST /audit` — log audit entry with actor=`skill:<name>`
+- [x] `GET /secrets/{name}` — read secret by name (never touches env vars)
+- [x] Sidecar started alongside gateway in `cmdStart`
+
+### Versioned Object Store (optional)
+- [x] Append-only, immutable store — every mutation creates a new version (`internal/store/`)
+- [x] `POST /store/put` — create new version (auto-generates ID if empty)
+- [x] `POST /store/get` — get latest version by ID
+- [x] `POST /store/delete` — soft-delete (new version with deleted=true)
+- [x] `POST /store/query` — query by type/filters, excludes deleted, enforces skill scoping
+- [x] `POST /store/history` — full version history, oldest first
+- [x] Skill scoping — private objects visible only to owning skill, public to all
+- [x] Separate SQLite file (`smithly_store.db`) — direct-connecting skills can't touch store tables
+
+### Secret Store
+- [x] `[[secret]]` config entries with `name`/`value` or `name`/`env` (reads controller env)
+- [x] `GET /secrets/{name}` endpoint — one-time read, value never in process env
+
+### Data Store Config
+- [x] `[[datastore]]` config entries (type, path/url)
+- [x] Env var injection: `SMITHLY_DB_TYPE`, `SMITHLY_SQLITE_PATH`, `SMITHLY_REDIS_URL`, etc.
+- [x] Skills connect directly via native drivers — no SQL-over-HTTP proxy
+- [x] System prompt injection — inject available data stores + sidecar capabilities into agent context
+
+### Runner Integration
+- [x] Runner accepts sidecar interface + data store config
+- [x] Issues per-invocation token, revokes on completion (including timeout)
+- [x] Injects `SMITHLY_API`, `SMITHLY_TOKEN`, data store env vars
+
+### Client Libraries
+- [x] Python — `smithly.py` (stdlib only, zero dependencies)
+- [x] Bash — `smithly.sh` (curl + jq)
+- [x] JavaScript — `smithly.mjs` (built-in fetch)
+- [x] Go — `smithly.go` (stdlib only)
+- [x] All include: oauth2, notify, audit, secret, store operations
+
+### Config
+- [x] `SidecarConfig` (bind, port) added to Config
+- [x] `DataStoreConfig` (type, path, url) added to Config
+- [x] `SecretConfig` (name, value, env) added to Config
+
+### Tests
+- [x] Store: 13 tests (versioning, soft-delete, skill scoping, public/private, filters, history, limits)
+- [x] Sidecar: 15 tests (token lifecycle, auth, all endpoints, skill scoping, secrets)
+- [x] Runner: 10 tests (existing + sidecar env injection, mock sidecar, token revocation, proxy env injection)
+
+---
+
+## Phase 5: Network Gatekeeper ✅
 
 ### Domain Gatekeeper
-- [ ] Domain allowlist in SQLite
-- [ ] HTTP proxy for outbound requests from code skills
-- [ ] Code skill domain declaration in manifest + enforcement
-- [ ] First-access prompt flow for undeclared domains
-- [ ] Pre-seeded allow/deny lists
-- [ ] `smithly domain list/allow/deny/log`
+- [x] Domain allowlist in SQLite (DomainEntry CRUD, conformance tests)
+- [x] HTTP CONNECT + HTTP proxy for outbound requests from code skills
+- [x] Code skill domain declaration in manifest (`requires.domains`) + auto-approval on install
+- [x] Approval func hook for interactive mode, default-deny in headless
+- [x] Pre-seeded defaults (OpenAI, Anthropic, OpenRouter, GitHub, ntfy, PyPI, npm)
+- [x] `smithly domain list/allow/deny/log`
+- [x] Gatekeeper proxy launched alongside sidecar in `cmdStart`
+- [x] Runner wired with SetProxy — code skills get HTTP_PROXY/HTTPS_PROXY env vars
+- [x] Agent.CodeRunner created in loadAgent, ready for code skill execution tool (future phase)
+- [x] All access (allow + deny) logged to audit_log with domain field
+
+### Config
+- [x] `GatekeeperConfig` (bind, port) — default 127.0.0.1:18792
+
+### Tests
+- [x] Gatekeeper core: 9 tests (allowed, denied, unknown, approval func, defaults, normalization, seed, no-override)
+- [x] Proxy: 5 tests (HTTP allow/deny, CONNECT allow/deny, audit logging)
+- [x] DB conformance: 5 domain tests (set/get, list, touch, not found, upsert)
+- [x] Runner: 2 proxy tests (env injection, no-proxy-when-unset)
+- [x] Services: 7 tests (nil, empty, data stores, sidecar, secrets, combined)
 
 ---
 
@@ -336,7 +396,10 @@
 
 ---
 
-## Phase 12: Code Skills + Trust Chain
+## Phase 12: Code Skill Trust Chain
+
+> Code skill execution is done (Phase 3 runner + Phase 4 sidecar).
+> This phase is signing, scanning, and verification only.
 
 ### Signing + Verification
 - [ ] Ed25519 key generation (`smithly key generate`)

@@ -429,13 +429,14 @@ For skills that need to execute code, access APIs, or do computation. These go t
 | | Instruction Skills | Code Skills |
 |---|---|---|
 | Format | Markdown | Code (any language) |
-| Execution | Injected into LLM context | Runs in sandbox |
-| Author identity | Yes — tied to author account | Yes — Ed25519 signed |
-| Signing required | No | Yes |
-| Scanned for injection | Yes — content firewall patterns | Yes — AST + content analysis |
-| Sandbox required | No | Yes (docker/fly/none) |
-| Can access network | No (LLM-mediated only) | Yes (through gatekeeper) |
-| Can have storage | No | Yes (tables + files) |
+| Execution | Injected into LLM context | Runs as subprocess |
+| Author identity | Yes — tied to author account | Yes — Ed25519 signed (planned) |
+| Signing required | No | Planned (Ed25519) |
+| Scanned for injection | Planned — content firewall patterns | Planned — AST + content analysis |
+| Sandbox required | No | Planned (docker/fly/none) |
+| Can access network | No (LLM-mediated only) | Yes (direct, gatekeeper planned) |
+| Can access controller services | No | Yes — via sidecar API (oauth2, notify, audit, secrets) |
+| Can have storage | No | Yes — sidecar object store + direct DB connections |
 | Friction to create | Low — write Markdown, publish | Higher — write code, sign, approve |
 | Risk | Medium (prompt injection) | Higher (code execution) |
 
@@ -447,106 +448,72 @@ For skills that need to execute code, access APIs, or do computation. These go t
 smithly/
 ├── cmd/
 │   └── smithly/
-│       └── main.go              ← Entry point, CLI
+│       └── main.go              ← Entry point, CLI, wires gateway + sidecar
 ├── internal/
 │   ├── gateway/
-│   │   └── gateway.go           ← HTTP/WS server, 127.0.0.1 only, bearer auth
+│   │   ├── gateway.go           ← HTTP server, 127.0.0.1 only, bearer auth
+│   │   └── ratelimit.go         ← IP-based sliding window rate limiter
+│   ├── sidecar/
+│   │   ├── sidecar.go           ← Localhost HTTP API for code skills (oauth2, notify, audit, secrets, store)
+│   │   └── clients/
+│   │       ├── smithly.py       ← Python client (stdlib only)
+│   │       ├── smithly.sh       ← Bash client (curl + jq)
+│   │       ├── smithly.mjs      ← JavaScript client (built-in fetch)
+│   │       └── smithly.go       ← Go client (stdlib only)
 │   ├── agent/
-│   │   ├── agent.go             ← LLM agent loop, tool selection
-│   │   ├── spawner.go           ← Dynamic sub-agent spawning
-│   │   └── scheduler.go        ← Heartbeat/cron scheduler
+│   │   ├── agent.go             ← LLM agent loop, tool selection, multi-turn
+│   │   ├── context.go           ← System prompt assembly, token estimation
+│   │   ├── heartbeat.go         ← Heartbeat/cron scheduler
+│   │   ├── loopdetect.go        ← Repeated tool call detection
+│   │   └── tokenlimit.go        ← Cost-based spending limits
 │   ├── workspace/
-│   │   └── workspace.go         ← Load soul, identity, user, instructions from workspace dir
-│   ├── memory/
-│   │   └── memory.go            ← Per-agent memory, vector search, audit
+│   │   └── workspace.go         ← Load SOUL.md, IDENTITY.toml, USER.md, INSTRUCTIONS.md, BOOT.md, HEARTBEAT.md
 │   ├── config/
-│   │   └── config.go            ← TOML config loader
-│   ├── permissions/
-│   │   └── permissions.go       ← Capability engine
-│   ├── firewall/
-│   │   └── firewall.go          ← Content trust tagger + injection detection
-│   ├── sandbox/
-│   │   ├── provider.go          ← SandboxProvider interface
-│   │   ├── none.go              ← Raw shell provider
-│   │   ├── docker.go            ← Docker provider (default)
-│   │   └── fly.go               ← Remote VM provider (Fly Machines / Sprites)
-│   ├── storage/
-│   │   ├── provider.go          ← StorageProvider interface (DB + files)
-│   │   ├── local.go             ← SQLite + local filesystem
-│   │   └── remote.go            ← Postgres + R2 (future, for remote providers)
+│   │   └── config.go            ← TOML config loader (gateway, sidecar, datastores, secrets, agents)
+│   ├── db/
+│   │   ├── store.go             ← Store interface (agents, memory, audit)
+│   │   ├── sqlite/
+│   │   │   ├── sqlite.go        ← SQLite Store implementation (modernc.org/sqlite, pure Go)
+│   │   │   └── migrations/
+│   │   │       ├── 001_init.sql  ← Core tables (agents, memory, bindings, audit_log, skills, etc.)
+│   │   │       └── 002_store.sql ← Versioned object store table (store_objects)
+│   │   └── storetest/
+│   │       └── storetest.go     ← Conformance test suite for Store implementations
+│   ├── store/
+│   │   ├── store.go             ← Versioned object store interface (Put, Get, Delete, Query, History)
+│   │   └── sqlite.go            ← SQLite implementation (separate DB file for isolation)
+│   ├── credentials/
+│   │   ├── store.go             ← Credentials Store interface (OAuth2 tokens)
+│   │   └── filestore.go         ← File-based credential storage (0600 perms)
+│   ├── tools/
+│   │   ├── tools.go             ← Tool interface + Registry + OpenAI format
+│   │   ├── search.go            ← Web search (Brave/DuckDuckGo) + read results
+│   │   ├── fetch.go             ← HTTP GET with robots.txt
+│   │   ├── bash.go              ← Shell commands
+│   │   ├── files.go             ← read_file, write_file, list_files
+│   │   ├── claude_code.go       ← Delegate to Claude Code CLI
+│   │   ├── oauth2.go            ← OAuth2 bearer tokens with refresh
+│   │   ├── apicall.go           ← HTTP requests with optional OAuth2 auth
+│   │   ├── notify.go            ← Push notifications (ntfy provider)
+│   │   ├── readskill.go         ← Load full skill instructions by name
+│   │   └── robots.go            ← robots.txt parser + cache
 │   ├── skills/
-│   │   ├── loader.go            ← Discovery + manifest validation
-│   │   ├── instruction.go       ← Instruction skill loader (Markdown → context)
-│   │   ├── signer.go            ← Ed25519 signing + verification
-│   │   ├── scanner.go           ← Static analysis
-│   │   └── runner.go            ← Invoke code skill via sandbox provider
-│   ├── network/
-│   │   ├── gatekeeper.go        ← Domain allowlist proxy
-│   │   └── parser.go            ← Extract domains from curl/wget commands
-│   ├── webhooks/
-│   │   └── webhooks.go          ← Inbound webhook handler, HMAC verification
-│   └── channels/
-│       ├── channel.go           ← Channel interface
-│       ├── binding.go           ← Route channels → agents
-│       ├── telegram.go
-│       ├── discord.go
-│       ├── slack.go
-│       └── webchat.go
+│   │   ├── skill.go             ← Skill struct, Manifest parser, triggers
+│   │   ├── registry.go          ← Skill registry (Add/Remove/Get/Match)
+│   │   ├── runner.go            ← Code skill subprocess runner (JSON I/O, sidecar integration)
+│   │   ├── runtimes.go          ← Runtime detection (python3, bash, node, etc.)
+│   │   └── review.go            ← Skill security review
+│   ├── channels/
+│   │   └── cli.go               ← Interactive terminal chat
+│   ├── network/                 ← (planned) Domain gatekeeper
+│   ├── firewall/                ← (planned) Content trust tagger
+│   └── sandbox/                 ← (planned) SandboxProvider interface
 ├── workspaces/                  ← Per-agent workspace directories
 │   └── default/
 │       ├── SOUL.md
 │       ├── IDENTITY.toml
-│       ├── USER.md
-│       ├── INSTRUCTIONS.md
-│       ├── HEARTBEAT.md
-│       └── BOOT.md
-├── skills/                      ← Local skill directory
-├── smithly.toml                 ← Single config file
-├── go.mod
-└── go.sum
-```
-
-```
-smithly/
-├── cmd/
-│   └── smithly/
-│       └── main.go              ← Entry point, CLI
-├── internal/
-│   ├── gateway/
-│   │   └── gateway.go           ← HTTP/WS server, 127.0.0.1 only, bearer auth
-│   ├── agent/
-│   │   └── agent.go             ← LLM agent loop, tool selection
-│   ├── memory/
-│   │   └── memory.go            ← Identity, conversations, vector search, audit
-│   ├── config/
-│   │   └── config.go            ← TOML config loader
-│   ├── permissions/
-│   │   └── permissions.go       ← Capability engine
-│   ├── firewall/
-│   │   └── firewall.go          ← Content trust tagger + injection detection
-│   ├── sandbox/
-│   │   ├── provider.go          ← SandboxProvider interface
-│   │   ├── none.go              ← Raw shell provider
-│   │   ├── docker.go            ← Docker provider (default)
-│   │   └── fly.go               ← Remote VM provider (Fly Machines / Sprites)
-│   ├── storage/
-│   │   ├── provider.go          ← StorageProvider interface (DB + files)
-│   │   ├── local.go             ← SQLite + local filesystem
-│   │   └── remote.go            ← Postgres + R2 (future, for remote providers)
-│   ├── skills/
-│   │   ├── loader.go            ← Discovery + manifest validation
-│   │   ├── signer.go            ← Ed25519 signing + verification
-│   │   ├── scanner.go           ← Static analysis
-│   │   └── runner.go            ← Invoke skill via sandbox provider
-│   ├── network/
-│   │   ├── gatekeeper.go        ← Domain allowlist proxy
-│   │   └── parser.go            ← Extract domains from curl/wget commands
-│   └── channels/
-│       ├── channel.go           ← Channel interface
-│       ├── telegram.go
-│       ├── discord.go
-│       ├── slack.go
-│       └── webchat.go
+│       └── skills/              ← Installed skills per agent
+├── examples/skills/             ← Example skills (code-review, gmail, safety, summarizer)
 ├── smithly.toml                 ← Single config file
 ├── go.mod
 └── go.sum
@@ -636,94 +603,93 @@ smithly doctor
 - Other skills reference shared data as `{skill-name}:{table}` or `{skill-name}:{path}`
 - All storage operations are logged in the audit table
 
-### 7.3 Manifest Declaration
+### 7.3 Sidecar API *(implemented)*
+
+Code skills talk to a localhost HTTP sidecar for controller services and optional persistence. The sidecar runs alongside the gateway, skills authenticate with per-invocation short-lived tokens.
+
+**What the sidecar handles** (things skills can't/shouldn't do themselves):
+- **OAuth2 tokens** — secrets stay in the controller, skill gets a bearer token
+- **Notifications** — consistent interface regardless of provider
+- **Audit logging** — controller tracks what every skill does
+- **Secrets** — one-time read via HTTP, values never touch env vars
+
+**What the sidecar optionally provides:**
+- **Versioned object store** — append-only, immutable. Every change creates a new version. Backed by separate SQLite file (`smithly_store.db`) so direct-connecting skills can't access it.
+
+**Skills can also connect directly** (not proxied):
+- Database access via env vars (`SMITHLY_SQLITE_PATH`, `SMITHLY_REDIS_URL`, etc.)
+- The agent sees what stores are configured, writes native code (`import sqlite3`), connects directly. No SQL-over-HTTP proxy.
+
+```
+Code Skill (subprocess)
+    │
+    ├── HTTP to sidecar (oauth2, notify, audit, secrets, store)
+    │   Auth: SMITHLY_TOKEN (per-invocation, short-lived)
+    │   ▼
+    │   Sidecar API (localhost:18791)
+    │   ├── GET  /oauth2/{provider}  → fresh bearer token
+    │   ├── POST /notify             → send notification
+    │   ├── POST /audit              → log audit entry
+    │   ├── GET  /secrets/{name}     → read secret (never in env vars)
+    │   ├── POST /store/put          → versioned object storage
+    │   ├── POST /store/get          → get latest version
+    │   ├── POST /store/delete       → soft-delete
+    │   ├── POST /store/query        → query by type/filters
+    │   ├── POST /store/history      → full version history
+    │   └── GET  /health             → health check
+    │
+    └── Direct connection to data stores (native drivers)
+        e.g. sqlite3.connect(os.environ["SMITHLY_SQLITE_PATH"])
+```
+
+### 7.4 Config
 
 ```toml
-[skill]
-name = "weather-cache"
-version = "1.0.0"
+[sidecar]
+bind = "127.0.0.1"
+port = 18791
 
-[storage.tables]
-  [storage.tables.forecasts]
-  access = "public"   # other skills can read this table
-  columns = [
-    { name = "location", type = "text", primary = true },
-    { name = "data", type = "json" },
-    { name = "fetched_at", type = "datetime" },
-  ]
+# Secrets — skills read via GET /secrets/{name}, never in env vars
+[[secret]]
+name = "my_api_key"
+value = "sk-secret-123"
 
-  [storage.tables.api_usage]
-  access = "private"   # only this skill can see its usage tracking
+[[secret]]
+name = "db_password"
+env = "PROD_DB_PASS"     # read from controller's environment at startup
 
-[storage.files]
-  [storage.files.cache]
-  path = "cache/"
-  access = "private"
+# Skills connect directly to these — no proxy
+[[datastore]]
+type = "sqlite"
+path = "smithly.db"
 
-  [storage.files.exports]
-  path = "exports/"
-  access = "public"   # other skills can read exported files
+[[datastore]]
+type = "redis"
+url = "redis://localhost:6379"
 ```
 
-### 7.4 Skill Storage API
-
-Skills interact with storage through a JSON-over-stdin/stdout protocol. The sandbox provider handles the translation to the actual backend.
-
-```jsonc
-// Own data:
-{"storage": "query", "table": "forecasts", "where": {"location": "Portland"}}
-{"storage": "put", "table": "forecasts", "row": {"location": "Portland", "data": {...}}}
-{"storage": "read_file", "path": "cache/portland.json"}
-{"storage": "write_file", "path": "cache/portland.json", "content": "..."}
-{"storage": "list_files", "path": "cache/"}
-
-// Another skill's public data:
-{"storage": "query", "skill": "weather-cache", "table": "forecasts", "where": {...}}
-{"storage": "read_file", "skill": "weather-cache", "path": "exports/summary.json"}
-```
-
-For Docker: the controller runs a small Go sidecar in the container that proxies storage calls back to the host over a Unix socket.
-
-For remote VMs: the skill talks to a storage API endpoint provided as an env var, authenticated with a short-lived token.
-
-### 7.5 Storage Provider Interface
+### 7.5 Object Store Data Model
 
 ```go
-type StorageProvider interface {
-    // Table operations
-    CreateTable(skill string, table TableDef) error
-    Query(skill string, table string, where map[string]any) ([]map[string]any, error)
-    Put(skill string, table string, row map[string]any) error
-    Delete(skill string, table string, where map[string]any) error
-
-    // File operations
-    ReadFile(skill string, path string) (io.Reader, error)
-    WriteFile(skill string, path string, r io.Reader) error
-    ListFiles(skill string, prefix string) ([]FileInfo, error)
-    DeleteFile(skill string, path string) error
-
-    // Cross-skill reads (enforces access control)
-    QueryPublic(requestor string, owner string, table string, where map[string]any) ([]map[string]any, error)
-    ReadPublicFile(requestor string, owner string, path string) (io.Reader, error)
+type Object struct {
+    ID        string          `json:"id"`         // stable key, auto-generated if empty
+    Version   int             `json:"version"`    // auto-incremented per ID
+    Type      string          `json:"type"`       // e.g., "email", "contact"
+    Skill     string          `json:"skill"`      // owning skill (enforced by sidecar)
+    Data      json.RawMessage `json:"data"`       // arbitrary JSON payload
+    Public    bool            `json:"public"`     // visible to other skills?
+    Deleted   bool            `json:"deleted"`    // soft-delete marker
+    CreatedAt time.Time       `json:"created_at"` // when this version was created
 }
 ```
 
-Two implementations:
-- **`local.go`**: SQLite tables (namespaced as `skill_{name}_{table}`) + files under `data/skills/{name}/`
-- **`remote.go`**: Postgres schemas + R2 buckets (for Fly/firecracker providers)
+### 7.6 Access Control
 
-### 7.6 Access Control Enforcement
-
-```
-Skill "travel-planner" requests: read weather-cache:forecasts
-    │
-    ├── Is "forecasts" table marked public in weather-cache manifest?
-    │     YES → allow read
-    │     NO  → deny, log attempt
-    │
-    └── Write attempt to another skill's table?
-          → ALWAYS deny. Log + audit.
-```
+- Skill name is injected from the sidecar token — skills can't impersonate each other
+- Private objects visible only to the owning skill
+- Public objects readable by any skill
+- Writes always scoped to the authenticated skill
+- The object store lives in a separate SQLite file — skills that direct-connect to the main DB can't access `store_objects`
 
 ---
 
@@ -749,7 +715,11 @@ If any file changes after signing → skill disabled immediately. Must be re-sig
 
 ---
 
-## 11. Network Gatekeeper
+## 11. Network Gatekeeper ✅ (Implemented in Phase 5)
+
+> **Status:** Core gatekeeper implemented. HTTP CONNECT + plain HTTP proxy with domain
+> allowlist enforcement, audit logging, CLI management, skill manifest domain seeding.
+> Docker network isolation (section 11.3) deferred to Phase 6 (Sandbox Providers).
 
 ### 11.1 The Search Tool — Flexible Read Access
 
@@ -973,21 +943,19 @@ Injection detection flags (doesn't strip) known patterns: instruction overrides,
 
 No sandbox, no signing, no scanning. The instruction skill is just additional context for the LLM.
 
-## 15b. How Code Skills Run
+## 15b. How Code Skills Run *(implemented)*
 
 ```
 1. Agent decides to invoke code skill "weather-cache"
-2. Controller verifies signature + file hashes (every run)
-3. Controller creates a SkillStorage handle (scoped to this skill)
-4. SandboxProvider.Run() is called with the storage handle
-5. Skill code runs in sandbox:
+2. Runner issues a short-lived SMITHLY_TOKEN scoped to the skill
+3. Runner injects env vars: SMITHLY_API, SMITHLY_TOKEN, data store connection info
+4. Skill runs as subprocess:
    a. Reads input from stdin (JSON)
-   b. Sends storage operations via JSON protocol (intercepted by controller/sidecar)
-   c. Network requests checked against skill's declared domains
+   b. Calls sidecar HTTP API for oauth2 tokens, secrets, notifications, audit, object store
+   c. Optionally connects directly to configured data stores via env vars (native drivers)
    d. Writes final output to stdout (JSON)
-6. Controller collects output, tears down sandbox
-7. Storage writes are committed (or rolled back on failure)
-8. All operations logged to audit_log
+5. Runner collects output, revokes the sidecar token
+6. All sidecar operations logged to audit_log with actor=skill:<name>
 ```
 
 ---
@@ -998,23 +966,55 @@ No sandbox, no signing, no scanning. The instruction skill is just additional co
 [gateway]
 bind = "127.0.0.1"
 port = 18789
+rate_limit = 60       # max requests per minute per IP, 0 = unlimited
 # token = auto-generated on first run
 
 [sandbox]
-provider = "docker"    # "none" | "docker" | "fly"
+provider = "none"      # "none" | "docker" | "fly"
 
 [storage]
 database = "smithly.db"
 files_dir = "data/skills/"
-# Remote providers (only needed for fly):
-# postgres_url = "postgres://..."
-# r2_endpoint = "https://..."
-# r2_bucket = "smithly-skills"
 
 [search]
-provider = "duckduckgo"   # "google" | "duckduckgo" | "searxng"
-# api_key = "..."         # for Google Custom Search
-# searxng_url = "..."     # for self-hosted SearXNG
+provider = "brave"     # "brave" | "duckduckgo"
+# api_key = "..."
+
+[sidecar]
+bind = "127.0.0.1"
+port = 18791
+
+# Secrets — skills read via sidecar, never in env vars
+[[secret]]
+name = "openai_key"
+env = "OPENAI_API_KEY"    # read from controller's environment
+
+[[secret]]
+name = "webhook_secret"
+value = "whsec_abc123"    # literal value
+
+# Data stores — skills connect directly via env vars
+[[datastore]]
+type = "sqlite"
+path = "smithly.db"
+
+# [[datastore]]
+# type = "redis"
+# url = "redis://localhost:6379"
+
+# OAuth2 providers
+# [[oauth2]]
+# name = "google"
+# client_id = "..."
+# client_secret = "..."
+# scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+# auth_url = "https://accounts.google.com/o/oauth2/auth"
+# token_url = "https://oauth2.googleapis.com/token"
+
+# Notifications
+# [notify]
+# provider = "ntfy"
+# ntfy_topic = "smithly-alerts"
 
 [[agents]]
 id = "assistant"
@@ -1030,23 +1030,17 @@ quiet_hours = "23:00-07:00"
 id = "codebot"
 model = "claude-opus-4-5"
 workspace = "workspaces/codebot/"
-tools = { deny = ["browser"] }
+tools = ["search", "fetch", "bash", "read_file", "write_file", "list_files"]
 
-# Channel → agent routing
-[[bindings]]
-channel = "discord"
-server = "my-dev-server"
-agent = "codebot"
+# Channel → agent routing (planned)
+# [[bindings]]
+# channel = "discord"
+# server = "my-dev-server"
+# agent = "codebot"
 
-[[bindings]]
-channel = "*"
-agent = "assistant"
-
-[fly]
-# Only needed if sandbox.provider = "fly"
-# api_token = "..."
-# region = "ord"
-# app = "smithly-workers"
+# [[bindings]]
+# channel = "*"
+# agent = "assistant"
 ```
 
 ---
