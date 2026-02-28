@@ -70,7 +70,7 @@ OpenClaw proved persistent AI agents are genuinely useful. But it has fundamenta
 | HTTP | `net/http` (stdlib) | No framework needed |
 | WebSocket | `nhooyr.io/websocket` | Lightweight, stdlib-compatible |
 | Ed25519 | `crypto/ed25519` (stdlib) | Built-in |
-| CLI | `flag` (stdlib) or `cobra` | TBD based on complexity |
+| CLI | `flag` (stdlib) | Simple, no external dependency |
 | Vector search | `sqlite-vec` via CGo or pure-Go KNN | Evaluate at implementation time |
 
 ---
@@ -521,7 +521,7 @@ smithly/
 
 ---
 
-## 6. SandboxProvider Interface
+## 10. SandboxProvider Interface
 
 The interface supports both local and remote execution. Skills don't know or care which provider they're running in.
 
@@ -577,9 +577,9 @@ smithly doctor
 
 ---
 
-## 7. Skill Storage
+## 11. Skill Storage
 
-### 7.1 Two Storage Types
+### 11.1 Two Storage Types
 
 **Database tables** — structured data:
 - Each skill gets a namespaced set of tables
@@ -591,7 +591,7 @@ smithly doctor
 - Skill can create subdirectories, read/write files freely within its space
 - Files persist across invocations
 
-### 7.2 Access Model
+### 11.2 Access Model
 
 | | Read | Write |
 |---|---|---|
@@ -603,7 +603,7 @@ smithly doctor
 - Other skills reference shared data as `{skill-name}:{table}` or `{skill-name}:{path}`
 - All storage operations are logged in the audit table
 
-### 7.3 Sidecar API *(implemented)*
+### 11.3 Sidecar API *(implemented)*
 
 Code skills talk to a localhost HTTP sidecar for controller services and optional persistence. The sidecar runs alongside the gateway, skills authenticate with per-invocation short-lived tokens.
 
@@ -642,7 +642,7 @@ Code Skill (subprocess)
         e.g. sqlite3.connect(os.environ["SMITHLY_SQLITE_PATH"])
 ```
 
-### 7.4 Config
+### 11.4 Config
 
 ```toml
 [sidecar]
@@ -668,7 +668,7 @@ type = "redis"
 url = "redis://localhost:6379"
 ```
 
-### 7.5 Object Store Data Model
+### 11.5 Object Store Data Model
 
 ```go
 type Object struct {
@@ -683,7 +683,7 @@ type Object struct {
 }
 ```
 
-### 7.6 Access Control
+### 11.6 Access Control
 
 - Skill name is injected from the sidecar token — skills can't impersonate each other
 - Private objects visible only to the owning skill
@@ -693,15 +693,15 @@ type Object struct {
 
 ---
 
-## 10. Code Skill Signing & Scanning
+## 12. Code Skill Signing & Scanning
 
 *(Ed25519 signatures, AST-based scanning, three-step verify→scan→approve flow — applies to code skills only, not instruction skills.)*
 
-### 10.1 How Signing Works
+### 12.1 How Signing Works
 
 Every skill author generates an Ed25519 keypair (`smithly key generate`). When publishing, the author signs the skill (`smithly skill sign`), creating a SIGNATURE file with author public key, SHA-256 hash of each file, Ed25519 signature, and timestamp.
 
-### 10.2 Verification Flow
+### 12.2 Verification Flow
 
 On `smithly skill add`:
 
@@ -709,19 +709,19 @@ On `smithly skill add`:
 2. **Automated scan** — AST-parse all code, flag network calls, process spawning, filesystem access, env access, dynamic code, obfuscation
 3. **User review** — show scan report, author identity, required capabilities, user approves or rejects
 
-### 10.3 On Skill Update
+### 12.3 On Skill Update
 
 If any file changes after signing → skill disabled immediately. Must be re-signed and re-approved. Prevents supply chain attacks via compromised repos.
 
 ---
 
-## 11. Network Gatekeeper ✅ (Implemented in Phase 5)
+## 13. Network Gatekeeper ✅ (Implemented in Phase 5)
 
 > **Status:** Core gatekeeper implemented. HTTP CONNECT + plain HTTP proxy with domain
 > allowlist enforcement, audit logging, CLI management, skill manifest domain seeding.
 > Docker network isolation (section 11.3) deferred to Phase 6 (Sandbox Providers).
 
-### 11.1 The Search Tool — Flexible Read Access
+### 13.1 The Search Tool — Flexible Read Access
 
 Agents need to research freely. Rather than making all GET requests unrestricted (which opens exfiltration via URL params), we solve this with a **built-in search tool** that has broad read access:
 
@@ -738,7 +738,7 @@ The search tool is a first-class agent capability — like "memory" or "browser.
 
 Because the search tool runs inside the controller (not in a sandbox), it's trusted code. It never POSTs data, never submits forms, never sends credentials. It just reads.
 
-### 11.2 Domain Gatekeeper for Everything Else
+### 13.2 Domain Gatekeeper for Everything Else
 
 All other outbound network traffic goes through the gatekeeper:
 
@@ -758,7 +758,7 @@ domains = ["api.openweathermap.org", "api.weather.gov"]
 
 At install time, these domains are shown to the user. At runtime, undeclared domains are blocked — even for reads. The search tool is the only path for open-ended web access.
 
-### 11.3 Docker Network Isolation (The Key Layer)
+### 13.3 Docker Network Isolation (The Key Layer)
 
 The Docker container has no direct internet access. All TCP/DNS routes through the gatekeeper proxy. It doesn't matter how the skill constructs the URL — we intercept at the TCP level.
 
@@ -774,7 +774,7 @@ The Docker container has no direct internet access. All TCP/DNS routes through t
 └─────────────────────────────────────┘
 ```
 
-### 11.4 Pre-seeded Lists
+### 13.4 Pre-seeded Lists
 
 Allowlist (based on config):
 - LLM provider endpoints (api.anthropic.com, api.openai.com, etc.)
@@ -785,7 +785,7 @@ Denylist:
 - Known malware C2 domains
 - Common exfiltration patterns (random subdomains of free DNS services)
 
-### 11.5 The Allowlist in SQLite
+### 13.5 The Allowlist in SQLite
 
 ```sql
 CREATE TABLE domain_allowlist (
@@ -802,7 +802,7 @@ CREATE TABLE domain_allowlist (
 
 ---
 
-## 12. SQLite Schema
+## 14. SQLite Schema
 
 ```sql
 -- Agents
@@ -902,7 +902,7 @@ CREATE TABLE audit_log (
 
 ---
 
-## 13. Content Firewall
+## 15. Content Firewall
 
 | Source | Trust Level | Can trigger tools? | Can write memory? |
 |---|---|---|---|
@@ -916,7 +916,7 @@ Injection detection flags (doesn't strip) known patterns: instruction overrides,
 
 ---
 
-## 14. Gateway Security
+## 16. Gateway Security
 
 | Setting | Default | Changeable? |
 |---|---|---|
@@ -929,7 +929,7 @@ Injection detection flags (doesn't strip) known patterns: instruction overrides,
 
 ---
 
-## 15a. How Instruction Skills Run
+## 17. How Instruction Skills Run
 
 ```
 1. User message arrives, routed to agent via channel binding
@@ -943,7 +943,7 @@ Injection detection flags (doesn't strip) known patterns: instruction overrides,
 
 No sandbox, no signing, no scanning. The instruction skill is just additional context for the LLM.
 
-## 15b. How Code Skills Run *(implemented)*
+## 18. How Code Skills Run *(implemented)*
 
 ```
 1. Agent decides to invoke code skill "weather-cache"
@@ -960,7 +960,7 @@ No sandbox, no signing, no scanning. The instruction skill is just additional co
 
 ---
 
-## 15. Config (smithly.toml)
+## 19. Config (smithly.toml)
 
 ```toml
 [gateway]
@@ -1045,7 +1045,7 @@ tools = ["search", "fetch", "bash", "read_file", "write_file", "list_files"]
 
 ---
 
-## 16. CLI Commands
+## 20. CLI Commands
 
 ```sh
 # Setup & Runtime
@@ -1109,9 +1109,9 @@ smithly config edit                   # Open smithly.toml
 
 ---
 
-## 17. Skill Registry — skills.smithly.dev
+## 21. Skill Registry — skills.smithly.dev
 
-### 17.1 Infrastructure (Cloudflare)
+### 21.1 Infrastructure (Cloudflare)
 
 The registry runs entirely on Cloudflare to avoid egress costs:
 
@@ -1125,7 +1125,7 @@ The registry runs entirely on Cloudflare to avoid egress costs:
 
 At 10k users pulling skills daily, monthly cost is roughly **$5-10/mo**. Compare to S3 where the same traffic could be $50-500/mo in egress alone.
 
-### 17.2 Registry Features
+### 21.2 Registry Features
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -1148,7 +1148,7 @@ At 10k users pulling skills daily, monthly cost is roughly **$5-10/mo**. Compare
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 17.3 Author Trust & Enforcement
+### 21.3 Author Trust & Enforcement
 
 - Authors register via GitHub OAuth
 - Author identity tied to all published skills (both types)
@@ -1157,7 +1157,7 @@ At 10k users pulling skills daily, monthly cost is roughly **$5-10/mo**. Compare
 - **Repeat offenders**: if an author publishes skills that keep getting flagged, the registry warns users on their skill pages and can block publishing
 - Author violation history is public: "2 of 15 skills flagged, 1 removed"
 
-### 17.4 Publishing Flow
+### 21.4 Publishing Flow
 
 ```
 smithly skill publish <path>
@@ -1170,9 +1170,9 @@ smithly skill publish <path>
 
 ---
 
-## 18. Pricing Tiers
+## 22. Pricing Tiers
 
-### 18.1 Three Tiers
+### 22.1 Three Tiers
 
 | | **Free** (Self-Hosted) | **Pro** (Hosted) | **Enterprise** (Self-Hosted) |
 |---|---|---|---|
@@ -1191,7 +1191,7 @@ smithly skill publish <path>
 | **Support** | Community | Email | Dedicated + SLA |
 | **Price** | $0 | $15-30/user/mo | Custom (annual contract) |
 
-### 18.2 Why Self-Hosted Enterprise Is the Highest Tier
+### 22.2 Why Self-Hosted Enterprise Is the Highest Tier
 
 Counterintuitive — usually self-hosted = free. But enterprise self-hosted is **more** expensive because:
 
@@ -1204,7 +1204,7 @@ Counterintuitive — usually self-hosted = free. But enterprise self-hosted is *
 
 This is the Grafana/GitLab model: open source core, paid enterprise self-hosted with support and compliance features.
 
-### 18.3 Revenue Model
+### 22.3 Revenue Model
 
 | Stream | Tier | Description |
 |---|---|---|
@@ -1214,7 +1214,7 @@ This is the Grafana/GitLab model: open source core, paid enterprise self-hosted 
 | **Enterprise license** | Enterprise | Annual contract. Support SLA, compliance features, private registry. |
 | **Professional services** | Enterprise | Custom skill development, deployment assistance, training. |
 
-### 18.4 Unit Economics
+### 22.4 Unit Economics
 
 **Pro tier at 1,000 users ($15/mo each):**
 
@@ -1228,7 +1228,7 @@ This is the Grafana/GitLab model: open source core, paid enterprise self-hosted 
 
 **Enterprise tier** is even better — they run the infra, you sell the license + support. Near-zero COGS beyond your time.
 
-### 18.5 Licensing — MIT
+### 22.5 Licensing — MIT
 
 The entire codebase is under the **MIT License**. Anyone can use, modify, distribute, and build on Smithly without restriction. This isn't something that takes years to rebuild — keeping the license simple removes friction and matches the ecosystem norm (OpenClaw, etc.).
 
@@ -1236,13 +1236,13 @@ Monetization comes from the hosted service and registry, not from license restri
 
 ---
 
-## 19. Enterprise Wedge Use Cases
+## 23. Enterprise Wedge Use Cases
 
 These are the use cases that sell Smithly into organizations. They're things teams want to do **right now** but can't because OpenClaw is banned by every security vendor (CrowdStrike, Microsoft, Malwarebytes all published explicit warnings). Smithly's audit trail, signed skills, sandboxed execution, and deny-by-default permissions make these conversations a CISO can actually have.
 
 **The pitch:** "Your developers are going to use AI agents whether you approve them or not. OpenClaw is banned by every security vendor. Give them Smithly instead — same capabilities, audit trail on everything, deny-by-default permissions, data stays on your network."
 
-### 19.1 Code Review Agent
+### 23.1 Code Review Agent
 
 The sharpest wedge. Every engineering team wants automated code review and nobody trusts OpenClaw near their codebase.
 
@@ -1254,7 +1254,7 @@ The sharpest wedge. Every engineering team wants automated code review and nobod
 - **Gets smarter over time** — when a reviewer overrides the agent's feedback ("this is fine actually"), the agent stores that calibration
 - **Enterprise win:** full audit trail of every review, agent can only access declared repos, SOC2-friendly
 
-### 19.2 Production Monitor → Auto-Fix Agent
+### 23.2 Production Monitor → Auto-Fix Agent
 
 Self-healing production. The agent doesn't just alert — it diagnoses, fixes, and opens a PR.
 
@@ -1298,7 +1298,7 @@ The agent learns your severity calibration over time. "That wasn't critical, rec
 
 **Enterprise win:** on-call engineer gets paged at 3am with a ready-to-review PR instead of spending 45 minutes diagnosing. Full audit trail of every log pull, ticket, and code change. The fix runs in a sandbox — the agent can never touch production directly.
 
-### 19.3 Meeting → Action Agent
+### 23.3 Meeting → Action Agent
 
 - Takes meeting recordings/transcripts (from Zoom/Meet integration or uploaded)
 - Extracts action items, decisions, owners, deadlines
@@ -1307,7 +1307,7 @@ The agent learns your severity calibration over time. "That wasn't critical, rec
 - Can start work on assigned tasks (spawns sub-agents)
 - **Enterprise win:** nothing falls through the cracks, every extraction is auditable, meeting summaries are searchable in memory, decisions are tracked over time
 
-### 19.4 Secure Internal Knowledge Agent
+### 23.4 Secure Internal Knowledge Agent
 
 - Agent that knows your internal docs, runbooks, processes, architecture decisions
 - Team members ask it questions via Slack/Teams
@@ -1315,7 +1315,7 @@ The agent learns your severity calibration over time. "That wasn't critical, rec
 - Learns from corrections ("that's outdated, we switched to X")
 - **Enterprise win:** data never leaves your network (local controller + local Ollama for embeddings), audit trail of every question and answer, institutional knowledge doesn't walk out the door when people leave
 
-### 19.5 Compliance & Security Monitor
+### 23.5 Compliance & Security Monitor
 
 - Heartbeat agent scans dependencies weekly for vulnerabilities
 - Monitors production alerts for anomalies
@@ -1323,7 +1323,7 @@ The agent learns your severity calibration over time. "That wasn't critical, rec
 - Cross-references findings against team's remediation history (stored in memory)
 - **Enterprise win:** continuous compliance, every finding logged, auditor-friendly export to SIEM
 
-### 19.6 Customer Support Triage
+### 23.6 Customer Support Triage
 
 - Agent handles first-line support via configured channels (Slack, email, web chat)
 - Instruction skills define escalation rules, tone, boundaries
@@ -1331,7 +1331,7 @@ The agent learns your severity calibration over time. "That wasn't critical, rec
 - Escalates to humans when uncertain — never makes up answers
 - **Enterprise win:** audit trail of every customer interaction, data stays on-prem, deny-by-default means agent can't go rogue
 
-### 19.7 The Enterprise Moat
+### 23.7 The Enterprise Moat
 
 These use cases aren't just features — they require capabilities OpenClaw structurally cannot provide:
 
@@ -1351,11 +1351,11 @@ These use cases aren't just features — they require capabilities OpenClaw stru
 
 ---
 
-## 20. Webhooks
+## 24. Webhooks
 
 The gateway accepts inbound webhooks to trigger agent actions without polling. This is how the code review agent works — GitHub sends a webhook when a PR opens, the gateway routes it to the right agent.
 
-### 20.1 How It Works
+### 24.1 How It Works
 
 ```toml
 [[webhooks]]
@@ -1377,7 +1377,7 @@ GitHub PR opened
     └── Agent invokes code-review skill with PR data
 ```
 
-### 20.2 Security
+### 24.2 Security
 
 - Each webhook endpoint has its own HMAC secret — forged webhooks are rejected
 - Webhook payloads are tagged as `semi-trusted` by the content firewall
@@ -1386,7 +1386,7 @@ GitHub PR opened
 
 ---
 
-## 22. Defense in Depth (Network Security)
+## 25. Defense in Depth (Network Security)
 
 Three layers. A code skill must beat ALL three to exfiltrate data:
 
@@ -1402,19 +1402,19 @@ For `none` provider: only layers 1 and 3 apply, plus Go-level proxy hooks. Docke
 
 ---
 
-## 23. Product Gaps (To Address)
+## 26. Product Gaps (To Address)
 
 These are known gaps that need to be solved but don't need to block v1.
 
-### 23.1 First-Run Experience / Time-to-Value
+### 26.1 First-Run Experience / Time-to-Value
 
 `smithly init` needs to get a user from install to working agent in under 5 minutes. Should ask 3 questions (name, LLM provider, API key), create a default workspace with a starter soul, and drop into CLI chat. User talks to their agent in 60 seconds.
 
-### 23.2 Templates / Starter Kits
+### 26.2 Templates / Starter Kits
 
 `smithly init --template code-review` scaffolds the whole workspace + installs the right skills. Templates for each enterprise use case (code review, prod monitor, meeting agent, support triage) are how you get people hooked fast.
 
-### 23.3 LLM Cost Control
+### 26.3 LLM Cost Control
 
 Known OpenClaw pain point — agents loop and burn API credits. Smithly needs:
 - Per-agent token/spending limits
@@ -1422,14 +1422,14 @@ Known OpenClaw pain point — agents loop and burn API credits. Smithly needs:
 - Alerts when spending spikes
 - Auto-pause agent if budget exceeded
 
-### 23.4 Error Handling / Recovery
+### 26.4 Error Handling / Recovery
 
 - LLM API rate limits → exponential backoff + retry
 - Skill crash mid-execution → rollback storage writes, log error, notify user
 - Heartbeat task fails N times → circuit breaker, disable task, alert user
 - Runaway agent → per-agent rate limits on skill invocations and LLM calls
 
-### 23.5 Observability / Debugging
+### 26.5 Observability / Debugging
 
 When an agent does something wrong, you need to see:
 - Full system prompt that was assembled
@@ -1438,21 +1438,21 @@ When an agent does something wrong, you need to see:
 - LLM reasoning chain / tool calls
 - `smithly agent logs <id>` should show a conversation-level trace
 
-### 23.6 Skill Development Experience
+### 26.6 Skill Development Experience
 
 - `smithly skill dev <path>` — hot-reload mode for developing skills locally
 - Test harness — invoke a skill with mock input, inspect output
 - `smithly skill test <path>` — run skill's declared test cases
 - Without good DX, nobody contributes to the ecosystem
 
-### 23.7 Backup / Restore / Migration
+### 26.7 Backup / Restore / Migration
 
 - `smithly backup` → snapshot SQLite DB + workspace files + skill storage to a tarball
 - `smithly restore <path>` → restore from backup
 - Covers machine migration, disaster recovery
 - Enterprise will ask about this day one
 
-### 23.8 OpenClaw Migration — Full Workspace
+### 26.8 OpenClaw Migration — Full Workspace
 
 Beyond `smithly skill import-openclaw`:
 - `smithly migrate-from-openclaw <path>` converts the whole workspace
@@ -1462,7 +1462,7 @@ Beyond `smithly skill import-openclaw`:
 - Maps MEMORY.md + memory/*.md → memory table entries
 - Dramatically lowers switching cost
 
-### 23.9 Web UI Scope
+### 26.9 Web UI Scope
 
 Web UI is more than just a chat channel. It should also surface:
 - Agent status dashboard (which agents are running, last heartbeat, errors)
@@ -1471,7 +1471,7 @@ Web UI is more than just a chat channel. It should also surface:
 - Memory browser (search, view trust levels, delete entries)
 - Domain allowlist manager (approve/deny, see access history)
 
-### 23.10 Notifications vs Conversations
+### 26.10 Notifications vs Conversations
 
 Channels cover two-way chat, but agents also need one-way alerting:
 - Push notifications
@@ -1479,7 +1479,7 @@ Channels cover two-way chat, but agents also need one-way alerting:
 - PagerDuty / OpsGenie integration for critical alerts
 - Notification = fire-and-forget, not a conversation thread
 
-### 23.11 Graceful Degradation
+### 26.11 Graceful Degradation
 
 What happens under partial failure:
 - Ollama down → skip embedding generation, fall back to keyword-only search
@@ -1488,7 +1488,7 @@ What happens under partial failure:
 - No internet → allow local-only operations, queue outbound
 - Agent should degrade capabilities, not crash entirely
 
-### 23.12 Registry Architecture
+### 26.12 Registry Architecture
 
 The skill registry (`skills.smithly.dev`) is a **separate closed-source project**. It is not part of the MIT-licensed Smithly controller. It runs on our Cloudflare account and is our proprietary service.
 
@@ -1501,7 +1501,7 @@ The CLI's `smithly skill install` command is just an HTTP client talking to the 
 
 ---
 
-## 24. Open Questions
+## 27. Open Questions
 
 1. **Signing key distribution** — GitHub-linked identity? Keybase-style proofs? Manual trust like SSH?
 2. **Skill auto-update policy** — If capabilities unchanged + same trusted author, auto-approve?
