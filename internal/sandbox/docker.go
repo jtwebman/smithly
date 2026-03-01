@@ -22,11 +22,11 @@ type DockerProvider struct {
 func (p *DockerProvider) Name() string { return "docker" }
 
 // CheckDocker reports whether Docker is available for use.
-func CheckDocker() (bool, string) {
+func CheckDocker() (ok bool, msg string) {
 	return (&DockerProvider{}).Available()
 }
 
-func (p *DockerProvider) Available() (bool, string) {
+func (p *DockerProvider) Available() (ok bool, msg string) {
 	path, err := exec.LookPath("docker")
 	if err != nil {
 		return false, "docker not found in PATH"
@@ -200,7 +200,7 @@ func (p *DockerProvider) dockerBuild(ctx context.Context, skillPath, buildCmd, i
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %s", err, stderr.String())
+		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return nil
 }

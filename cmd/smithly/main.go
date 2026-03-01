@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,6 +33,12 @@ import (
 	"smithly.dev/internal/store"
 	"smithly.dev/internal/tools"
 	"smithly.dev/internal/workspace"
+)
+
+const (
+	defaultOAuthCallbackPort = 18790
+	defaultSidecarPort       = 18791
+	defaultGatekeeperPort    = 18792
 )
 
 func main() {
@@ -123,7 +130,9 @@ func cmdInit() {
 
 	// Create workspace directory
 	wsPath := filepath.Join("workspaces", agentName)
-	os.MkdirAll(filepath.Join(dir, wsPath), 0755)
+	if err := os.MkdirAll(filepath.Join(dir, wsPath), 0o755); err != nil {
+		log.Fatalf("Failed to create workspace directory: %v", err)
+	}
 
 	// Write default workspace files
 	writeIfMissing(filepath.Join(dir, wsPath, "SOUL.md"),
@@ -159,7 +168,6 @@ func cmdInit() {
 // cmdStart runs the gateway and all agents.
 func cmdStart() {
 	cfg, dbStore := loadConfig()
-	defer dbStore.Close()
 	credStore := loadCredentialStore(cfg)
 
 	gw := gateway.New(cfg.Gateway.Bind, cfg.Gateway.Port, cfg.Gateway.Token, cfg.Gateway.RateLimit, dbStore)
@@ -172,7 +180,6 @@ func cmdStart() {
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Register agents
 	var proxyAddr string
@@ -182,16 +189,18 @@ func cmdStart() {
 	for _, ac := range cfg.Agents {
 		a, err := loadAgent(ac, cfg, dbStore, credStore, sc, proxyAddr)
 		if err != nil {
+			cancel()
+			dbStore.Close()
 			log.Fatalf("Failed to load agent %s: %v", ac.ID, err)
 		}
 		gw.RegisterAgent(a)
-		log.Printf("registered agent: %s (model: %s)", a.ID, a.Model)
+		slog.Info("registered agent", "agent", a.ID, "model", a.Model)
 
 		// Run BOOT.md if present
 		if a.Workspace.Boot != "" {
-			log.Printf("running BOOT.md for %s...", a.ID)
+			slog.Info("running BOOT.md", "agent", a.ID)
 			if _, err := a.Boot(ctx, nil); err != nil {
-				log.Printf("warning: boot for %s failed: %v", a.ID, err)
+				slog.Warn("boot failed", "agent", a.ID, "err", err)
 			}
 		}
 
@@ -201,9 +210,9 @@ func cmdStart() {
 				hc := agent.ParseHeartbeatConfig(ac.Heartbeat.Interval, ac.Heartbeat.QuietHours, ac.Heartbeat.AutoResume, ac.Heartbeat.Skill)
 				a.StartHeartbeat(ctx, hc)
 				if hc.Skill != "" {
-					log.Printf("heartbeat started for %s (skill %q every %s)", a.ID, hc.Skill, hc.Interval)
+					slog.Info("heartbeat started", "agent", a.ID, "skill", hc.Skill, "interval", hc.Interval)
 				} else {
-					log.Printf("heartbeat started for %s (every %s)", a.ID, hc.Interval)
+					slog.Info("heartbeat started", "agent", a.ID, "interval", hc.Interval)
 				}
 			}
 		}
@@ -215,6 +224,8 @@ func cmdStart() {
 		case "telegram":
 			a, ok := gw.GetAgent(ch.Agent)
 			if !ok {
+				cancel()
+				dbStore.Close()
 				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
 			}
 			tg := &channels.Telegram{
@@ -224,11 +235,13 @@ func cmdStart() {
 			}
 			go func(tg *channels.Telegram) {
 				if err := tg.Start(ctx); err != nil && ctx.Err() == nil {
-					log.Printf("telegram channel error: %v", err)
+					slog.Error("telegram channel error", "err", err)
 				}
 			}(tg)
-			log.Printf("channel started: telegram → %s", ch.Agent)
+			slog.Info("channel started", "type", "telegram", "agent", ch.Agent)
 		default:
+			cancel()
+			dbStore.Close()
 			log.Fatalf("unknown channel type: %s", ch.Type)
 		}
 	}
@@ -237,12 +250,18 @@ func cmdStart() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
-		log.Println("shutting down...")
+		slog.Info("shutting down")
 		if gkProxy != nil {
-			gkProxy.Shutdown(ctx)
+			if err := gkProxy.Shutdown(ctx); err != nil {
+				slog.Error("gatekeeper shutdown error", "err", err)
+			}
 		}
-		sc.Shutdown(ctx)
-		gw.Shutdown(ctx)
+		if err := sc.Shutdown(ctx); err != nil {
+			slog.Error("sidecar shutdown error", "err", err)
+		}
+		if err := gw.Shutdown(ctx); err != nil {
+			slog.Error("gateway shutdown error", "err", err)
+		}
 		cancel()
 	}()
 
@@ -255,18 +274,20 @@ func cmdStart() {
 	fmt.Printf("Token:      %s\n\n", cfg.Gateway.Token)
 
 	if cfg.Sandbox.Provider == "" || cfg.Sandbox.Provider == "none" {
-		log.Println("warning: sandbox provider is \"none\" — code skills run as unsandboxed subprocesses")
+		slog.Warn("sandbox provider is none — code skills run as unsandboxed subprocesses")
 	}
 
 	if err := gw.Start(); err != nil && ctx.Err() == nil {
+		cancel()
+		dbStore.Close()
 		log.Fatalf("Gateway error: %v", err)
 	}
+	dbStore.Close()
 }
 
 // cmdChat starts an interactive CLI chat session.
 func cmdChat() {
 	cfg, store := loadConfig()
-	defer store.Close()
 	credStore := loadCredentialStore(cfg)
 
 	// Pick agent — first one, or specified via flag
@@ -283,6 +304,7 @@ func cmdChat() {
 		}
 	}
 	if ac == nil {
+		store.Close()
 		if agentID != "" {
 			log.Fatalf("Agent %q not found in config", agentID)
 		}
@@ -291,13 +313,16 @@ func cmdChat() {
 
 	a, err := loadAgent(*ac, cfg, store, credStore, nil, "")
 	if err != nil {
+		store.Close()
 		log.Fatalf("Failed to load agent: %v", err)
 	}
 
 	cli := &channels.CLI{Agent: a}
 	if err := cli.Run(context.Background()); err != nil {
+		store.Close()
 		log.Fatal(err)
 	}
+	store.Close()
 }
 
 // cmdAgent manages agents (list, add, remove).
@@ -382,7 +407,9 @@ func cmdAgentAdd() {
 	provider, baseURL, model, apiKey := promptLLMConfig(reader)
 
 	wsPath := filepath.Join("workspaces", agentName)
-	os.MkdirAll(filepath.Join(dir, wsPath), 0755)
+	if err := os.MkdirAll(filepath.Join(dir, wsPath), 0o755); err != nil {
+		log.Fatalf("Failed to create workspace directory: %v", err)
+	}
 
 	writeIfMissing(filepath.Join(dir, wsPath, "SOUL.md"),
 		"You are a helpful, thoughtful AI assistant. You communicate clearly and concisely.")
@@ -600,13 +627,13 @@ func cmdSkillRemove() {
 }
 
 // parseSkillFlags extracts --agent flag from args starting at position minArgs.
-func parseSkillFlags(minArgs int) (*config.Config, string) {
-	cfg, err := config.Load("smithly.toml")
+func parseSkillFlags(minArgs int) (cfg *config.Config, agentID string) {
+	var err error
+	cfg, err = config.Load("smithly.toml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v\nRun 'smithly init' first.", err)
 	}
 
-	agentID := ""
 	args := os.Args[3:]
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--agent" && i+1 < len(args) {
@@ -633,7 +660,7 @@ func findAgent(cfg *config.Config, agentID string) *config.AgentConfig {
 
 // copyDir recursively copies a directory.
 func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0755); err != nil {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
 	}
 
@@ -655,7 +682,7 @@ func copyDir(src, dst string) error {
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			if err := os.WriteFile(dstPath, data, 0o644); err != nil {
 				return err
 			}
 		}
@@ -767,7 +794,7 @@ func cmdOAuth2Auth() {
 	credStore := loadCredentialStore(cfg)
 
 	// Start local callback server
-	callbackPort := 18790
+	callbackPort := defaultOAuthCallbackPort
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
@@ -784,8 +811,10 @@ func cmdOAuth2Auth() {
 	})
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf("localhost:%d", callbackPort),
-		Handler: mux,
+		Addr:         fmt.Sprintf("localhost:%d", callbackPort),
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
 	go func() {
@@ -818,12 +847,16 @@ func cmdOAuth2Auth() {
 		data := fmt.Sprintf("grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
 			code, redirectURI, providerCfg.ClientID, providerCfg.ClientSecret)
 
-		resp, err := http.Post(providerCfg.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
+		tokenClient := &http.Client{Timeout: 30 * time.Second}
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, providerCfg.TokenURL, strings.NewReader(data))
+		if err != nil {
+			log.Fatalf("Failed to create token request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := tokenClient.Do(req)
 		if err != nil {
 			log.Fatalf("Token exchange failed: %v", err)
 		}
-		defer resp.Body.Close()
-
 		var tokenResp struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
@@ -831,10 +864,12 @@ func cmdOAuth2Auth() {
 			ExpiresIn    int    `json:"expires_in"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+			resp.Body.Close()
 			log.Fatalf("Failed to parse token response: %v", err)
 		}
+		resp.Body.Close()
 
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			log.Fatalf("Token endpoint returned HTTP %d", resp.StatusCode)
 		}
 
@@ -857,7 +892,9 @@ func cmdOAuth2Auth() {
 		log.Fatalf("Authorization failed: %v", err)
 	}
 
-	srv.Shutdown(context.Background())
+	if err := srv.Shutdown(context.Background()); err != nil {
+		slog.Error("callback server shutdown error", "err", err)
+	}
 }
 
 func cmdOAuth2List() {
@@ -904,7 +941,9 @@ func openBrowser(url string) {
 	// Try common browser openers
 	for _, cmd := range []string{"xdg-open", "open", "wslview"} {
 		if _, err := exec.LookPath(cmd); err == nil {
-			exec.Command(cmd, url).Start()
+			if err := exec.Command(cmd, url).Start(); err != nil {
+				slog.Error("failed to open browser", "cmd", cmd, "err", err)
+			}
 			return
 		}
 	}
@@ -940,15 +979,16 @@ Subcommands:
 
 func cmdDomainList() {
 	_, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	entries, err := dbStore.ListDomains(context.Background())
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to list domains: %v", err)
 	}
 
 	if len(entries) == 0 {
 		fmt.Println("No domains in allowlist.")
+		dbStore.Close()
 		return
 	}
 
@@ -961,6 +1001,7 @@ func cmdDomainList() {
 		fmt.Printf("%-30s %-8s %-15s %-8d %s\n",
 			e.Domain, e.Status, e.GrantedBy, e.AccessCount, lastAccessed)
 	}
+	dbStore.Close()
 }
 
 func cmdDomainSet(status string) {
@@ -971,7 +1012,6 @@ func cmdDomainSet(status string) {
 
 	domain := os.Args[3]
 	_, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	err := dbStore.SetDomain(context.Background(), &db.DomainEntry{
 		Domain:    strings.ToLower(strings.TrimSpace(domain)),
@@ -979,15 +1019,16 @@ func cmdDomainSet(status string) {
 		GrantedBy: "user",
 	})
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to set domain: %v", err)
 	}
 
 	fmt.Printf("Domain %q set to %s\n", domain, status)
+	dbStore.Close()
 }
 
 func cmdDomainLog() {
 	_, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	query := db.AuditQuery{Limit: 50}
 
@@ -1012,11 +1053,13 @@ func cmdDomainLog() {
 	// If no domain filter, only show gatekeeper entries
 	entries, err := dbStore.GetAuditLog(context.Background(), query)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to read audit log: %v", err)
 	}
 
 	if len(entries) == 0 {
 		fmt.Println("No domain access entries found.")
+		dbStore.Close()
 		return
 	}
 
@@ -1033,12 +1076,12 @@ func cmdDomainLog() {
 			e.Actor,
 		)
 	}
+	dbStore.Close()
 }
 
 // cmdAudit shows the audit log.
 func cmdAudit() {
 	_, store := loadConfig()
-	defer store.Close()
 
 	query := db.AuditQuery{Limit: 50}
 
@@ -1063,11 +1106,13 @@ func cmdAudit() {
 
 	entries, err := store.GetAuditLog(context.Background(), query)
 	if err != nil {
+		store.Close()
 		log.Fatalf("Failed to read audit log: %v", err)
 	}
 
 	if len(entries) == 0 {
 		fmt.Println("No audit entries found.")
+		store.Close()
 		return
 	}
 
@@ -1092,6 +1137,7 @@ func cmdAudit() {
 			details,
 		)
 	}
+	store.Close()
 }
 
 // cmdMemory provides memory search, stats, export, and embed commands.
@@ -1129,7 +1175,6 @@ Flags:
 
 func cmdMemorySearch() {
 	cfg, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	agentID := ""
 	limit := 20
@@ -1165,6 +1210,7 @@ func cmdMemorySearch() {
 
 	if query == "" {
 		fmt.Println("Usage: smithly memory search <query> [--agent ID] [--limit N] [--mode keyword|semantic|hybrid]")
+		dbStore.Close()
 		return
 	}
 
@@ -1185,11 +1231,13 @@ func cmdMemorySearch() {
 	searcher := memory.NewSearcher(dbStore, embedder)
 	results, err := searcher.Search(context.Background(), agentID, query, mode, limit)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Search failed: %v", err)
 	}
 
 	if len(results) == 0 {
 		fmt.Printf("No messages found matching %q.\n", query)
+		dbStore.Close()
 		return
 	}
 
@@ -1202,11 +1250,11 @@ func cmdMemorySearch() {
 		}
 		fmt.Printf("  [%.2f] %s %s: %s\n", r.Score, ts, r.Role, content)
 	}
+	dbStore.Close()
 }
 
 func cmdMemoryStats() {
 	cfg, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	agentID := ""
 	args := os.Args[3:]
@@ -1223,11 +1271,13 @@ func cmdMemoryStats() {
 
 	msgs, err := dbStore.GetMessages(context.Background(), agentID, 1000000)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to get messages: %v", err)
 	}
 
 	embCount, err := dbStore.GetEmbeddingCount(context.Background(), agentID)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to get embedding count: %v", err)
 	}
 
@@ -1245,11 +1295,11 @@ func cmdMemoryStats() {
 	} else {
 		fmt.Printf("  Embeddings: not configured (FTS5 only)\n")
 	}
+	dbStore.Close()
 }
 
 func cmdMemoryExport() {
 	cfg, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	agentID := ""
 	args := os.Args[3:]
@@ -1266,19 +1316,21 @@ func cmdMemoryExport() {
 
 	msgs, err := dbStore.GetMessages(context.Background(), agentID, 1000000)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to get messages: %v", err)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(msgs); err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to encode: %v", err)
 	}
+	dbStore.Close()
 }
 
 func cmdMemoryEmbed() {
 	cfg, dbStore := loadConfig()
-	defer dbStore.Close()
 
 	if cfg.Memory == nil || cfg.Memory.EmbeddingModel == "" {
 		fmt.Println("No [memory] section in smithly.toml. Add embedding config first.")
@@ -1288,6 +1340,7 @@ func cmdMemoryEmbed() {
 		fmt.Println("  embedding_model = \"nomic-embed-text\"")
 		fmt.Println("  embedding_base_url = \"http://localhost:11434/v1\"")
 		fmt.Println("  dimensions = 768")
+		dbStore.Close()
 		return
 	}
 
@@ -1313,11 +1366,13 @@ func cmdMemoryEmbed() {
 
 	msgs, err := dbStore.GetUnembeddedMessages(context.Background(), agentID, 0)
 	if err != nil {
+		dbStore.Close()
 		log.Fatalf("Failed to get messages: %v", err)
 	}
 
 	if len(msgs) == 0 {
 		fmt.Println("All messages already have embeddings.")
+		dbStore.Close()
 		return
 	}
 
@@ -1339,6 +1394,7 @@ func cmdMemoryEmbed() {
 		}
 	}
 	fmt.Printf("Done. Generated %d embeddings.\n", count)
+	dbStore.Close()
 }
 
 // cmdDoctor checks that dependencies are available.
@@ -1475,14 +1531,14 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 			}
 			s, err := skills.Load(filepath.Join(skillsDir, entry.Name()))
 			if err != nil {
-				log.Printf("warning: failed to load skill %s: %v", entry.Name(), err)
+				slog.Warn("failed to load skill", "skill", entry.Name(), "err", err)
 				continue
 			}
 			if err := skillRegistry.Add(s); err != nil {
-				log.Printf("warning: skill %s: %v", entry.Name(), err)
+				slog.Warn("skill registration failed", "skill", entry.Name(), "err", err)
 				continue
 			}
-			log.Printf("loaded skill: %s", s.Manifest.Skill.Name)
+			slog.Info("loaded skill", "skill", s.Manifest.Skill.Name)
 		}
 	}
 	a.Skills = skillRegistry
@@ -1504,7 +1560,7 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 		}
 		port := cfg.Sidecar.Port
 		if port == 0 {
-			port = 18791
+			port = defaultSidecarPort
 		}
 		svc.SidecarURL = fmt.Sprintf("http://%s:%d", bind, port)
 	}
@@ -1534,11 +1590,13 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 
 	// Ensure agent exists in DB
 	if _, err := store.GetAgent(context.Background(), ac.ID); err != nil {
-		store.CreateAgent(context.Background(), &db.Agent{
+		if err := store.CreateAgent(context.Background(), &db.Agent{
 			ID:            ac.ID,
 			Model:         ac.Model,
 			WorkspacePath: ac.Workspace,
-		})
+		}); err != nil {
+			slog.Warn("failed to create agent in DB", "agent", ac.ID, "err", err)
+		}
 	}
 
 	return a, nil
@@ -1568,7 +1626,7 @@ func registerTools(registry *tools.Registry, cfg *config.Config, allowedTools []
 			searchProvider = tools.NewBraveSearch(apiKey)
 		} else {
 			// Fall back to DuckDuckGo if no Brave key
-			log.Println("warning: no BRAVE_API_KEY set, falling back to DuckDuckGo (limited results)")
+			slog.Warn("no BRAVE_API_KEY set, falling back to DuckDuckGo (limited results)")
 			searchProvider = tools.NewDuckDuckGoSearch()
 		}
 	}
@@ -1628,7 +1686,9 @@ func writeIfMissing(path, content string) {
 	if _, err := os.Stat(path); err == nil {
 		return
 	}
-	os.WriteFile(path, []byte(content+"\n"), 0644)
+	if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
+		slog.Warn("failed to write file", "path", path, "err", err)
+	}
 }
 
 // startSidecar creates and starts the sidecar HTTP server in a goroutine.
@@ -1651,10 +1711,10 @@ func startSidecar(cfg *config.Config, dbStore db.Store, credStore credentials.St
 	storeDBPath := strings.TrimSuffix(cfg.Storage.Database, ".db") + "_store.db"
 	storeDB, err := sqlite.New(storeDBPath)
 	if err != nil {
-		log.Printf("warning: could not open store DB %s: %v", storeDBPath, err)
+		slog.Warn("could not open store DB", "path", storeDBPath, "err", err)
 	} else {
 		if err := storeDB.Migrate(context.Background()); err != nil {
-			log.Printf("warning: store DB migration failed: %v", err)
+			slog.Warn("store DB migration failed", "err", err)
 		}
 		objStore = store.NewSQLite(storeDB.DB())
 	}
@@ -1668,7 +1728,7 @@ func startSidecar(cfg *config.Config, dbStore db.Store, credStore credentials.St
 	}
 	port := cfg.Sidecar.Port
 	if port == 0 {
-		port = 18791
+		port = defaultSidecarPort
 	}
 
 	sc := sidecar.New(sidecar.Config{
@@ -1682,9 +1742,9 @@ func startSidecar(cfg *config.Config, dbStore db.Store, credStore credentials.St
 	})
 
 	go func() {
-		log.Printf("sidecar listening on %s", sc.URL())
+		slog.Info("sidecar listening", "addr", sc.URL())
 		if err := sc.Start(); err != nil {
-			log.Printf("sidecar error: %v", err)
+			slog.Error("sidecar error", "err", err)
 		}
 	}()
 
@@ -1699,16 +1759,16 @@ func startGatekeeper(cfg *config.Config, dbStore db.Store) *gatekeeper.Proxy {
 	}
 	port := cfg.Gatekeeper.Port
 	if port == 0 {
-		port = 18792
+		port = defaultGatekeeperPort
 	}
 
 	gk := gatekeeper.New(dbStore, nil)
 	proxy := gatekeeper.NewProxy(gk, dbStore, bind, port)
 
 	go func() {
-		log.Printf("gatekeeper proxy listening on %s", proxy.Addr())
+		slog.Info("gatekeeper proxy listening", "addr", proxy.Addr())
 		if err := proxy.Start(); err != nil {
-			log.Printf("gatekeeper error: %v", err)
+			slog.Error("gatekeeper error", "err", err)
 		}
 	}()
 

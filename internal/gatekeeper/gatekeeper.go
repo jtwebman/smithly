@@ -4,6 +4,7 @@ package gatekeeper
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"strings"
 
@@ -38,30 +39,40 @@ func (g *Gatekeeper) CheckDomain(ctx context.Context, domain string) bool {
 	// Check DB first
 	entry, err := g.store.GetDomain(ctx, domain)
 	if err == nil {
-		g.store.TouchDomain(ctx, domain)
+		if err := g.store.TouchDomain(ctx, domain); err != nil {
+			slog.Error("gatekeeper: touch domain failed", "domain", domain, "err", err)
+		}
 		return entry.Status == "allow"
 	}
 
 	// Check built-in defaults
 	if g.defaults[domain] {
 		// Persist to DB so it shows up in listings
-		g.store.SetDomain(ctx, &db.DomainEntry{
+		if err := g.store.SetDomain(ctx, &db.DomainEntry{
 			Domain:    domain,
 			Status:    "allow",
 			GrantedBy: "default",
-		})
-		g.store.TouchDomain(ctx, domain)
+		}); err != nil {
+			slog.Error("gatekeeper: set domain failed", "domain", domain, "err", err)
+		}
+		if err := g.store.TouchDomain(ctx, domain); err != nil {
+			slog.Error("gatekeeper: touch domain failed", "domain", domain, "err", err)
+		}
 		return true
 	}
 
 	// Interactive approval
 	if g.approve != nil && g.approve(domain) {
-		g.store.SetDomain(ctx, &db.DomainEntry{
+		if err := g.store.SetDomain(ctx, &db.DomainEntry{
 			Domain:    domain,
 			Status:    "allow",
 			GrantedBy: "user",
-		})
-		g.store.TouchDomain(ctx, domain)
+		}); err != nil {
+			slog.Error("gatekeeper: set domain failed", "domain", domain, "err", err)
+		}
+		if err := g.store.TouchDomain(ctx, domain); err != nil {
+			slog.Error("gatekeeper: touch domain failed", "domain", domain, "err", err)
+		}
 		return true
 	}
 
@@ -80,12 +91,15 @@ func (g *Gatekeeper) SeedSkillDomains(ctx context.Context, domains []string, ski
 			continue
 		}
 
-		g.store.SetDomain(ctx, &db.DomainEntry{
+		if err := g.store.SetDomain(ctx, &db.DomainEntry{
 			Domain:      d,
 			Status:      "allow",
 			GrantedBy:   "skill:" + skillName,
 			RequestedBy: skillName,
-		})
+		}); err != nil {
+			slog.Error("gatekeeper: seed domain failed", "domain", d, "skill", skillName, "err", err)
+			continue
+		}
 		seeded = append(seeded, d)
 	}
 	return seeded

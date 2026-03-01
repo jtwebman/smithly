@@ -116,7 +116,9 @@ func testListAgents(t *testing.T, store db.Store) {
 
 func testDeleteAgent(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "del", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "del", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	if err := store.DeleteAgent(ctx, "del"); err != nil {
 		t.Fatalf("DeleteAgent: %v", err)
@@ -139,7 +141,9 @@ func testAgentNotFound(t *testing.T, store db.Store) {
 func testDuplicateAgent(t *testing.T, store db.Store) {
 	ctx := context.Background()
 	a := &db.Agent{ID: "dup", Model: "m", WorkspacePath: "w"}
-	store.CreateAgent(ctx, a)
+	if err := store.CreateAgent(ctx, a); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	err := store.CreateAgent(ctx, a)
 	if err == nil {
@@ -151,7 +155,9 @@ func testDuplicateAgent(t *testing.T, store db.Store) {
 
 func testAppendAndGetMessages(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	msgs := []*db.Message{
 		{AgentID: "agent1", Role: "user", Content: "hello", Source: "cli", Trust: "trusted"},
@@ -184,14 +190,18 @@ func testAppendAndGetMessages(t *testing.T, store db.Store) {
 
 func testGetMessagesLimit(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	for i := 0; i < 10; i++ {
-		store.AppendMessage(ctx, &db.Message{
+		if err := store.AppendMessage(ctx, &db.Message{
 			AgentID: "agent1", Role: "user",
 			Content: fmt.Sprintf("msg %d", i),
 			Source:  "cli", Trust: "trusted",
-		})
+		}); err != nil {
+			t.Fatalf("AppendMessage %d: %v", i, err)
+		}
 	}
 
 	got, err := store.GetMessages(ctx, "agent1", 3)
@@ -212,12 +222,22 @@ func testGetMessagesLimit(t *testing.T, store db.Store) {
 
 func testMessagesIsolatedPerAgent(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "a1", Model: "m", WorkspacePath: "w"})
-	store.CreateAgent(ctx, &db.Agent{ID: "a2", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "a1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "a2", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
-	store.AppendMessage(ctx, &db.Message{AgentID: "a1", Role: "user", Content: "for a1", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "a1", Role: "user", Content: "also a1", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "a2", Role: "user", Content: "for a2", Source: "cli", Trust: "trusted"})
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "a1", Role: "user", Content: "for a1", Source: "cli", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "a1", Role: "user", Content: "also a1", Source: "cli", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "a2", Role: "user", Content: "for a2", Source: "cli", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 
 	msgs1, _ := store.GetMessages(ctx, "a1", 10)
 	if len(msgs1) != 2 {
@@ -235,14 +255,18 @@ func testMessagesIsolatedPerAgent(t *testing.T, store db.Store) {
 
 func testMessagesChronologicalOrder(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	for i := 0; i < 5; i++ {
-		store.AppendMessage(ctx, &db.Message{
+		if err := store.AppendMessage(ctx, &db.Message{
 			AgentID: "agent1", Role: "user",
 			Content: fmt.Sprintf("msg %d", i),
 			Source:  "cli", Trust: "trusted",
-		})
+		}); err != nil {
+			t.Fatalf("AppendMessage %d: %v", i, err)
+		}
 	}
 
 	got, _ := store.GetMessages(ctx, "agent1", 100)
@@ -281,9 +305,15 @@ func testAuditLog(t *testing.T, store db.Store) {
 func testAuditFilterByAgent(t *testing.T, store db.Store) {
 	ctx := context.Background()
 
-	store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot1", Action: "llm_chat", TrustLevel: "trusted"})
-	store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot2", Action: "llm_chat", TrustLevel: "trusted"})
-	store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot1", Action: "tool_call", TrustLevel: "trusted"})
+	if err := store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot1", Action: "llm_chat", TrustLevel: "trusted"}); err != nil {
+		t.Fatalf("LogAudit: %v", err)
+	}
+	if err := store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot2", Action: "llm_chat", TrustLevel: "trusted"}); err != nil {
+		t.Fatalf("LogAudit: %v", err)
+	}
+	if err := store.LogAudit(ctx, &db.AuditEntry{Actor: "agent:bot1", Action: "tool_call", TrustLevel: "trusted"}); err != nil {
+		t.Fatalf("LogAudit: %v", err)
+	}
 
 	got, err := store.GetAuditLog(ctx, db.AuditQuery{AgentID: "bot1", Limit: 10})
 	if err != nil {
@@ -297,8 +327,12 @@ func testAuditFilterByAgent(t *testing.T, store db.Store) {
 func testAuditFilterByDomain(t *testing.T, store db.Store) {
 	ctx := context.Background()
 
-	store.LogAudit(ctx, &db.AuditEntry{Actor: "skill:web", Action: "http_get", TrustLevel: "trusted", Domain: "api.example.com"})
-	store.LogAudit(ctx, &db.AuditEntry{Actor: "skill:web", Action: "http_get", TrustLevel: "trusted", Domain: "api.other.com"})
+	if err := store.LogAudit(ctx, &db.AuditEntry{Actor: "skill:web", Action: "http_get", TrustLevel: "trusted", Domain: "api.example.com"}); err != nil {
+		t.Fatalf("LogAudit: %v", err)
+	}
+	if err := store.LogAudit(ctx, &db.AuditEntry{Actor: "skill:web", Action: "http_get", TrustLevel: "trusted", Domain: "api.other.com"}); err != nil {
+		t.Fatalf("LogAudit: %v", err)
+	}
 
 	got, err := store.GetAuditLog(ctx, db.AuditQuery{Domain: "api.example.com", Limit: 10})
 	if err != nil {
@@ -374,7 +408,9 @@ func testDomainList(t *testing.T, store db.Store) {
 func testDomainTouch(t *testing.T, store db.Store) {
 	ctx := context.Background()
 
-	store.SetDomain(ctx, &db.DomainEntry{Domain: "api.touch.com", Status: "allow", GrantedBy: "user"})
+	if err := store.SetDomain(ctx, &db.DomainEntry{Domain: "api.touch.com", Status: "allow", GrantedBy: "user"}); err != nil {
+		t.Fatalf("SetDomain: %v", err)
+	}
 
 	// Touch twice
 	if err := store.TouchDomain(ctx, "api.touch.com"); err != nil {
@@ -408,10 +444,14 @@ func testDomainUpsert(t *testing.T, store db.Store) {
 	ctx := context.Background()
 
 	// Set as allow
-	store.SetDomain(ctx, &db.DomainEntry{Domain: "api.upsert.com", Status: "allow", GrantedBy: "skill:web"})
+	if err := store.SetDomain(ctx, &db.DomainEntry{Domain: "api.upsert.com", Status: "allow", GrantedBy: "skill:web"}); err != nil {
+		t.Fatalf("SetDomain: %v", err)
+	}
 
 	// Upsert to deny
-	store.SetDomain(ctx, &db.DomainEntry{Domain: "api.upsert.com", Status: "deny", GrantedBy: "user"})
+	if err := store.SetDomain(ctx, &db.DomainEntry{Domain: "api.upsert.com", Status: "deny", GrantedBy: "user"}); err != nil {
+		t.Fatalf("SetDomain: %v", err)
+	}
 
 	got, err := store.GetDomain(ctx, "api.upsert.com")
 	if err != nil {
@@ -429,12 +469,20 @@ func testDomainUpsert(t *testing.T, store db.Store) {
 
 func testSearchMessages(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "tell me about golang", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "assistant", Content: "Go is a great language", Source: "llm", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "what about python?", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "assistant", Content: "Python is also popular", Source: "llm", Trust: "trusted"})
+	for _, m := range []db.Message{
+		{AgentID: "agent1", Role: "user", Content: "tell me about golang", Source: "cli", Trust: "trusted"},
+		{AgentID: "agent1", Role: "assistant", Content: "Go is a great language", Source: "llm", Trust: "trusted"},
+		{AgentID: "agent1", Role: "user", Content: "what about python?", Source: "cli", Trust: "trusted"},
+		{AgentID: "agent1", Role: "assistant", Content: "Python is also popular", Source: "llm", Trust: "trusted"},
+	} {
+		if err := store.AppendMessage(ctx, &m); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
 
 	// Search for "golang" — should match 1 message
 	got, err := store.SearchMessages(ctx, "agent1", "golang", 10)
@@ -478,11 +526,17 @@ func testSearchMessages(t *testing.T, store db.Store) {
 
 func testInsertSummary(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	// Add some messages first
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "hello", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "assistant", Content: "hi", Source: "llm", Trust: "trusted"})
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "hello", Source: "cli", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "assistant", Content: "hi", Source: "llm", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 
 	// Insert summary
 	summary := "Summary: User said hello, assistant responded."
@@ -523,11 +577,19 @@ func testInsertSummary(t *testing.T, store db.Store) {
 
 func testSearchMessagesFTS(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "tell me about golang", Source: "cli", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "assistant", Content: "Go is a great language", Source: "llm", Trust: "trusted"})
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "what about python?", Source: "cli", Trust: "semi-trusted"})
+	for _, m := range []db.Message{
+		{AgentID: "agent1", Role: "user", Content: "tell me about golang", Source: "cli", Trust: "trusted"},
+		{AgentID: "agent1", Role: "assistant", Content: "Go is a great language", Source: "llm", Trust: "trusted"},
+		{AgentID: "agent1", Role: "user", Content: "what about python?", Source: "cli", Trust: "semi-trusted"},
+	} {
+		if err := store.AppendMessage(ctx, &m); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
 
 	results, err := store.SearchMessagesFTS(ctx, "agent1", "golang", 10)
 	if err != nil {
@@ -546,10 +608,14 @@ func testSearchMessagesFTS(t *testing.T, store db.Store) {
 
 func testStoreAndGetEmbeddings(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	msg := &db.Message{AgentID: "agent1", Role: "user", Content: "test embedding", Source: "cli", Trust: "trusted"}
-	store.AppendMessage(ctx, msg)
+	if err := store.AppendMessage(ctx, msg); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 	if msg.ID == 0 {
 		t.Fatal("msg.ID not set after AppendMessage")
 	}
@@ -585,12 +651,18 @@ func testStoreAndGetEmbeddings(t *testing.T, store db.Store) {
 
 func testGetEmbeddingCount(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	msg1 := &db.Message{AgentID: "agent1", Role: "user", Content: "msg1", Source: "cli", Trust: "trusted"}
 	msg2 := &db.Message{AgentID: "agent1", Role: "user", Content: "msg2", Source: "cli", Trust: "trusted"}
-	store.AppendMessage(ctx, msg1)
-	store.AppendMessage(ctx, msg2)
+	if err := store.AppendMessage(ctx, msg1); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := store.AppendMessage(ctx, msg2); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 
 	count, err := store.GetEmbeddingCount(ctx, "agent1")
 	if err != nil {
@@ -600,7 +672,9 @@ func testGetEmbeddingCount(t *testing.T, store db.Store) {
 		t.Errorf("count = %d, want 0", count)
 	}
 
-	store.StoreEmbedding(ctx, msg1.ID, []float32{0.1}, "m", 1)
+	if err := store.StoreEmbedding(ctx, msg1.ID, []float32{0.1}, "m", 1); err != nil {
+		t.Fatalf("StoreEmbedding: %v", err)
+	}
 	count, _ = store.GetEmbeddingCount(ctx, "agent1")
 	if count != 1 {
 		t.Errorf("count = %d, want 1", count)
@@ -609,14 +683,22 @@ func testGetEmbeddingCount(t *testing.T, store db.Store) {
 
 func testGetUnembeddedMessages(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	msg1 := &db.Message{AgentID: "agent1", Role: "user", Content: "embedded", Source: "cli", Trust: "trusted"}
 	msg2 := &db.Message{AgentID: "agent1", Role: "user", Content: "not embedded", Source: "cli", Trust: "trusted"}
-	store.AppendMessage(ctx, msg1)
-	store.AppendMessage(ctx, msg2)
+	if err := store.AppendMessage(ctx, msg1); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := store.AppendMessage(ctx, msg2); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 
-	store.StoreEmbedding(ctx, msg1.ID, []float32{0.1}, "m", 1)
+	if err := store.StoreEmbedding(ctx, msg1.ID, []float32{0.1}, "m", 1); err != nil {
+		t.Fatalf("StoreEmbedding: %v", err)
+	}
 
 	msgs, err := store.GetUnembeddedMessages(ctx, "agent1", 10)
 	if err != nil {
@@ -632,10 +714,14 @@ func testGetUnembeddedMessages(t *testing.T, store db.Store) {
 
 func testFTSTriggerSync(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	// Insert a message — FTS trigger should index it
-	store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "unique xylophone word", Source: "cli", Trust: "trusted"})
+	if err := store.AppendMessage(ctx, &db.Message{AgentID: "agent1", Role: "user", Content: "unique xylophone word", Source: "cli", Trust: "trusted"}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
 
 	// Should be searchable via FTS
 	results, err := store.SearchMessagesFTS(ctx, "agent1", "xylophone", 10)
@@ -649,7 +735,9 @@ func testFTSTriggerSync(t *testing.T, store db.Store) {
 
 func testGetMessagesByID(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	// Insert 5 messages
 	var ids []int64
@@ -659,7 +747,9 @@ func testGetMessagesByID(t *testing.T, store db.Store) {
 			Content: fmt.Sprintf("msg %d", i),
 			Source:  "cli", Trust: "trusted",
 		}
-		store.AppendMessage(ctx, msg)
+		if err := store.AppendMessage(ctx, msg); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
 		ids = append(ids, msg.ID)
 	}
 
@@ -694,7 +784,9 @@ func testGetMessagesByID(t *testing.T, store db.Store) {
 
 func testAppendMessageSetsID(t *testing.T, store db.Store) {
 	ctx := context.Background()
-	store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"})
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "agent1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
 
 	msg := &db.Message{AgentID: "agent1", Role: "user", Content: "test", Source: "cli", Trust: "trusted"}
 	if err := store.AppendMessage(ctx, msg); err != nil {

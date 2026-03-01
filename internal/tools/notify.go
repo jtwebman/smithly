@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // NotifyProvider sends notifications through a specific channel (ntfy, Slack, etc.)
@@ -93,7 +94,7 @@ func NewNtfyProvider(topic, server string) *NtfyProvider {
 	return &NtfyProvider{
 		topic:  topic,
 		server: strings.TrimRight(server, "/"),
-		client: &http.Client{},
+		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 

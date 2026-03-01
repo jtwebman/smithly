@@ -16,7 +16,7 @@ type NoneProvider struct {
 
 func (p *NoneProvider) Name() string { return "none" }
 
-func (p *NoneProvider) Available() (bool, string) {
+func (p *NoneProvider) Available() (ok bool, msg string) {
 	return true, "subprocess execution (no sandbox)"
 }
 
@@ -111,7 +111,7 @@ func build(ctx context.Context, dir, buildCmd string, env []string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %s", err, stderr.String())
+		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return nil
 }

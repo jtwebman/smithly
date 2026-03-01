@@ -137,6 +137,7 @@ func TestProxyCONNECTAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading CONNECT response: %v", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("CONNECT status = %d, want 200", resp.StatusCode)
 	}
@@ -169,6 +170,7 @@ func TestProxyCONNECTDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading CONNECT response: %v", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("CONNECT denied status = %d, want 403", resp.StatusCode)
 	}

@@ -106,11 +106,11 @@ func (w *WriteFile) Run(ctx context.Context, args json.RawMessage) (string, erro
 
 	// Create parent directories
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(params.Content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(params.Content), 0o644); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
 
@@ -153,7 +153,9 @@ func (l *ListFiles) Run(ctx context.Context, args json.RawMessage) (string, erro
 	var params struct {
 		Path string `json:"path"`
 	}
-	json.Unmarshal(args, &params)
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("parse args: %w", err)
+	}
 
 	path := params.Path
 	if path == "" {
@@ -171,11 +173,12 @@ func (l *ListFiles) Run(ctx context.Context, args json.RawMessage) (string, erro
 	var out strings.Builder
 	for _, entry := range entries {
 		info, _ := entry.Info()
-		if entry.IsDir() {
+		switch {
+		case entry.IsDir():
 			fmt.Fprintf(&out, "  %s/\n", entry.Name())
-		} else if info != nil {
+		case info != nil:
 			fmt.Fprintf(&out, "  %s (%d bytes)\n", entry.Name(), info.Size())
-		} else {
+		default:
 			fmt.Fprintf(&out, "  %s\n", entry.Name())
 		}
 	}

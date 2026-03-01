@@ -107,13 +107,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 				return fmt.Errorf("migration %s: %w\nstatement: %s", entry.Name(), err, stmt)
 			}
 		}
 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("record migration %d: %w", version, err)
 		}
 
@@ -255,7 +255,7 @@ func (s *Store) GetMessages(ctx context.Context, agentID string, limit int) ([]*
 	return msgs, nil
 }
 
-func (s *Store) SearchMessages(ctx context.Context, agentID string, query string, limit int) ([]*db.Message, error) {
+func (s *Store) SearchMessages(ctx context.Context, agentID, query string, limit int) ([]*db.Message, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -289,7 +289,7 @@ func (s *Store) SearchMessages(ctx context.Context, agentID string, query string
 	return msgs, rows.Err()
 }
 
-func (s *Store) InsertSummary(ctx context.Context, agentID string, summary string) error {
+func (s *Store) InsertSummary(ctx context.Context, agentID, summary string) error {
 	_, err := s.conn.ExecContext(ctx,
 		`INSERT INTO memory (agent_id, role, content, source, trust)
 		 VALUES (?, 'system', ?, 'summary', 'trusted')`,
@@ -347,7 +347,7 @@ func (s *Store) GetMessagesByID(ctx context.Context, agentID string, beforeID in
 	return msgs, nil
 }
 
-func (s *Store) SearchMessagesFTS(ctx context.Context, agentID string, query string, limit int) ([]*db.SearchResult, error) {
+func (s *Store) SearchMessagesFTS(ctx context.Context, agentID, query string, limit int) ([]*db.SearchResult, error) {
 	if limit <= 0 {
 		limit = 20
 	}

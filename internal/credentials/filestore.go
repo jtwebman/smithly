@@ -109,7 +109,7 @@ func (s *FileStore) save(data map[string]OAuth2Token) error {
 	if err != nil {
 		return fmt.Errorf("marshal credentials: %w", err)
 	}
-	if err := os.WriteFile(s.path, raw, 0600); err != nil {
+	if err := os.WriteFile(s.path, raw, 0o600); err != nil {
 		return fmt.Errorf("write credentials: %w", err)
 	}
 	return nil

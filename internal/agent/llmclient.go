@@ -133,11 +133,9 @@ func readStream(body io.Reader, onDelta func(string)) (*llmResponse, error) {
 					},
 					ExtraContent: tc.ExtraContent,
 				}
-			} else {
+			} else if tc.Function.Arguments != "" {
 				// Append streamed arguments
-				if tc.Function.Arguments != "" {
-					existing.Function.Arguments += tc.Function.Arguments
-				}
+				existing.Function.Arguments += tc.Function.Arguments
 			}
 		}
 	}

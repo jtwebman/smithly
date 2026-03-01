@@ -12,11 +12,11 @@ type FlyProvider struct{}
 func (p *FlyProvider) Name() string { return "fly" }
 
 // CheckFly reports whether flyctl is available (stub — always returns false).
-func CheckFly() (bool, string) {
+func CheckFly() (ok bool, msg string) {
 	return (&FlyProvider{}).Available()
 }
 
-func (p *FlyProvider) Available() (bool, string) {
+func (p *FlyProvider) Available() (ok bool, msg string) {
 	if _, err := exec.LookPath("flyctl"); err != nil {
 		return false, "flyctl not found in PATH"
 	}

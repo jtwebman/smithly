@@ -4,16 +4,19 @@ package smithly
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 var (
-	api   = envOr("SMITHLY_API", "http://localhost:18791")
-	token = os.Getenv("SMITHLY_TOKEN")
+	api    = envOr("SMITHLY_API", "http://localhost:18791")
+	token  = os.Getenv("SMITHLY_TOKEN")
+	client = &http.Client{Timeout: 30 * time.Second}
 )
 
 func envOr(key, fallback string) string {
@@ -24,7 +27,7 @@ func envOr(key, fallback string) string {
 }
 
 func get(path string, result any) error {
-	req, err := http.NewRequest("GET", api+path, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", api+path, http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -37,7 +40,7 @@ func post(path string, body, result any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", api+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", api+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -47,7 +50,7 @@ func post(path string, body, result any) error {
 }
 
 func doRequest(req *http.Request, result any) error {
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

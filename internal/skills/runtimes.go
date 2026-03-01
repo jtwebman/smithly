@@ -87,7 +87,7 @@ func extractVersion(output string) string {
 	for _, word := range strings.Fields(output) {
 		word = strings.TrimPrefix(word, "v")
 		word = strings.TrimPrefix(word, "go")
-		if len(word) > 0 && word[0] >= '0' && word[0] <= '9' && strings.Contains(word, ".") {
+		if word != "" && word[0] >= '0' && word[0] <= '9' && strings.Contains(word, ".") {
 			return word
 		}
 	}

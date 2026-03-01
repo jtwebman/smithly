@@ -177,7 +177,7 @@ func (r *Runner) build(ctx context.Context, dir, buildCmd string, env []string) 
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %s", err, stderr.String())
+		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return nil
 }

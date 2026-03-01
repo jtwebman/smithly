@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // Client generates embeddings via an OpenAI-compatible /v1/embeddings endpoint.
@@ -33,7 +34,7 @@ func NewClient(baseURL, apiKey, model string, dimensions int) *OpenAIClient {
 		apiKey:     apiKey,
 		model:      model,
 		dimensions: dimensions,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

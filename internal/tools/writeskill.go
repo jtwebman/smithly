@@ -122,7 +122,7 @@ func (w *WriteSkill) Run(_ context.Context, args json.RawMessage) (string, error
 
 	// Create skill directory
 	skillDir := filepath.Join(w.skillsDir, params.Name)
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		return "", fmt.Errorf("create skill dir: %w", err)
 	}
 
@@ -142,13 +142,13 @@ func (w *WriteSkill) Run(_ context.Context, args json.RawMessage) (string, error
 
 	// Write manifest.toml
 	manifestPath := filepath.Join(skillDir, "manifest.toml")
-	if err := os.WriteFile(manifestPath, []byte(manifest.String()), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(manifest.String()), 0o644); err != nil {
 		return "", fmt.Errorf("write manifest: %w", err)
 	}
 
 	// Write code file
 	codePath := filepath.Join(skillDir, params.Entrypoint)
-	if err := os.WriteFile(codePath, []byte(params.Code), 0755); err != nil {
+	if err := os.WriteFile(codePath, []byte(params.Code), 0o755); err != nil {
 		return "", fmt.Errorf("write code: %w", err)
 	}
 

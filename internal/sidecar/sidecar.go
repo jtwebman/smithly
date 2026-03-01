@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -83,7 +84,9 @@ func (s *Sidecar) URL() string {
 // IssueToken creates a short-lived random token scoped to a skill.
 func (s *Sidecar) IssueToken(skill string, ttl time.Duration) string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	token := hex.EncodeToString(b)
 
 	s.mu.Lock()
@@ -106,8 +109,11 @@ func (s *Sidecar) RevokeToken(token string) {
 // Start begins listening. Blocks until the server is shut down.
 func (s *Sidecar) Start() error {
 	s.server = &http.Server{
-		Addr:    net.JoinHostPort(s.bind, fmt.Sprintf("%d", s.port)),
-		Handler: s.Handler(),
+		Addr:         net.JoinHostPort(s.bind, fmt.Sprintf("%d", s.port)),
+		Handler:      s.Handler(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 	err := s.server.ListenAndServe()
 	if err == http.ErrServerClosed {
@@ -412,7 +418,9 @@ func (s *Sidecar) handleStoreHistory(w http.ResponseWriter, r *http.Request) {
 func jsonResp(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("json response write failed", "err", err)
+	}
 }
 
 func jsonError(w http.ResponseWriter, status int, msg string) {

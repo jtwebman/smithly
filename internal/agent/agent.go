@@ -6,7 +6,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,7 +21,7 @@ import (
 )
 
 // ErrTokenLimitReached is returned when any cost spending window is exceeded.
-var ErrTokenLimitReached = fmt.Errorf("agent paused: token usage limit reached")
+var ErrTokenLimitReached = errors.New("agent paused: token usage limit reached")
 
 // Agent represents a running agent with its workspace, memory, tools, and LLM connection.
 type Agent struct {
@@ -41,7 +43,7 @@ type Agent struct {
 
 // New creates a new agent.
 func New(id, model, provider, baseURL, apiKey string, ws *workspace.Workspace, store db.Store) *Agent {
-	return NewWithClient(id, model, provider, baseURL, apiKey, ws, store, &http.Client{})
+	return NewWithClient(id, model, provider, baseURL, apiKey, ws, store, &http.Client{Timeout: 5 * time.Minute})
 }
 
 // NewWithClient creates a new agent with a custom HTTP client (for testing).
@@ -231,13 +233,15 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 				}
 
 				// Audit the tool call
-				a.Store.LogAudit(ctx, &db.AuditEntry{
+				if err := a.Store.LogAudit(ctx, &db.AuditEntry{
 					Actor:      "agent:" + a.ID,
 					Action:     "tool_call",
 					Target:     tc.Function.Name,
 					Details:    tc.Function.Arguments,
 					TrustLevel: "trusted",
-				})
+				}); err != nil {
+					slog.Error("audit log failed", "err", err)
+				}
 
 				// Add tool result to messages
 				messages = append(messages, chatMessage{
@@ -249,12 +253,14 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 
 			// If loop detected, inject a nudge to break the cycle
 			if loopDetected {
-				a.Store.LogAudit(ctx, &db.AuditEntry{
+				if err := a.Store.LogAudit(ctx, &db.AuditEntry{
 					Actor:      "agent:" + a.ID,
 					Action:     "loop_detected",
 					Details:    "repeated tool calls detected, injecting correction",
 					TrustLevel: "system",
-				})
+				}); err != nil {
+					slog.Error("audit log failed", "err", err)
+				}
 				messages = append(messages, chatMessage{
 					Role:    "user",
 					Content: "[system] You are repeating the same tool call. Stop and provide a final text response to the user. If you are stuck, explain what went wrong.",
@@ -292,11 +298,13 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 			return "", fmt.Errorf("save assistant message: %w", err)
 		}
 
-		a.Store.LogAudit(ctx, &db.AuditEntry{
+		if err := a.Store.LogAudit(ctx, &db.AuditEntry{
 			Actor:      "agent:" + a.ID,
 			Action:     "llm_chat",
 			TrustLevel: "trusted",
-		})
+		}); err != nil {
+			slog.Error("audit log failed", "err", err)
+		}
 
 		return finalText, nil
 	}

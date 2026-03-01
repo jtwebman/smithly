@@ -526,6 +526,69 @@ See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
 
 ---
 
+## Fix Now: Code Quality (Go 1.26 audit, 2026-03-01)
+
+> Audit of the full codebase against modern Go 2026 standards.
+> Upgrade from Go 1.25.5 → 1.26.0 done. Items below are code-level fixes.
+
+### Structured Logging (migrate log → log/slog) ✅
+- [x] `internal/agent/heartbeat.go` — 7 `log.Printf` calls → `slog.Info`/`slog.Warn` with structured attrs
+- [x] `internal/channels/telegram.go` — 4 calls → `slog.Info`/`slog.Error`
+- [x] `internal/gateway/gateway.go` — 1 call → `slog.Info`
+- [x] `internal/gatekeeper/proxy.go` — 1 call → `slog.Error`
+- [x] `cmd/smithly/main.go` — 20+ calls → `slog.Info`/`slog.Warn`/`slog.Error`
+- [x] Zero `log.Printf`/`log.Println` calls remaining (only `log.Fatal` for CLI exits)
+
+### Swallowed Errors ✅
+- [x] `internal/gateway/gateway.go` — `json.NewEncoder(w).Encode` errors now logged
+- [x] `internal/sidecar/sidecar.go` — `jsonResp` now logs encode errors
+- [x] `crypto/rand.Read` — safe since Go 1.20 (always returns nil error)
+- [x] `io.Copy` in proxy tunneling — expected to error on close (acceptable)
+- [x] `io.Copy(io.Discard, ...)` — draining response bodies (acceptable)
+
+### Error Wrapping ✅
+- [x] `internal/skills/runner.go` — `%s` → `%w` for error wrapping
+- [x] `internal/sandbox/none.go` — `%s` → `%w` for error wrapping
+- [x] `internal/sandbox/docker.go` — `%s` → `%w` for error wrapping
+- [x] `internal/agent/agent.go` — `ErrTokenLimitReached` uses `errors.New` (was `fmt.Errorf`)
+
+### HTTP Server Timeouts ✅
+- [x] `internal/gateway/gateway.go` — ReadTimeout, WriteTimeout, IdleTimeout added
+- [x] `internal/sidecar/sidecar.go` — ReadTimeout, WriteTimeout, IdleTimeout added
+- [x] `internal/gatekeeper/proxy.go` — ReadTimeout, IdleTimeout added
+- [x] `cmd/smithly/main.go` (OAuth2 callback server) — ReadTimeout, WriteTimeout added
+
+### HTTP Client Timeouts ✅
+- [x] `internal/agent/agent.go` — 5 min timeout (LLM calls)
+- [x] `internal/embedding/client.go` — 30s timeout
+- [x] `internal/tools/fetch.go` — 30s timeout
+- [x] `internal/tools/notify.go` — 10s timeout
+- [x] `internal/tools/search.go` — 30s timeout (all 4 constructors)
+- [x] `internal/sidecar/clients/smithly.go` — 30s timeout (replaced `http.DefaultClient`)
+- [x] `internal/gatekeeper/proxy.go` — `net.DialTimeout` (10s) replaces `net.Dial`
+- [x] `cmd/smithly/main.go` — OAuth token exchange uses 30s timeout client
+
+### Magic Numbers → Constants ✅
+- [x] `cmd/smithly/main.go` — default ports extracted to constants (18790, 18791, 18792)
+- [x] `cmd/smithly/main.go` — `200` → `http.StatusOK`
+
+### File Permissions ✅
+- [x] `internal/config/config.go` — `AppendAgent` permissions 0644 → 0600
+
+### Linting & CI ✅
+- [x] `.golangci.yml` — errcheck, govet, staticcheck, gocritic, bodyclose, etc.
+- [x] `Makefile` — build, test, lint, clean targets
+
+### Remaining (deferred)
+- [ ] Add `t.Parallel()` to pure-function tests (gatekeeper, config, sandbox, robots, credentials)
+- [ ] Telegram: add test for exact 4096-char boundary
+- [ ] Store: add concurrent Put/Get test
+- [ ] `internal/tools/robots.go` — RobotsChecker client timeout
+- [ ] `internal/agent/context.go` — type assertions ignore ok (safe for string zero-value but could log)
+- [ ] Named constants for buffer sizes, output truncation limits (one-off values, low priority)
+
+---
+
 ## Future
 
 - [ ] Remote storage backend (Postgres + R2) for Fly provider

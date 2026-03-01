@@ -41,7 +41,7 @@ func (s *SQLite) Put(ctx context.Context, obj *Object) (*Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck // rollback after commit is a no-op
 
 	// Get next version
 	var version int
@@ -227,6 +227,8 @@ func matchesFilter(data json.RawMessage, filter map[string]any) bool {
 
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return hex.EncodeToString(b)
 }

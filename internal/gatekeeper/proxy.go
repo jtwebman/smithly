@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"smithly.dev/internal/db"
 )
@@ -40,8 +41,10 @@ func (p *Proxy) Addr() string {
 // Start begins listening. Blocks until shut down.
 func (p *Proxy) Start() error {
 	p.server = &http.Server{
-		Addr:    p.Addr(),
-		Handler: p,
+		Addr:        p.Addr(),
+		Handler:     p,
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 	err := p.server.ListenAndServe()
 	if err == http.ErrServerClosed {
@@ -86,7 +89,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetConn, err := net.Dial("tcp", r.Host)
+	targetConn, err := net.DialTimeout("tcp", r.Host, 10*time.Second)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("connect to %s: %v", r.Host, err), http.StatusBadGateway)
 		return
@@ -99,15 +102,23 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send 200 Connection Established
-	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		clientConn.Close()
+		targetConn.Close()
+		return
+	}
 
 	// Bidirectional copy
 	go func() {
-		io.Copy(targetConn, clientConn)
+		if _, err := io.Copy(targetConn, clientConn); err != nil {
+			slog.Error("gatekeeper: tunnel copy client->target failed", "host", r.Host, "err", err)
+		}
 		targetConn.Close()
 	}()
 	go func() {
-		io.Copy(clientConn, targetConn)
+		if _, err := io.Copy(clientConn, targetConn); err != nil {
+			slog.Error("gatekeeper: tunnel copy target->client failed", "host", r.Host, "err", err)
+		}
 		clientConn.Close()
 	}()
 }
@@ -153,7 +164,9 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		slog.Error("gatekeeper: http proxy copy failed", "host", r.URL.Host, "err", err)
+	}
 }
 
 func (p *Proxy) logAccess(ctx context.Context, domain, status string) {
@@ -167,7 +180,7 @@ func (p *Proxy) logAccess(ctx context.Context, domain, status string) {
 		TrustLevel: "system",
 		Domain:     domain,
 	}); err != nil {
-		log.Printf("gatekeeper audit: %v", err)
+		slog.Error("gatekeeper audit log failed", "err", err)
 	}
 }
 

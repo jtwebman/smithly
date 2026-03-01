@@ -138,7 +138,7 @@ func (c *CLI) runRaw(ctx context.Context, stdin *os.File) error {
 	if err != nil {
 		return c.runScanner(ctx)
 	}
-	defer term.Restore(fd, oldState)
+	defer func() { _ = term.Restore(fd, oldState) }()
 
 	name := c.Agent.Workspace.Identity.Name
 	if name == "" {
@@ -371,7 +371,7 @@ func (c *CLI) runWithInterrupt(
 			// Type-ahead loop: collect input while agent finishes.
 			// Use nil-channel trick: once resultCh fires, stop selecting it.
 			var buf []byte
-			activeResultCh := (<-chan chatResult)(resultCh)
+			var activeResultCh <-chan chatResult = resultCh
 			for {
 				select {
 				case <-activeResultCh:

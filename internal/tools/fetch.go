@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Fetch reads a URL and returns its content as text. GET only.
@@ -18,7 +19,7 @@ type Fetch struct {
 }
 
 func NewFetch() *Fetch {
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	return &Fetch{
 		client: client,
 		robots: NewRobotsChecker(client),
@@ -72,7 +73,7 @@ func (f *Fetch) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		return fmt.Sprintf("Blocked by robots.txt: %s", params.URL), nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", params.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", params.URL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}

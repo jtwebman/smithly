@@ -78,7 +78,7 @@ func (rc *RobotsChecker) getRules(ctx context.Context, origin string) robotsRule
 
 func (rc *RobotsChecker) fetchRobots(ctx context.Context, origin string) robotsRules {
 	robotsURL := origin + "/robots.txt"
-	req, err := http.NewRequestWithContext(ctx, "GET", robotsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", robotsURL, http.NoBody)
 	if err != nil {
 		return robotsRules{} // allow all
 	}

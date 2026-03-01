@@ -252,7 +252,7 @@ workspace = %q
 
 // AppendAgent adds a new agent section to an existing config file.
 func AppendAgent(path string, agent AgentConfig) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -283,7 +283,7 @@ func AppendAgent(path string, agent AgentConfig) error {
 }
 
 // RemoveAgent removes an agent from the config by rewriting the file without it.
-func RemoveAgent(path string, agentID string) error {
+func RemoveAgent(path, agentID string) error {
 	cfg, err := Load(path)
 	if err != nil {
 		return err
@@ -386,7 +386,7 @@ func appendToken(path, token string) error {
 		content = content[:insert] + fmt.Sprintf("token = %q\n", token) + content[insert:]
 	} else {
 		// No [gateway] section found — append one
-		content = content + fmt.Sprintf("\n[gateway]\ntoken = %q\n", token)
+		content += fmt.Sprintf("\n[gateway]\ntoken = %q\n", token)
 	}
-	return os.WriteFile(path, []byte(content), 0600)
+	return os.WriteFile(path, []byte(content), 0o600)
 }

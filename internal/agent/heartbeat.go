@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -75,7 +75,7 @@ func (a *Agent) StartHeartbeat(ctx context.Context, hc HeartbeatConfig) {
 				// Check if agent is paused by a cost window
 				if w := checkCostWindows(a.CostWindows); w != nil {
 					if hc.AutoResume {
-						log.Printf("heartbeat for %s: paused ($%.2f %s limit, resets in %s)", a.ID, w.LimitCents, w.formatWindow(), w.remaining().Round(time.Minute))
+						slog.Info("heartbeat paused", "agent", a.ID, "limit", w.LimitCents, "window", w.formatWindow(), "resets_in", w.remaining().Round(time.Minute))
 					}
 					continue
 				}
@@ -85,7 +85,7 @@ func (a *Agent) StartHeartbeat(ctx context.Context, hc HeartbeatConfig) {
 				} else {
 					_, err := a.Chat(ctx, a.Workspace.Heartbeat, nil)
 					if err != nil {
-						log.Printf("heartbeat for %s: %v", a.ID, err)
+						slog.Error("heartbeat chat failed", "agent", a.ID, "err", err)
 					}
 				}
 			}
@@ -97,12 +97,12 @@ func (a *Agent) StartHeartbeat(ctx context.Context, hc HeartbeatConfig) {
 func (a *Agent) runSkillHeartbeat(ctx context.Context, skillName string) {
 	skill, ok := a.Skills.Get(skillName)
 	if !ok {
-		log.Printf("heartbeat for %s: skill %q not found", a.ID, skillName)
+		slog.Warn("heartbeat skill not found", "agent", a.ID, "skill", skillName)
 		return
 	}
 
 	if a.CodeRunner == nil {
-		log.Printf("heartbeat for %s: no code runner configured", a.ID)
+		slog.Warn("heartbeat no code runner", "agent", a.ID)
 		return
 	}
 
@@ -111,14 +111,14 @@ func (a *Agent) runSkillHeartbeat(ctx context.Context, skillName string) {
 		Input: json.RawMessage(`{}`),
 	})
 	if err != nil {
-		log.Printf("heartbeat for %s: skill %q error: %v", a.ID, skillName, err)
+		slog.Error("heartbeat skill error", "agent", a.ID, "skill", skillName, "err", err)
 		return
 	}
 
 	if result.ExitCode != 0 {
-		log.Printf("heartbeat for %s: skill %q exit %d: %s", a.ID, skillName, result.ExitCode, result.Error)
+		slog.Warn("heartbeat skill nonzero exit", "agent", a.ID, "skill", skillName, "exit_code", result.ExitCode, "error", result.Error)
 	} else if result.Output != "" {
-		log.Printf("heartbeat for %s: skill %q: %s", a.ID, skillName, strings.TrimSpace(result.Output))
+		slog.Info("heartbeat skill complete", "agent", a.ID, "skill", skillName, "output", strings.TrimSpace(result.Output))
 	}
 }
 

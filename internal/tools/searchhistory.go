@@ -165,7 +165,7 @@ func (sh *SearchHistory) runWithSearcher(ctx context.Context, query string, limi
 
 func (sh *SearchHistory) formatMessages(ctx context.Context, msgs []*db.Message, ctxWindow int) string {
 	if len(msgs) == 0 {
-		return fmt.Sprintf("No messages found.")
+		return "No messages found."
 	}
 
 	matchIDs := make(map[int64]bool, len(msgs))

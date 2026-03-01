@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -85,8 +85,11 @@ func (g *Gateway) rateLimit(next http.HandlerFunc) http.HandlerFunc {
 func (g *Gateway) Start() error {
 	addr := fmt.Sprintf("%s:%d", g.Bind, g.Port)
 	g.server = &http.Server{
-		Addr:    addr,
-		Handler: g.Handler(),
+		Addr:         addr,
+		Handler:      g.Handler(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	ln, err := net.Listen("tcp", addr)
@@ -94,7 +97,7 @@ func (g *Gateway) Start() error {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 
-	log.Printf("gateway listening on %s", addr)
+	slog.Info("gateway listening", "addr", addr)
 	return g.server.Serve(ln)
 }
 
@@ -123,7 +126,9 @@ func (g *Gateway) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		slog.Error("health response write failed", "err", err)
+	}
 }
 
 func (g *Gateway) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +149,9 @@ func (g *Gateway) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agents)
+	if err := json.NewEncoder(w).Encode(agents); err != nil {
+		slog.Error("list agents response write failed", "err", err)
+	}
 }
 
 func (g *Gateway) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -171,5 +178,7 @@ func (g *Gateway) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"response": response})
+	if err := json.NewEncoder(w).Encode(map[string]string{"response": response}); err != nil {
+		slog.Error("chat response write failed", "err", err)
+	}
 }

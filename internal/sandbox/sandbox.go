@@ -20,7 +20,7 @@ type Provider interface {
 
 	// Available reports whether the provider can run skills.
 	// Returns true/false and a human-readable detail string.
-	Available() (bool, string)
+	Available() (ok bool, msg string)
 
 	// Run executes a code skill and returns its output.
 	Run(ctx context.Context, opts RunOpts) (*RunResult, error)

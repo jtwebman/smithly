@@ -29,9 +29,9 @@ type Store interface {
 	AppendMessage(ctx context.Context, msg *Message) error
 	GetMessages(ctx context.Context, agentID string, limit int) ([]*Message, error)
 	GetMessagesByID(ctx context.Context, agentID string, beforeID int64, limit int) ([]*Message, error)
-	SearchMessages(ctx context.Context, agentID string, query string, limit int) ([]*Message, error)
-	SearchMessagesFTS(ctx context.Context, agentID string, query string, limit int) ([]*SearchResult, error)
-	InsertSummary(ctx context.Context, agentID string, summary string) error
+	SearchMessages(ctx context.Context, agentID, query string, limit int) ([]*Message, error)
+	SearchMessagesFTS(ctx context.Context, agentID, query string, limit int) ([]*SearchResult, error)
+	InsertSummary(ctx context.Context, agentID, summary string) error
 
 	// Embeddings
 	StoreEmbedding(ctx context.Context, memoryID int64, embedding []float32, model string, dimensions int) error

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 // SearchProvider implementations handle the actual search API call.
@@ -44,7 +45,7 @@ type Search struct {
 }
 
 func NewSearch() *Search {
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	return &Search{
 		provider:  &DuckDuckGoSearch{client: client},
 		client:    client,
@@ -54,7 +55,7 @@ func NewSearch() *Search {
 }
 
 func NewSearchWithProvider(p SearchProvider) *Search {
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	return &Search{
 		provider:  p,
 		client:    client,
@@ -177,7 +178,7 @@ func (s *Search) doRead(ctx context.Context, rawURL string) (string, error) {
 		return fmt.Sprintf("Blocked by robots.txt: %s", rawURL), nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
@@ -217,7 +218,7 @@ type BraveSearch struct {
 }
 
 func NewBraveSearch(apiKey string) *BraveSearch {
-	return &BraveSearch{APIKey: apiKey, client: &http.Client{}}
+	return &BraveSearch{APIKey: apiKey, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func (b *BraveSearch) Name() string { return "Brave Search" }
@@ -225,7 +226,7 @@ func (b *BraveSearch) Name() string { return "Brave Search" }
 func (b *BraveSearch) Search(ctx context.Context, query string) (*SearchResults, error) {
 	u := "https://api.search.brave.com/res/v1/web/search?q=" + url.QueryEscape(query) + "&count=10"
 
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -282,14 +283,14 @@ type DuckDuckGoSearch struct {
 }
 
 func NewDuckDuckGoSearch() *DuckDuckGoSearch {
-	return &DuckDuckGoSearch{client: &http.Client{}}
+	return &DuckDuckGoSearch{client: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func (d *DuckDuckGoSearch) Name() string { return "DuckDuckGo" }
 
 func (d *DuckDuckGoSearch) Search(ctx context.Context, query string) (*SearchResults, error) {
 	u := "https://api.duckduckgo.com/?q=" + url.QueryEscape(query) + "&format=json&no_html=1"
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

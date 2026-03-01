@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -43,7 +43,7 @@ func (t *Telegram) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("telegram getMe: %w", err)
 	}
-	log.Printf("telegram bot connected: @%s", me)
+	slog.Info("telegram bot connected", "username", me)
 
 	// Long-polling loop
 	for {
@@ -56,7 +56,7 @@ func (t *Telegram) Start(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			log.Printf("telegram getUpdates error: %v (retrying in 5s)", err)
+			slog.Error("telegram getUpdates failed, retrying", "err", err)
 			select {
 			case <-time.After(5 * time.Second):
 				continue
@@ -97,7 +97,7 @@ func (t *Telegram) handleMessage(ctx context.Context, msg *tgMessage) {
 
 	response, err := t.Agent.Chat(ctx, msg.Text, cb)
 	if err != nil {
-		log.Printf("telegram chat error (chat %d): %v", chatID, err)
+		slog.Error("telegram chat error", "chat_id", chatID, "err", err)
 		t.sendMessage(ctx, chatID, fmt.Sprintf("Error: %v", err))
 		return
 	}
@@ -108,7 +108,7 @@ func (t *Telegram) handleMessage(ctx context.Context, msg *tgMessage) {
 // sendLongMessage splits messages exceeding Telegram's 4096 char limit,
 // preferring to split at newline boundaries.
 func (t *Telegram) sendLongMessage(ctx context.Context, chatID int64, text string) {
-	for len(text) > 0 {
+	for text != "" {
 		chunk := text
 		if len(chunk) > telegramMaxMessage {
 			chunk = text[:telegramMaxMessage]
@@ -156,7 +156,7 @@ func (t *Telegram) apiURL(method string) string {
 }
 
 func (t *Telegram) getMe(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", t.apiURL("getMe"), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", t.apiURL("getMe"), http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -225,10 +225,10 @@ func (t *Telegram) sendMessage(ctx context.Context, chatID int64, text string) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := t.client.Do(req)
 	if err != nil {
-		log.Printf("telegram sendMessage error: %v", err)
+		slog.Error("telegram sendMessage failed", "err", err)
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 }
 
@@ -246,6 +246,6 @@ func (t *Telegram) sendChatAction(ctx context.Context, chatID int64, action stri
 	if err != nil {
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 }
