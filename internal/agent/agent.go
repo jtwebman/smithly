@@ -138,17 +138,6 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 		cb = &Callbacks{}
 	}
 
-	// Save user message
-	if err := a.Store.AppendMessage(ctx, &db.Message{
-		AgentID: a.ID,
-		Role:    "user",
-		Content: userMessage,
-		Source:  "cli",
-		Trust:   "trusted",
-	}); err != nil {
-		return "", fmt.Errorf("save user message: %w", err)
-	}
-
 	// Build message list: system prompt + skill summary + recent history
 	systemPrompt := a.Workspace.SystemPrompt()
 	if a.Skills != nil {
@@ -186,6 +175,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 	// Trim history to fit within context window
 	historyMsgs = a.trimHistory(systemPrompt, historyMsgs, toolDefsTokens)
 	messages = append(messages, historyMsgs...)
+
+	// Append the current user message (not yet persisted — saved only on success)
+	messages = append(messages, chatMessage{Role: "user", Content: userMessage})
 
 	// Agent loop — keep going until we get a text response (no more tool calls)
 	const maxIterations = 20
@@ -269,7 +261,17 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 		// No tool calls — we have the final text response
 		finalText := response.Content
 
-		// Save assistant response
+		// Save user message and assistant response together — only on success,
+		// so an interrupted or failed query leaves no orphaned messages in history.
+		if err := a.Store.AppendMessage(ctx, &db.Message{
+			AgentID: a.ID,
+			Role:    "user",
+			Content: userMessage,
+			Source:  "cli",
+			Trust:   "trusted",
+		}); err != nil {
+			return "", fmt.Errorf("save user message: %w", err)
+		}
 		if err := a.Store.AppendMessage(ctx, &db.Message{
 			AgentID: a.ID,
 			Role:    "assistant",
