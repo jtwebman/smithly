@@ -220,7 +220,7 @@ func TestRateLimiting(t *testing.T) {
 	handler := gw.Handler()
 
 	// Make requests up to the limit — should all succeed
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		req := httptest.NewRequest("GET", "/agents", nil)
 		req.Header.Set("Authorization", "Bearer test-token")
 		w := httptest.NewRecorder()

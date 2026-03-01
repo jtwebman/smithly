@@ -281,8 +281,7 @@ func TestESCTypeAheadAgentFinishesFirst(t *testing.T) {
 	defer srv.Close()
 
 	cli, bytesCh, out, rprint := interruptHelper(t, srv)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	type result struct {
 		typeAhead   string
@@ -336,8 +335,7 @@ func TestESCTypeAheadUserFinishesFirst(t *testing.T) {
 	defer srv.Close()
 
 	cli, bytesCh, out, rprint := interruptHelper(t, srv)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	type result struct {
 		typeAhead   string
@@ -387,8 +385,7 @@ func TestInterruptCtrlCImmediate(t *testing.T) {
 	defer srv.Close()
 
 	cli, bytesCh, out, rprint := interruptHelper(t, srv)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	type result struct {
 		typeAhead   string
@@ -450,8 +447,7 @@ func TestInterruptStdinCloseCancels(t *testing.T) {
 	defer srv.Close()
 
 	cli, bytesCh, _, rprint := interruptHelper(t, srv)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	type result struct {
 		typeAhead   string
@@ -487,8 +483,7 @@ func TestInterruptIgnoresOtherKeys(t *testing.T) {
 	defer srv.Close()
 
 	cli, bytesCh, out, rprint := interruptHelper(t, srv)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	type result struct {
 		typeAhead   string

@@ -195,10 +195,7 @@ func (s *Searcher) hybridSearch(ctx context.Context, agentID, query string, limi
 		return vecCandidates[i].sim > vecCandidates[j].sim
 	})
 	// Add top vector-only results
-	topN := limit
-	if len(vecCandidates) < topN {
-		topN = len(vecCandidates)
-	}
+	topN := min(len(vecCandidates), limit)
 
 	// Hydrate vector-only candidates
 	if topN > 0 {

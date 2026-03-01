@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"smithly.dev/internal/db"
@@ -147,8 +148,7 @@ func (a *Agent) compactHistory(ctx context.Context, systemPrompt string, history
 
 	// Store summary in DB as a context boundary
 	if err := a.Store.InsertSummary(ctx, a.ID, summary); err != nil {
-		// Non-fatal — we can still use the summary for this turn
-		_ = err
+		slog.Warn("failed to persist context summary", "agent", a.ID, "err", err)
 	}
 
 	// Build result: summary as system message + recent messages

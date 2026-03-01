@@ -101,8 +101,8 @@ func (c *CLI) runScanner(ctx context.Context) error {
 				if len(summary) > 200 {
 					summary = summary[:200] + "..."
 				}
-				lines := strings.Split(summary, "\n")
-				for _, line := range lines {
+				lines := strings.SplitSeq(summary, "\n")
+				for line := range lines {
 					fmt.Fprintf(c.Output, "  | %s\n", line)
 				}
 				fmt.Fprintln(c.Output)
@@ -290,7 +290,7 @@ func (c *CLI) runWithInterrupt(
 				if len(summary) > 200 {
 					summary = summary[:200] + "..."
 				}
-				for _, l := range strings.Split(summary, "\n") {
+				for l := range strings.SplitSeq(summary, "\n") {
 					rprintLocked(fmt.Sprintf("  | %s\r\n", l))
 				}
 				rprintLocked("\r\n")

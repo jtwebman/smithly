@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -83,10 +84,10 @@ Keep bash scripts simple. To read JSON stdin in bash: read input from stdin, par
 	t.Logf("Tool calls: %v", toolCalls)
 	t.Logf("Final response: %s", truncate(result, 500))
 
-	if !containsStr(toolCalls, "write_skill") {
+	if !slices.Contains(toolCalls, "write_skill") {
 		t.Error("LLM never called write_skill")
 	}
-	if !containsStr(toolCalls, "run_code_skill") {
+	if !slices.Contains(toolCalls, "run_code_skill") {
 		t.Error("LLM never called run_code_skill")
 	}
 	// Check for "15" in final text or tool output (codex models may return empty text)
@@ -177,15 +178,6 @@ func TestLLMOllamaWriteAndRunSkill(t *testing.T) {
 		baseURL = "http://localhost:11434/v1"
 	}
 	runLLMSkillTest(t, model, "ollama", baseURL, "ollama")
-}
-
-func containsStr(slice []string, target string) bool {
-	for _, s := range slice {
-		if s == target {
-			return true
-		}
-	}
-	return false
 }
 
 func truncate(s string, max int) string {

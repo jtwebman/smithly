@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -204,7 +205,11 @@ func scanObjectRow(row scannable) (*Object, error) {
 	obj.Data = json.RawMessage(data)
 	obj.Public = pub != 0
 	obj.Deleted = del != 0
-	obj.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err != nil && createdAt != "" {
+		slog.Warn("failed to parse sqlite datetime", "value", createdAt, "err", err)
+	} else {
+		obj.CreatedAt = t
+	}
 	return obj, nil
 }
 

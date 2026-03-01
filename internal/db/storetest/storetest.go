@@ -194,7 +194,7 @@ func testGetMessagesLimit(t *testing.T, store db.Store) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if err := store.AppendMessage(ctx, &db.Message{
 			AgentID: "agent1", Role: "user",
 			Content: fmt.Sprintf("msg %d", i),
@@ -259,7 +259,7 @@ func testMessagesChronologicalOrder(t *testing.T, store db.Store) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := store.AppendMessage(ctx, &db.Message{
 			AgentID: "agent1", Role: "user",
 			Content: fmt.Sprintf("msg %d", i),
@@ -741,7 +741,7 @@ func testGetMessagesByID(t *testing.T, store db.Store) {
 
 	// Insert 5 messages
 	var ids []int64
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msg := &db.Message{
 			AgentID: "agent1", Role: "user",
 			Content: fmt.Sprintf("msg %d", i),

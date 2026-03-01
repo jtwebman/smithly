@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"slices"
 	"testing"
 
 	"smithly.dev/internal/config"
@@ -127,13 +128,7 @@ func TestDockerBuildRunArgsSQLiteMount(t *testing.T) {
 	args := p.buildRunArgs("/skills/test", "bash:5", nil, cfg)
 
 	// Should mount the sqlite file
-	found := false
-	for _, a := range args {
-		if a == "/data/store.db:/data/store.db:rw" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(args, "/data/store.db:/data/store.db:rw")
 	if !found {
 		t.Errorf("expected SQLite mount in args: %v", args)
 	}
@@ -141,10 +136,8 @@ func TestDockerBuildRunArgsSQLiteMount(t *testing.T) {
 
 func assertContains(t *testing.T, slice []string, want string) {
 	t.Helper()
-	for _, s := range slice {
-		if s == want {
-			return
-		}
+	if slices.Contains(slice, want) {
+		return
 	}
 	t.Errorf("slice missing %q", want)
 }

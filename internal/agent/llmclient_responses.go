@@ -233,8 +233,8 @@ func (c *ResponsesClient) readStream(body io.Reader, onDelta func(string)) (*llm
 		line := scanner.Text()
 
 		// Parse SSE event type
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			eventType = after
 			continue
 		}
 

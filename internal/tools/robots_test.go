@@ -191,7 +191,7 @@ func TestRobotsCheckerCaching(t *testing.T) {
 	ctx := context.Background()
 
 	// Multiple calls should only fetch robots.txt once
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		rc.Allowed(ctx, srv.URL+"/page"+fmt.Sprintf("%d", i))
 	}
 

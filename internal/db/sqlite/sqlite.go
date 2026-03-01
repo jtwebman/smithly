@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -107,13 +108,17 @@ func (s *Store) Migrate(ctx context.Context) error {
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				_ = tx.Rollback()
+				if rbErr := tx.Rollback(); rbErr != nil {
+					slog.Error("migration rollback failed", "err", rbErr)
+				}
 				return fmt.Errorf("migration %s: %w\nstatement: %s", entry.Name(), err, stmt)
 			}
 		}
 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
-			_ = tx.Rollback()
+			if rbErr := tx.Rollback(); rbErr != nil {
+				slog.Error("migration rollback failed", "err", rbErr)
+			}
 			return fmt.Errorf("record migration %d: %w", version, err)
 		}
 
@@ -132,7 +137,7 @@ func splitStatements(sql string) []string {
 	var stmts []string
 	var current strings.Builder
 	depth := 0 // tracks BEGIN/END nesting for triggers
-	for _, line := range strings.Split(sql, "\n") {
+	for line := range strings.SplitSeq(sql, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "--") {
 			continue
@@ -241,7 +246,7 @@ func (s *Store) GetMessages(ctx context.Context, agentID string, limit int) ([]*
 		if err := rows.Scan(&m.ID, &m.AgentID, &m.Role, &m.Content, &m.Source, &m.Trust, &createdAt); err != nil {
 			return nil, err
 		}
-		m.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		m.CreatedAt = parseTime(createdAt)
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -283,7 +288,7 @@ func (s *Store) SearchMessages(ctx context.Context, agentID, query string, limit
 		if err := rows.Scan(&m.ID, &m.AgentID, &m.Role, &m.Content, &m.Source, &m.Trust, &createdAt); err != nil {
 			return nil, err
 		}
-		m.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		m.CreatedAt = parseTime(createdAt)
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
@@ -333,7 +338,7 @@ func (s *Store) GetMessagesByID(ctx context.Context, agentID string, beforeID in
 		if err := rows.Scan(&m.ID, &m.AgentID, &m.Role, &m.Content, &m.Source, &m.Trust, &createdAt); err != nil {
 			return nil, err
 		}
-		m.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		m.CreatedAt = parseTime(createdAt)
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -373,7 +378,7 @@ func (s *Store) SearchMessagesFTS(ctx context.Context, agentID, query string, li
 		if err := rows.Scan(&r.ID, &r.AgentID, &r.Role, &r.Content, &r.Source, &r.Trust, &createdAt, &r.Score); err != nil {
 			return nil, err
 		}
-		r.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		r.CreatedAt = parseTime(createdAt)
 		results = append(results, r)
 	}
 	return results, rows.Err()
@@ -451,7 +456,7 @@ func (s *Store) GetUnembeddedMessages(ctx context.Context, agentID string, limit
 		if err := rows.Scan(&m.ID, &m.AgentID, &m.Role, &m.Content, &m.Source, &m.Trust, &createdAt); err != nil {
 			return nil, err
 		}
-		m.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		m.CreatedAt = parseTime(createdAt)
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
@@ -532,7 +537,7 @@ func (s *Store) GetAuditLog(ctx context.Context, opts db.AuditQuery) ([]*db.Audi
 		if err := rows.Scan(&e.ID, &ts, &e.Actor, &e.Action, &target, &details, &e.TrustLevel, &approvedBy, &domain); err != nil {
 			return nil, err
 		}
-		e.Timestamp, _ = time.Parse("2006-01-02 15:04:05", ts)
+		e.Timestamp = parseTime(ts)
 		e.Target = target.String
 		e.Details = details.String
 		e.ApprovedBy = approvedBy.String
@@ -556,9 +561,9 @@ func (s *Store) GetDomain(ctx context.Context, domain string) (*db.DomainEntry, 
 	if err != nil {
 		return nil, err
 	}
-	d.GrantedAt, _ = time.Parse("2006-01-02 15:04:05", grantedAt)
+	d.GrantedAt = parseTime(grantedAt)
 	if lastAccessed.Valid {
-		d.LastAccessed, _ = time.Parse("2006-01-02 15:04:05", lastAccessed.String)
+		d.LastAccessed = parseTime(lastAccessed.String)
 	}
 	d.RequestedBy = requestedBy.String
 	d.Notes = notes.String
@@ -582,9 +587,9 @@ func (s *Store) ListDomains(ctx context.Context) ([]*db.DomainEntry, error) {
 		if err := rows.Scan(&d.Domain, &d.Status, &d.GrantedBy, &grantedAt, &lastAccessed, &d.AccessCount, &requestedBy, &notes); err != nil {
 			return nil, err
 		}
-		d.GrantedAt, _ = time.Parse("2006-01-02 15:04:05", grantedAt)
+		d.GrantedAt = parseTime(grantedAt)
 		if lastAccessed.Valid {
-			d.LastAccessed, _ = time.Parse("2006-01-02 15:04:05", lastAccessed.String)
+			d.LastAccessed = parseTime(lastAccessed.String)
 		}
 		d.RequestedBy = requestedBy.String
 		d.Notes = notes.String
@@ -637,8 +642,16 @@ func scanAgentRow(row scannable) (*db.Agent, error) {
 	a.HeartbeatInterval = hbInterval.String
 	a.HeartbeatEnabled = hbEnabled != 0
 	a.QuietHours = quietHours.String
-	a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	a.CreatedAt = parseTime(createdAt)
 	return a, nil
+}
+
+func parseTime(value string) time.Time {
+	t, err := time.Parse("2006-01-02 15:04:05", value)
+	if err != nil && value != "" {
+		slog.Warn("failed to parse sqlite datetime", "value", value, "err", err)
+	}
+	return t
 }
 
 func boolToInt(b bool) int {

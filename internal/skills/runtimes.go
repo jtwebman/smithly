@@ -17,9 +17,9 @@ type RuntimeCapabilities struct {
 
 // runtimeCheck defines how to detect a runtime.
 type runtimeCheck struct {
-	name    string
-	cmd     string
-	args    []string
+	name     string
+	cmd      string
+	args     []string
 	canBuild bool // true for compiled languages (go, rust)
 }
 
@@ -84,7 +84,7 @@ func extractVersion(output string) string {
 	}
 
 	// Try to find a version pattern (digits.digits or vDigits.digits or goDigits.digits)
-	for _, word := range strings.Fields(output) {
+	for word := range strings.FieldsSeq(output) {
 		word = strings.TrimPrefix(word, "v")
 		word = strings.TrimPrefix(word, "go")
 		if word != "" && word[0] >= '0' && word[0] <= '9' && strings.Contains(word, ".") {

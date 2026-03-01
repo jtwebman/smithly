@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,10 +109,8 @@ func TestBuildEnvEmpty(t *testing.T) {
 
 func assertEnvContains(t *testing.T, env []string, want string) {
 	t.Helper()
-	for _, e := range env {
-		if e == want {
-			return
-		}
+	if slices.Contains(env, want) {
+		return
 	}
 	t.Errorf("env missing %q\ngot: %s", want, strings.Join(env, ", "))
 }

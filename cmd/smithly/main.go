@@ -635,7 +635,7 @@ func parseSkillFlags(minArgs int) (cfg *config.Config, agentID string) {
 	}
 
 	args := os.Args[3:]
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		if args[i] == "--agent" && i+1 < len(args) {
 			agentID = args[i+1]
 			break

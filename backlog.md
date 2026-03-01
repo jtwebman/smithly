@@ -579,6 +579,25 @@ See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
 - [x] `.golangci.yml` — errcheck, govet, staticcheck, gocritic, bodyclose, etc.
 - [x] `Makefile` — build, test, lint, clean targets
 
+### Go 1.26 Modernizations (`go fix`) ✅
+- [x] `for i := 0; i < N; i++` → `for i := range N` (7 sites across 6 files)
+- [x] Manual loop search → `slices.Contains` (docker_test, env_test, agent_llm_integration_test)
+- [x] `strings.Split` in range → `strings.SplitSeq` (sqlite.go, cli.go)
+- [x] `strings.Fields` in range → `strings.FieldsSeq` (runtimes.go)
+- [x] Custom `min()` function → builtin `min()` (search.go, search_integration_test.go)
+- [x] `context.WithCancel(context.Background())` → `t.Context()` in tests (cli_raw_test.go)
+- [x] Custom `containsStr` helper → direct `slices.Contains` (agent_llm_integration_test.go)
+
+### time.Parse Error Drops ✅
+- [x] `internal/db/sqlite/sqlite.go` — 11 `time.Parse` error drops → `parseTime()` helper with `slog.Warn`
+- [x] `internal/store/sqlite.go` — 1 `time.Parse` error drop → inline with `slog.Warn`
+
+### tx.Rollback Error Drops ✅
+- [x] `internal/db/sqlite/sqlite.go` — 2 `_ = tx.Rollback()` → log with `slog.Error`
+
+### Summary Insert Error ✅
+- [x] `internal/agent/context.go` — `_ = err` on `InsertSummary` → `slog.Warn` (non-fatal but logged)
+
 ### Remaining (deferred)
 - [ ] Add `t.Parallel()` to pure-function tests (gatekeeper, config, sandbox, robots, credentials)
 - [ ] Telegram: add test for exact 4096-char boundary

@@ -661,7 +661,7 @@ func TestChatCompactionTriggered(t *testing.T) {
 	a.MaxContext = 500 // very small context to force compaction
 
 	// Seed enough history to exceed 60% of 500 tokens (300 tokens = ~1200 chars)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		a.Store.AppendMessage(context.Background(), &db.Message{
 			AgentID: "test-agent",
 			Role:    "user",
@@ -846,9 +846,9 @@ func TestSearchHistoryTool(t *testing.T) {
 
 type echoTool struct{}
 
-func (e *echoTool) Name() string                  { return "echo_tool" }
-func (e *echoTool) Description() string            { return "Echoes back text" }
-func (e *echoTool) NeedsApproval() bool            { return false }
+func (e *echoTool) Name() string        { return "echo_tool" }
+func (e *echoTool) Description() string { return "Echoes back text" }
+func (e *echoTool) NeedsApproval() bool { return false }
 func (e *echoTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)
 }
@@ -862,9 +862,9 @@ func (e *echoTool) Run(ctx context.Context, args json.RawMessage) (string, error
 
 type dangerousTool struct{}
 
-func (d *dangerousTool) Name() string                  { return "dangerous_tool" }
-func (d *dangerousTool) Description() string            { return "A dangerous tool that needs approval" }
-func (d *dangerousTool) NeedsApproval() bool            { return true }
+func (d *dangerousTool) Name() string        { return "dangerous_tool" }
+func (d *dangerousTool) Description() string { return "A dangerous tool that needs approval" }
+func (d *dangerousTool) NeedsApproval() bool { return true }
 func (d *dangerousTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{}}`)
 }

@@ -246,7 +246,7 @@ func TestQueryLimit(t *testing.T) {
 	s := setup(t)
 	ctx := context.Background()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		s.Put(ctx, &Object{Type: "item", Skill: "test", Data: json.RawMessage(`{}`)})
 	}
 

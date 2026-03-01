@@ -190,7 +190,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 	// Agent loop — keep going until we get a text response (no more tool calls)
 	const maxIterations = 20
 	ld := newLoopDetector()
-	for i := 0; i < maxIterations; i++ {
+	for range maxIterations {
 		response, err := a.LLM.SendChat(ctx, a.Model, messages, toolDefs, cb.OnDelta)
 		if err != nil {
 			return "", err
@@ -348,4 +348,3 @@ func (a *Agent) trackCost(resp *llmResponse) *CostWindow {
 	cost := calculateCost(a.Pricing, inputTokens, outputTokens, cachedTokens)
 	return recordCostWindows(a.CostWindows, cost)
 }
-
