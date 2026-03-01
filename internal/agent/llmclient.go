@@ -99,6 +99,7 @@ func readStream(body io.Reader, onDelta func(string)) (*llmResponse, error) {
 							Name      string `json:"name"`
 							Arguments string `json:"arguments"`
 						} `json:"function"`
+						ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
@@ -130,6 +131,7 @@ func readStream(body io.Reader, onDelta func(string)) (*llmResponse, error) {
 						Name:      tc.Function.Name,
 						Arguments: tc.Function.Arguments,
 					},
+					ExtraContent: tc.ExtraContent,
 				}
 			} else {
 				// Append streamed arguments
@@ -197,8 +199,14 @@ func newLLMClient(provider, baseURL, apiKey string, client *http.Client) LLMClie
 			APIKey:  apiKey,
 			Client:  client,
 		}
+	case "anthropic":
+		return &AnthropicClient{
+			BaseURL: baseURL,
+			APIKey:  apiKey,
+			Client:  client,
+		}
 	default:
-		// "", "openai", "gemini", "ollama", "openrouter", "anthropic" — all use Chat Completions
+		// "", "openai", "gemini", "ollama", "openrouter" — all use Chat Completions
 		return &ChatCompletionsClient{
 			BaseURL: baseURL,
 			APIKey:  apiKey,

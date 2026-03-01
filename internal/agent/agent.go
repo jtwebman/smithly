@@ -47,7 +47,12 @@ func New(id, model, provider, baseURL, apiKey string, ws *workspace.Workspace, s
 // NewWithClient creates a new agent with a custom HTTP client (for testing).
 func NewWithClient(id, model, provider, baseURL, apiKey string, ws *workspace.Workspace, store db.Store, client *http.Client) *Agent {
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		switch provider {
+		case "anthropic":
+			baseURL = "https://api.anthropic.com/v1"
+		default:
+			baseURL = "https://api.openai.com/v1"
+		}
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &Agent{
@@ -93,9 +98,10 @@ type chatMessage struct {
 }
 
 type toolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function functionCall `json:"function"`
+	ID           string          `json:"id"`
+	Type         string          `json:"type"`
+	Function     functionCall    `json:"function"`
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"` // Gemini 3 thought_signature pass-through
 }
 
 type functionCall struct {

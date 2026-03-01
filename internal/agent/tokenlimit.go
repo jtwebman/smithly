@@ -28,12 +28,16 @@ type ModelPricing struct {
 // Known model pricing (dollars per million tokens).
 var knownPricing = map[string]ModelPricing{
 	// Anthropic
-	"claude-opus-4-6":            {InputPerMillion: 15.0, OutputPerMillion: 75.0, CachedInputPerMillion: 1.50},
+	"claude-opus-4-6":            {InputPerMillion: 5.0, OutputPerMillion: 25.0, CachedInputPerMillion: 0.50},
 	"claude-sonnet-4-6":          {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
-	"claude-sonnet-4-6-20250514": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
+	"claude-opus-4-5-20251101":   {InputPerMillion: 5.0, OutputPerMillion: 25.0, CachedInputPerMillion: 0.50},
+	"claude-opus-4-5":            {InputPerMillion: 5.0, OutputPerMillion: 25.0, CachedInputPerMillion: 0.50},
+	"claude-opus-4-1-20250805":   {InputPerMillion: 15.0, OutputPerMillion: 75.0, CachedInputPerMillion: 1.50},
 	"claude-sonnet-4-5-20250929": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
-	"claude-sonnet-4-5-20250514": {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
-	"claude-haiku-4-5-20251001":  {InputPerMillion: 0.80, OutputPerMillion: 4.0, CachedInputPerMillion: 0.08},
+	"claude-sonnet-4-5":          {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
+	"claude-sonnet-4-20250514":   {InputPerMillion: 3.0, OutputPerMillion: 15.0, CachedInputPerMillion: 0.30},
+	"claude-haiku-4-5-20251001":  {InputPerMillion: 1.0, OutputPerMillion: 5.0, CachedInputPerMillion: 0.10},
+	"claude-haiku-4-5":           {InputPerMillion: 1.0, OutputPerMillion: 5.0, CachedInputPerMillion: 0.10},
 	// OpenAI — GPT-5.x + Codex (Responses API)
 	"gpt-5.3-codex": {InputPerMillion: 1.75, OutputPerMillion: 14.0, CachedInputPerMillion: 0.175},
 	"gpt-5.2-codex": {InputPerMillion: 1.75, OutputPerMillion: 14.0, CachedInputPerMillion: 0.175},
