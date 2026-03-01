@@ -16,6 +16,12 @@ Smithly routes requests based on the `provider` field in your agent config. Each
 | `gemini` | Chat Completions (OpenAI-compatible) | Gemini 2.5/3 |
 | `ollama` | Chat Completions (OpenAI-compatible) | Qwen, Llama, Mistral, etc. |
 | `openrouter` | Chat Completions (OpenAI-compatible) | Any model on OpenRouter |
+| `deepseek` | Chat Completions (OpenAI-compatible) | DeepSeek V3, R1 — *coming soon* |
+| `groq` | Chat Completions (OpenAI-compatible) | Llama, Mixtral via Groq — *coming soon* |
+| `xai` | Chat Completions (OpenAI-compatible) | Grok 3 — *coming soon* |
+| `mistral` | Chat Completions (OpenAI-compatible) | Mistral Large, Small, Codestral — *coming soon* |
+| `together` | Chat Completions (OpenAI-compatible) | Hosted open models — *coming soon* |
+| `fireworks` | Chat Completions (OpenAI-compatible) | Hosted open models — *coming soon* |
 
 You do not need to set `provider` for OpenAI models — it defaults to `openai` and auto-detects when the Responses API is needed (codex models).
 
@@ -71,6 +77,88 @@ model    = "anthropic/claude-sonnet-4-6"
 provider = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
 api_key  = "sk-or-..."
+```
+
+---
+
+## Coming Soon
+
+The following providers use OpenAI-compatible APIs and should work with Smithly's existing Chat Completions client. They have not been tested yet.
+
+### DeepSeek
+
+Very low cost ($0.27/M input, $1.10/M output). Strong at coding tasks.
+
+```toml
+[[agents]]
+id       = "deepseek"
+model    = "deepseek-chat"        # or "deepseek-reasoner"
+provider = "deepseek"
+base_url = "https://api.deepseek.com/v1"
+api_key  = "sk-..."
+```
+
+### Groq
+
+Ultra-fast inference — often 10x faster than other providers. Free tier available.
+
+```toml
+[[agents]]
+id       = "groq"
+model    = "llama-3.3-70b-versatile"
+provider = "groq"
+base_url = "https://api.groq.com/openai/v1"
+api_key  = "gsk_..."
+```
+
+### xAI (Grok)
+
+```toml
+[[agents]]
+id       = "grok"
+model    = "grok-3"
+provider = "xai"
+base_url = "https://api.x.ai/v1"
+api_key  = "xai-..."
+```
+
+### Mistral (Cloud API)
+
+Mistral's hosted API handles tool calling much better than running Mistral models locally through Ollama.
+
+```toml
+[[agents]]
+id       = "mistral"
+model    = "mistral-large-latest"   # or "codestral-latest"
+provider = "mistral"
+base_url = "https://api.mistral.ai/v1"
+api_key  = "..."
+```
+
+### Together AI
+
+Hosts open-source models with optimized inference and reliable tool calling support.
+
+```toml
+[[agents]]
+id       = "together"
+model    = "Qwen/Qwen3-235B-A22B"
+provider = "together"
+base_url = "https://api.together.xyz/v1"
+api_key  = "..."
+```
+
+### Fireworks AI
+
+Fast hosted inference for open models.
+
+```toml
+[[agents]]
+id       = "fireworks"
+model    = "accounts/fireworks/models/qwen3-235b-a22b"
+provider = "fireworks"
+base_url = "https://api.fireworks.ai/inference/v1"
+api_key  = "fw_..."
 ```
 
 ---
