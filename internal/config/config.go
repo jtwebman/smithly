@@ -24,6 +24,7 @@ type Config struct {
 	DataStores  []DataStoreConfig `toml:"datastore"`
 	Secrets     []SecretConfig    `toml:"secret"`
 	Gatekeeper  GatekeeperConfig  `toml:"gatekeeper"`
+	Channels    []ChannelConfig   `toml:"channels"`
 	Agents      []AgentConfig     `toml:"agents"`
 }
 
@@ -121,6 +122,14 @@ type SidecarConfig struct {
 type GatekeeperConfig struct {
 	Bind string `toml:"bind"` // default "127.0.0.1"
 	Port int    `toml:"port"` // default 18792
+}
+
+// ChannelConfig configures an external channel adapter (Telegram, Discord, etc.).
+type ChannelConfig struct {
+	Type        string `toml:"type"`         // "telegram"
+	BotToken    string `toml:"bot_token"`    // bot API token
+	Agent       string `toml:"agent"`        // default agent ID to route messages to
+	AutoApprove bool   `toml:"auto_approve"` // auto-approve tool calls (default false = deny all)
 }
 
 type DataStoreConfig struct {

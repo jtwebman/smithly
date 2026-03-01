@@ -209,6 +209,30 @@ func cmdStart() {
 		}
 	}
 
+	// Start channel adapters
+	for _, ch := range cfg.Channels {
+		switch ch.Type {
+		case "telegram":
+			a, ok := gw.GetAgent(ch.Agent)
+			if !ok {
+				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
+			}
+			tg := &channels.Telegram{
+				Token:       ch.BotToken,
+				Agent:       a,
+				AutoApprove: ch.AutoApprove,
+			}
+			go func(tg *channels.Telegram) {
+				if err := tg.Start(ctx); err != nil && ctx.Err() == nil {
+					log.Printf("telegram channel error: %v", err)
+				}
+			}(tg)
+			log.Printf("channel started: telegram → %s", ch.Agent)
+		default:
+			log.Fatalf("unknown channel type: %s", ch.Type)
+		}
+	}
+
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

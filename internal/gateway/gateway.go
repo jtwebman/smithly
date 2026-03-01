@@ -164,7 +164,7 @@ func (g *Gateway) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := a.Chat(r.Context(), req.Message, nil)
+	response, err := a.Chat(r.Context(), req.Message, &agent.Callbacks{Source: "api"})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

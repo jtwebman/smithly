@@ -22,6 +22,21 @@ type CLI struct {
 	Agent  *agent.Agent
 	Input  io.Reader
 	Output io.Writer
+	cancel context.CancelFunc
+}
+
+// Start implements Channel. It delegates to Run and blocks until ctx is cancelled or EOF.
+func (c *CLI) Start(ctx context.Context) error {
+	ctx, c.cancel = context.WithCancel(ctx)
+	return c.Run(ctx)
+}
+
+// Stop implements Channel. It cancels the context started by Start.
+func (c *CLI) Stop() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	return nil
 }
 
 // Run starts the interactive chat loop. It blocks until the user types "exit" or EOF.
@@ -74,6 +89,7 @@ func (c *CLI) runScanner(ctx context.Context) error {
 		fmt.Fprintf(c.Output, "\n%s> ", name)
 
 		cb := &agent.Callbacks{
+			Source: "cli",
 			OnDelta: func(token string) {
 				fmt.Fprint(c.Output, token)
 			},
@@ -251,6 +267,7 @@ func (c *CLI) runWithInterrupt(
 	}
 
 	cb := &agent.Callbacks{
+		Source: "cli",
 		OnDelta: func(token string) {
 			mu.Lock()
 			defer mu.Unlock()

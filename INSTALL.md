@@ -187,7 +187,60 @@ Edit the file manually or use `smithly init` again (it will not overwrite existi
 
 ---
 
-## 11. Updating Smithly
+## 11. Telegram Channel
+
+Smithly can connect to Telegram so users message your agent directly from their phone. No webhook URL or public server needed — it uses long polling, so it works behind NAT and firewalls.
+
+### Create a Bot
+
+1. Open Telegram and message **@BotFather**.
+2. Send `/newbot`.
+3. Pick a display name (e.g. "My Assistant") and a username ending in `bot` (e.g. `my_assistant_bot`).
+4. BotFather replies with a token like `123456789:ABCdef...`. Copy it.
+
+### Configure
+
+Add a `[[channels]]` section to `smithly.toml`:
+
+```toml
+[[channels]]
+type = "telegram"
+bot_token = "123456789:ABCdef..."
+agent = "assistant"        # agent ID that handles messages
+auto_approve = false       # deny tool calls (safe default)
+```
+
+`agent` must match one of your `[[agents]]` IDs. You can add multiple `[[channels]]` blocks to connect several bots to different agents.
+
+### Run
+
+```bash
+smithly start
+```
+
+You'll see `channel started: telegram → assistant` in the logs. Open Telegram, find your bot by its username, and send a message. The agent responds through the configured LLM.
+
+### Tool Approval
+
+When `auto_approve = false` (the default), any tool that requires user approval is automatically denied. The agent can still use tools that don't need approval (like `search`).
+
+Set `auto_approve = true` only if you trust everyone who can message the bot. Consider restricting which tools the agent has access to via the `tools` list in the agent config:
+
+```toml
+[[agents]]
+id = "assistant"
+model = "gpt-4o"
+workspace = "workspaces/assistant"
+tools = ["search", "read_file"]   # limit available tools
+```
+
+### Message Limits
+
+Telegram has a 4096-character limit per message. Smithly automatically splits longer responses at newline boundaries.
+
+---
+
+## 12. Updating Smithly
 
 ```bash
 git pull origin main
@@ -198,7 +251,7 @@ If you have made local changes, consider creating a separate Git worktree (`smit
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Quick Fix |
 |---------|-----------|
@@ -210,7 +263,7 @@ If you have made local changes, consider creating a separate Git worktree (`smit
 
 ---
 
-## 13. License
+## 14. License
 
 Smithly is released under the **MIT License** (see `LICENSE`).
 

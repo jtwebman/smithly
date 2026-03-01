@@ -87,6 +87,10 @@ type Callbacks struct {
 	// OnPaused is called when the agent hits a token limit window.
 	// Receives the window description and time until reset.
 	OnPaused func(window string, remaining time.Duration)
+
+	// Source identifies where the user message came from (e.g. "cli", "api",
+	// "channel:telegram"). Defaults to "cli" when empty.
+	Source string
 }
 
 // chatMessage is a message in the OpenAI chat format, extended for tool use.
@@ -265,11 +269,15 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 
 		// Save user message and assistant response together — only on success,
 		// so an interrupted or failed query leaves no orphaned messages in history.
+		source := cb.Source
+		if source == "" {
+			source = "cli"
+		}
 		if err := a.Store.AppendMessage(ctx, &db.Message{
 			AgentID: a.ID,
 			Role:    "user",
 			Content: userMessage,
-			Source:  "cli",
+			Source:  source,
 			Trust:   "trusted",
 		}); err != nil {
 			return "", fmt.Errorf("save user message: %w", err)

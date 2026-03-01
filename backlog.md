@@ -335,19 +335,53 @@
 
 ---
 
-## Phase 8: Channels
+## Phase 8a: Channel Interface + Telegram Adapter ✅
+
+### Channel Interface
+- [x] `Channel` interface — `Start(ctx)` / `Stop()` in `internal/channels/channel.go`
+- [x] CLI conforms to Channel interface (Start/Stop delegate to existing Run)
+
+### Source Parameterization
+- [x] `Source` field on `agent.Callbacks` — identifies message origin ("cli", "api", "channel:telegram")
+- [x] Agent persistence uses `cb.Source` instead of hardcoded `"cli"` (defaults to "cli" when empty)
+- [x] Gateway `handleChat` sets `Source: "api"`
+
+### Telegram Adapter
+- [x] Raw HTTP long polling — no SDK, just `net/http` against `api.telegram.org`
+- [x] `getMe` token verification on startup
+- [x] `getUpdates` with 30s timeout, 5s backoff on errors
+- [x] `sendChatAction("typing")` before processing
+- [x] `sendLongMessage` — splits at 4096 chars, prefers newline boundaries
+- [x] Tool approval controlled by `AutoApprove` config (default false = deny all)
+- [x] `BaseURL` override for unit testing
+
+### Channel Config
+- [x] `[[channels]]` TOML config with type, bot_token, agent, auto_approve
+- [x] `cmdStart` wires channels — looks up agent from gateway, launches `Start(ctx)` in goroutine
+- [x] Context cancellation on SIGINT stops polling
+
+### Tests
+- [x] 10 unit tests: message round-trip, long message split, newline split, invalid token, auto-approve deny/allow, empty message skip, context cancel, API error retry, source persistence
+- [x] 2 integration tests (gated behind `TELEGRAM_BOT_TOKEN` env): getMe connectivity, full message round-trip with mock LLM
+
+See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
+
+---
+
+## Phase 8b: Channels (remaining)
 
 ### Channel Adapters
-- [ ] Channel interface definition
-- [ ] Telegram adapter
 - [ ] Discord adapter
 - [ ] Slack adapter
 - [ ] Web UI channel (chat + agent dashboard)
 - [ ] Session management (for web UI)
 - [ ] CSRF protection (for web UI)
+- [ ] Telegram markdown formatting
 
 ### Channel Bindings
+- [ ] DB-based channel bindings with Store methods
 - [ ] Route channels → agents via binding rules
+- [ ] Per-contact agent routing
 - [ ] Priority-based matching (most specific wins)
 - [ ] Default catch-all agent
 

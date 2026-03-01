@@ -4,3 +4,4 @@ smithly.db-wal
 smithly.db-shm
 data/
 *.exe
+.env
