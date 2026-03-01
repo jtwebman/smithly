@@ -14,14 +14,15 @@ Smithly routes requests based on the `provider` field in your agent config. Each
 | `openai-responses` | Responses API | GPT-5.x-codex (auto-detected) |
 | `anthropic` | Messages API | Claude Opus, Sonnet, Haiku |
 | `gemini` | Chat Completions (OpenAI-compatible) | Gemini 2.5/3 |
-| `ollama` | Chat Completions (OpenAI-compatible) | Qwen, Llama, Mistral, etc. |
-| `openrouter` | Chat Completions (OpenAI-compatible) | Any model on OpenRouter |
-| `deepseek` | Chat Completions (OpenAI-compatible) | DeepSeek V3, R1 — *coming soon* |
-| `groq` | Chat Completions (OpenAI-compatible) | Llama, Mixtral via Groq — *coming soon* |
-| `xai` | Chat Completions (OpenAI-compatible) | Grok 3 — *coming soon* |
-| `mistral` | Chat Completions (OpenAI-compatible) | Mistral Large, Small, Codestral — *coming soon* |
-| `together` | Chat Completions (OpenAI-compatible) | Hosted open models — *coming soon* |
-| `fireworks` | Chat Completions (OpenAI-compatible) | Hosted open models — *coming soon* |
+| `ollama` | Chat Completions | Qwen, Llama, Mistral, etc. (local) |
+| `openrouter` | Chat Completions | Any model on OpenRouter |
+| `kimi` | — | Kimi K2.5 — *coming soon* |
+| `deepseek` | — | DeepSeek V3, R1 — *coming soon* |
+| `groq` | — | Llama, Mixtral via Groq — *coming soon* |
+| `xai` | — | Grok 3 — *coming soon* |
+| `mistral` | — | Mistral Large, Codestral — *coming soon* |
+| `together` | — | Hosted open models — *coming soon* |
+| `fireworks` | — | Hosted open models — *coming soon* |
 
 You do not need to set `provider` for OpenAI models — it defaults to `openai` and auto-detects when the Responses API is needed (codex models).
 
@@ -83,18 +84,29 @@ api_key  = "sk-or-..."
 
 ## Coming Soon
 
-The following providers use OpenAI-compatible APIs and should work with Smithly's existing Chat Completions client. They have not been tested yet.
+The following providers are planned but not yet tested. Each will get a dedicated client implementation to ensure the best experience for that provider's API.
+
+### Kimi (Moonshot AI)
+
+Kimi K2.5 is a 1T-parameter MoE model (32B active) built specifically for agentic tool calling. One of the top models on coding and agent benchmarks. Open-weight.
+
+```toml
+[[agents]]
+id       = "kimi"
+model    = "kimi-k2.5"
+provider = "kimi"
+api_key  = "..."
+```
 
 ### DeepSeek
 
-Very low cost ($0.27/M input, $1.10/M output). Strong at coding tasks.
+Very low cost ($0.27/M input, $1.10/M output). Strong at coding and reasoning tasks.
 
 ```toml
 [[agents]]
 id       = "deepseek"
 model    = "deepseek-chat"        # or "deepseek-reasoner"
 provider = "deepseek"
-base_url = "https://api.deepseek.com/v1"
 api_key  = "sk-..."
 ```
 
@@ -107,7 +119,6 @@ Ultra-fast inference — often 10x faster than other providers. Free tier availa
 id       = "groq"
 model    = "llama-3.3-70b-versatile"
 provider = "groq"
-base_url = "https://api.groq.com/openai/v1"
 api_key  = "gsk_..."
 ```
 
@@ -118,7 +129,6 @@ api_key  = "gsk_..."
 id       = "grok"
 model    = "grok-3"
 provider = "xai"
-base_url = "https://api.x.ai/v1"
 api_key  = "xai-..."
 ```
 
@@ -131,20 +141,18 @@ Mistral's hosted API handles tool calling much better than running Mistral model
 id       = "mistral"
 model    = "mistral-large-latest"   # or "codestral-latest"
 provider = "mistral"
-base_url = "https://api.mistral.ai/v1"
 api_key  = "..."
 ```
 
 ### Together AI
 
-Hosts open-source models with optimized inference and reliable tool calling support.
+Hosts open-source models (Qwen, Llama, Kimi, etc.) with optimized inference.
 
 ```toml
 [[agents]]
 id       = "together"
 model    = "Qwen/Qwen3-235B-A22B"
 provider = "together"
-base_url = "https://api.together.xyz/v1"
 api_key  = "..."
 ```
 
@@ -157,7 +165,6 @@ Fast hosted inference for open models.
 id       = "fireworks"
 model    = "accounts/fireworks/models/qwen3-235b-a22b"
 provider = "fireworks"
-base_url = "https://api.fireworks.ai/inference/v1"
 api_key  = "fw_..."
 ```
 
