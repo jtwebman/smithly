@@ -152,6 +152,21 @@ func TestLLMAnthropicWriteAndRunSkill(t *testing.T) {
 	runLLMSkillTest(t, model, "anthropic", "https://api.anthropic.com/v1", apiKey)
 }
 
+// TestLLMOllamaWriteAndRunSkill tests with local Ollama models.
+//
+//	OLLAMA_MODEL=llama3.1:8b go test ./internal/agent/ -run TestLLMOllama -v
+func TestLLMOllamaWriteAndRunSkill(t *testing.T) {
+	model := os.Getenv("OLLAMA_MODEL")
+	if model == "" {
+		t.Skip("OLLAMA_MODEL not set")
+	}
+	baseURL := os.Getenv("OLLAMA_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434/v1"
+	}
+	runLLMSkillTest(t, model, "ollama", baseURL, "ollama")
+}
+
 func containsStr(slice []string, target string) bool {
 	for _, s := range slice {
 		if s == target {
