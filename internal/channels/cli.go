@@ -356,7 +356,9 @@ func (c *CLI) runWithInterrupt(
 
 			// Ctrl+C: immediate cancel
 			if b == 0x03 {
+				mu.Lock()
 				rprint("^C\r\n")
+				mu.Unlock()
 				cancel()
 				<-resultCh
 				return "", true
