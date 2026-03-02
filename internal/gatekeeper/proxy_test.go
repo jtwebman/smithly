@@ -201,3 +201,73 @@ func TestProxyAuditLogging(t *testing.T) {
 		t.Errorf("action = %q, want domain_allow", entries[0].Action)
 	}
 }
+
+func TestProxyMissingHost(t *testing.T) {
+	s := testProxyStore(t)
+
+	gk := New(s, nil)
+	proxy := NewProxy(gk, s, "127.0.0.1", 0)
+
+	w := httptest.NewRecorder()
+	// Build a plain HTTP request with an empty Host / no URL host.
+	req := httptest.NewRequest("GET", "/some-path", nil)
+	req.Host = ""
+	req.URL.Host = ""
+	proxy.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "missing host") {
+		t.Errorf("body = %q, want it to contain 'missing host'", w.Body.String())
+	}
+}
+
+func TestProxyHopByHopHeaders(t *testing.T) {
+	// Target server captures the headers it received.
+	var gotProxyConn, gotProxyAuth string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotProxyConn = r.Header.Get("Proxy-Connection")
+		gotProxyAuth = r.Header.Get("Proxy-Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	s := testProxyStore(t)
+	ctx := context.Background()
+
+	targetHost := extractDomain(strings.TrimPrefix(target.URL, "http://"))
+	s.SetDomain(ctx, &db.DomainEntry{Domain: targetHost, Status: "allow", GrantedBy: "user"})
+
+	gk := New(s, nil)
+	proxy := NewProxy(gk, s, "127.0.0.1", 0)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	proxyURL, _ := url.Parse(proxyServer.URL)
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	client := &http.Client{Transport: transport}
+
+	req, err := http.NewRequest("GET", target.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Proxy-Connection", "keep-alive")
+	req.Header.Set("Proxy-Authorization", "Basic secret")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if gotProxyConn != "" {
+		t.Errorf("Proxy-Connection was forwarded: %q", gotProxyConn)
+	}
+	if gotProxyAuth != "" {
+		t.Errorf("Proxy-Authorization was forwarded: %q", gotProxyAuth)
+	}
+}

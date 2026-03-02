@@ -7,30 +7,14 @@ import (
 	"time"
 
 	"smithly.dev/internal/config"
-	"smithly.dev/internal/skills"
+	"smithly.dev/internal/testutil"
 )
 
-type mockSidecar struct {
-	url     string
-	revoked bool
-}
-
-func (m *mockSidecar) IssueToken(skill string, ttl time.Duration) string {
-	return "mock-token-" + skill
-}
-
-func (m *mockSidecar) RevokeToken(token string) {
-	m.revoked = true
-}
-
-func (m *mockSidecar) URL() string {
-	return m.url
-}
-
-var _ skills.SidecarIface = (*mockSidecar)(nil)
+// mockSidecar wraps testutil.MockSidecar for use in internal package tests.
+type mockSidecar = testutil.MockSidecar
 
 func TestBuildEnvSidecar(t *testing.T) {
-	sc := &mockSidecar{url: "http://127.0.0.1:18791"}
+	sc := &testutil.MockSidecar{SidecarURL: "http://127.0.0.1:18791"}
 	ec := EnvConfig{Sidecar: sc}
 	base := []string{"PATH=/usr/bin"}
 
@@ -77,7 +61,7 @@ func TestBuildEnvProxy(t *testing.T) {
 }
 
 func TestBuildEnvCombined(t *testing.T) {
-	sc := &mockSidecar{url: "http://127.0.0.1:18791"}
+	sc := &testutil.MockSidecar{SidecarURL: "http://127.0.0.1:18791"}
 	ec := EnvConfig{
 		Sidecar:    sc,
 		DataStores: []config.DataStoreConfig{{Type: "sqlite", Path: "/data/store.db"}},

@@ -16,6 +16,7 @@ import (
 	"smithly.dev/internal/db"
 	"smithly.dev/internal/db/sqlite"
 	"smithly.dev/internal/gateway"
+	"smithly.dev/internal/testutil"
 	"smithly.dev/internal/workspace"
 )
 
@@ -423,7 +424,7 @@ func TestChatSSEWithToolCalls(t *testing.T) {
 		BaseURL: llm.URL, APIKey: "key",
 		Workspace: ws, Store: store, Client: llm.Client(),
 	})
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 	gw.RegisterAgent(a)
 
 	handler := gw.Handler()
@@ -584,20 +585,3 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// --- Test tools (same as agent_test.go) ---
-
-type echoTool struct{}
-
-func (e *echoTool) Name() string        { return "echo_tool" }
-func (e *echoTool) Description() string { return "Echoes back text" }
-func (e *echoTool) NeedsApproval() bool { return false }
-func (e *echoTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)
-}
-func (e *echoTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Text string `json:"text"`
-	}
-	json.Unmarshal(args, &params)
-	return "echoed: " + params.Text, nil
-}

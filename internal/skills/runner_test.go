@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"smithly.dev/internal/testutil"
 )
 
 func TestRunnerBasicScript(t *testing.T) {
@@ -196,7 +198,7 @@ echo "API=$SMITHLY_API TOKEN=$SMITHLY_TOKEN"
 		},
 	}
 
-	sc := &mockSidecar{url: "http://127.0.0.1:18791"}
+	sc := &testutil.MockSidecar{SidecarURL: "http://127.0.0.1:18791"}
 	runner := NewRunner(5*time.Second, sc, nil, "")
 	env := []string{"PATH=" + os.Getenv("PATH")}
 	result, err := runner.Run(context.Background(), skill, nil, env)
@@ -213,7 +215,7 @@ echo "API=$SMITHLY_API TOKEN=$SMITHLY_TOKEN"
 	if !strings.Contains(result.Output, "TOKEN=mock-token-") {
 		t.Errorf("output missing SMITHLY_TOKEN: %q", result.Output)
 	}
-	if !sc.revoked {
+	if !sc.Revoked {
 		t.Error("expected token to be revoked after run")
 	}
 }
@@ -293,19 +295,3 @@ echo "HTTP=$HTTP_PROXY"
 	}
 }
 
-type mockSidecar struct {
-	url     string
-	revoked bool
-}
-
-func (m *mockSidecar) IssueToken(skill string, ttl time.Duration) string {
-	return "mock-token-" + skill
-}
-
-func (m *mockSidecar) RevokeToken(token string) {
-	m.revoked = true
-}
-
-func (m *mockSidecar) URL() string {
-	return m.url
-}

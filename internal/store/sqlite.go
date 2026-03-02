@@ -23,12 +23,12 @@ func wrapNotFound(err error) error {
 // SQLite implements Store backed by a SQLite database.
 type SQLite struct {
 	db    *sql.DB
-	owned bool // true when Open() created the connection (Close will close it)
+	owned bool // true when New() created the connection (Close will close it)
 }
 
-// Open opens (or creates) a SQLite database at the given path and ensures
+// New opens (or creates) a SQLite database at the given path and ensures
 // the store_objects table exists. The caller must call Close when done.
-func Open(path string) (*SQLite, error) {
+func New(path string) (*SQLite, error) {
 	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000"
 	d, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 )
 
 // ErrNotFound is returned when a requested object does not exist.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = errors.New("store: not found")
 
 // Object is a versioned record in the store. Every mutation creates a new
 // version — nothing is overwritten or hard-deleted.

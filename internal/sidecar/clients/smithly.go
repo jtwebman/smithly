@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+// SAFETY: These package-level vars are set once during init from environment
+// variables. They are never mutated after init, so concurrent reads are safe.
 var (
 	api    = envOr("SMITHLY_API", "http://localhost:18791")
 	token  = os.Getenv("SMITHLY_TOKEN")

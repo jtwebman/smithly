@@ -90,7 +90,7 @@ func (t *Telegram) Start(ctx context.Context) error {
 }
 
 // Stop implements Channel. It cancels the polling loop started by Start.
-func (t *Telegram) Stop() error {
+func (t *Telegram) Stop(ctx context.Context) error {
 	if t.cancel != nil {
 		t.cancel()
 	}

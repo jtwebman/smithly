@@ -117,3 +117,21 @@ func TestEmbedNoAuthHeader(t *testing.T) {
 		t.Fatalf("Embed: %v", err)
 	}
 }
+
+func TestEmbedNoEmbeddingReturned(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(embeddingResponse{
+			Data: []struct {
+				Embedding []float32 `json:"embedding"`
+				Index     int       `json:"index"`
+			}{},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "m", 3)
+	_, err := c.Embed(context.Background(), "test")
+	if err == nil {
+		t.Fatal("expected error for empty data array")
+	}
+}

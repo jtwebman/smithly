@@ -123,7 +123,7 @@ func TestNoneSidecarEnvInjection(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "main.sh"), []byte("#!/bin/bash\necho \"API=$SMITHLY_API TOKEN=$SMITHLY_TOKEN\"\n"), 0755)
 
-	sc := &mockSidecar{url: "http://127.0.0.1:18791"}
+	sc := &mockSidecar{SidecarURL: "http://127.0.0.1:18791"}
 	p := &NoneProvider{env: EnvConfig{Sidecar: sc}}
 	result, err := p.Run(context.Background(), RunOpts{
 		Skill: codeSkill(dir, "bash", "main.sh"),
@@ -141,7 +141,7 @@ func TestNoneSidecarEnvInjection(t *testing.T) {
 	if !strings.Contains(result.Output, "TOKEN=mock-token-") {
 		t.Errorf("output missing SMITHLY_TOKEN: %q", result.Output)
 	}
-	if !sc.revoked {
+	if !sc.Revoked {
 		t.Error("expected token to be revoked after run")
 	}
 }

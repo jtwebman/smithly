@@ -153,6 +153,15 @@ type chatRequest struct {
 	Stream   bool               `json:"stream"`
 }
 
+// Close releases resources held by the agent. If the agent owns a Store,
+// it is closed. Safe to call on agents with a shared or nil Store.
+func (a *Agent) Close() error {
+	if a.Store != nil {
+		return a.Store.Close()
+	}
+	return nil
+}
+
 // Paused returns true if any cost window is exceeded.
 func (a *Agent) Paused() bool {
 	return checkCostWindows(a.CostWindows) != nil

@@ -13,6 +13,7 @@ import (
 	"smithly.dev/internal/agent"
 	"smithly.dev/internal/channels"
 	"smithly.dev/internal/db/sqlite"
+	"smithly.dev/internal/testutil"
 	"smithly.dev/internal/workspace"
 )
 
@@ -394,7 +395,7 @@ func TestTelegramAutoApproveDeny(t *testing.T) {
 	defer tgSrv.Close()
 
 	a := newTestTGAgent(t, llmSrv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	tg := &channels.Telegram{
 		Token:       "test-token",
@@ -464,7 +465,7 @@ func TestTelegramAutoApproveAllow(t *testing.T) {
 	defer tgSrv.Close()
 
 	a := newTestTGAgent(t, llmSrv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	tg := &channels.Telegram{
 		Token:       "test-token",

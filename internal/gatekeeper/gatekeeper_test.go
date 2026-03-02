@@ -2,6 +2,7 @@ package gatekeeper
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -181,5 +182,39 @@ func TestSeedSkillDomainsNoOverride(t *testing.T) {
 	entry, _ := s.GetDomain(ctx, "api.blocked.com")
 	if entry.Status != "deny" {
 		t.Errorf("denied domain was overridden: status = %q", entry.Status)
+	}
+}
+
+// errorStore implements db.Store with GetDomain that always returns an error.
+type errorStore struct {
+	db.Store // embed to satisfy interface
+}
+
+func (e *errorStore) GetDomain(_ context.Context, _ string) (*db.DomainEntry, error) {
+	return nil, errors.New("disk I/O error")
+}
+
+func TestCheckDomainDBError(t *testing.T) {
+	g := New(&errorStore{}, nil)
+	ctx := context.Background()
+
+	if g.CheckDomain(ctx, "anything.com") {
+		t.Error("expected CheckDomain to return false (fail-closed) on DB error")
+	}
+}
+
+func TestNormalizeDomainIPv6(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"[::1]:443", "::1"},
+		{"[2001:db8::1]:8080", "2001:db8::1"},
+	}
+	for _, tt := range tests {
+		got := normalizeDomain(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

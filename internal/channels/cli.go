@@ -37,7 +37,7 @@ func (c *CLI) Start(ctx context.Context) error {
 }
 
 // Stop implements Channel. It cancels the context started by Start.
-func (c *CLI) Stop() error {
+func (c *CLI) Stop(ctx context.Context) error {
 	if c.cancel != nil {
 		c.cancel()
 	}

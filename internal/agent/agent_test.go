@@ -13,6 +13,7 @@ import (
 	"smithly.dev/internal/agent"
 	"smithly.dev/internal/db"
 	"smithly.dev/internal/db/sqlite"
+	"smithly.dev/internal/testutil"
 	"smithly.dev/internal/tools"
 	"smithly.dev/internal/workspace"
 )
@@ -175,7 +176,7 @@ func TestChatWithToolCall(t *testing.T) {
 	a := newTestAgent(t, srv)
 
 	// Register a simple test tool
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	var toolCallName, toolResult string
 	cb := &agent.Callbacks{
@@ -216,7 +217,7 @@ func TestChatToolNeedsApprovalDenied(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&dangerousTool{})
+	a.Tools.Register(&testutil.DangerousTool{})
 
 	cb := &agent.Callbacks{
 		Approve: func(name, desc string) bool { return false }, // deny all
@@ -245,7 +246,7 @@ func TestChatToolNeedsApprovalApproved(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&dangerousTool{})
+	a.Tools.Register(&testutil.DangerousTool{})
 
 	cb := &agent.Callbacks{
 		Approve: func(name, desc string) bool { return true }, // approve
@@ -328,7 +329,7 @@ func TestChatAuditLogging(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	_, err := a.Chat(context.Background(), "test audit", nil)
 	if err != nil {
@@ -471,7 +472,7 @@ func TestChatStreamingToolCalls(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	cb := &agent.Callbacks{
 		OnDelta: func(token string) {}, // enable streaming
@@ -500,7 +501,7 @@ func TestChatMultipleToolCalls(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	var toolCalls []string
 	cb := &agent.Callbacks{
@@ -620,7 +621,7 @@ func TestChatLoopDetection(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	result, err := a.Chat(context.Background(), "do something", nil)
 	if err != nil {
@@ -846,32 +847,3 @@ func TestSearchHistoryTool(t *testing.T) {
 	}
 }
 
-// --- Test tools ---
-
-type echoTool struct{}
-
-func (e *echoTool) Name() string        { return "echo_tool" }
-func (e *echoTool) Description() string { return "Echoes back text" }
-func (e *echoTool) NeedsApproval() bool { return false }
-func (e *echoTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)
-}
-func (e *echoTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Text string `json:"text"`
-	}
-	json.Unmarshal(args, &params)
-	return "echoed: " + params.Text, nil
-}
-
-type dangerousTool struct{}
-
-func (d *dangerousTool) Name() string        { return "dangerous_tool" }
-func (d *dangerousTool) Description() string { return "A dangerous tool that needs approval" }
-func (d *dangerousTool) NeedsApproval() bool { return true }
-func (d *dangerousTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{}}`)
-}
-func (d *dangerousTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	return "danger executed", nil
-}

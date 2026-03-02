@@ -107,3 +107,51 @@ func TestPartialWorkspace(t *testing.T) {
 		t.Error("should not have User section")
 	}
 }
+
+func TestLoadBootAndHeartbeat(t *testing.T) {
+	dir := t.TempDir()
+
+	os.WriteFile(filepath.Join(dir, "BOOT.md"), []byte("Welcome, I'm ready to help."), 0644)
+	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Still here, anything else?"), 0644)
+
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if ws.Boot != "Welcome, I'm ready to help." {
+		t.Errorf("Boot = %q", ws.Boot)
+	}
+	if ws.Heartbeat != "Still here, anything else?" {
+		t.Errorf("Heartbeat = %q", ws.Heartbeat)
+	}
+}
+
+func TestLoadMalformedIdentity(t *testing.T) {
+	dir := t.TempDir()
+
+	os.WriteFile(filepath.Join(dir, "IDENTITY.toml"), []byte("invalid = [[["), 0644)
+
+	_, err := workspace.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for malformed IDENTITY.toml, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("error = %q, want it to mention 'parse'", err)
+	}
+}
+
+func TestLoadAvatarField(t *testing.T) {
+	dir := t.TempDir()
+
+	os.WriteFile(filepath.Join(dir, "IDENTITY.toml"), []byte("avatar = \"bot.png\"\n"), 0644)
+
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if ws.Identity.Avatar != "bot.png" {
+		t.Errorf("Identity.Avatar = %q, want %q", ws.Identity.Avatar, "bot.png")
+	}
+}

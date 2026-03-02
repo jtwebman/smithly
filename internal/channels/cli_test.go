@@ -13,6 +13,7 @@ import (
 	"smithly.dev/internal/agent"
 	"smithly.dev/internal/channels"
 	"smithly.dev/internal/db/sqlite"
+	"smithly.dev/internal/testutil"
 	"smithly.dev/internal/workspace"
 )
 
@@ -227,7 +228,7 @@ func TestCLIToolCallDisplay(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestCLIAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	input := strings.NewReader("use the tool\nexit\n")
 	output := &bytes.Buffer{}
@@ -252,7 +253,7 @@ func TestCLIBanner(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestCLIAgent(t, srv)
-	a.Tools.Register(&echoTool{})
+	a.Tools.Register(&testutil.EchoTool{})
 
 	input := strings.NewReader("exit\n")
 	output := &bytes.Buffer{}
@@ -272,18 +273,3 @@ func TestCLIBanner(t *testing.T) {
 	}
 }
 
-// --- Test tools for CLI tests ---
-
-type echoTool struct{}
-
-func (e *echoTool) Name() string        { return "echo_tool" }
-func (e *echoTool) Description() string { return "Echoes text" }
-func (e *echoTool) NeedsApproval() bool { return false }
-func (e *echoTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)
-}
-func (e *echoTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var p struct{ Text string `json:"text"` }
-	json.Unmarshal(args, &p)
-	return fmt.Sprintf("echoed: %s", p.Text), nil
-}

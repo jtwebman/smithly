@@ -355,3 +355,51 @@ func TestURL(t *testing.T) {
 		t.Errorf("URL = %q", sc.URL())
 	}
 }
+
+func TestOAuth2NilProvider(t *testing.T) {
+	sc := New(Config{}) // no OAuth2 provider
+	token := sc.IssueToken("test-skill", 5*time.Minute)
+
+	w := doReq(t, sc.Handler(), "GET", "/oauth2/test", token, "")
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestNotifyNilProvider(t *testing.T) {
+	sc := New(Config{}) // no Notify provider
+	token := sc.IssueToken("test-skill", 5*time.Minute)
+
+	w := doReq(t, sc.Handler(), "POST", "/notify", token, `{"title":"x","message":"y"}`)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestInvalidJSONBody(t *testing.T) {
+	sc, _ := setupSidecar(t)
+	token := sc.IssueToken("test-skill", 5*time.Minute)
+
+	w := doReq(t, sc.Handler(), "POST", "/notify", token, `{not valid json`)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	sc := New(Config{})
+	want := "http://127.0.0.1:18791"
+	if sc.URL() != want {
+		t.Errorf("URL = %q, want %q", sc.URL(), want)
+	}
+}
+
+func TestStoreGetNotFound(t *testing.T) {
+	sc, _ := setupSidecar(t)
+	token := sc.IssueToken("test-skill", 5*time.Minute)
+
+	w := doReq(t, sc.Handler(), "POST", "/store/get", token, `{"id":"does-not-exist"}`)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}

@@ -264,3 +264,102 @@ func TestPutRequiresSkill(t *testing.T) {
 		t.Error("expected error for missing skill")
 	}
 }
+
+func TestDeleteExcludesFromQuery(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+
+	s.Put(ctx, &Object{ID: "d1", Type: "note", Skill: "notes", Data: json.RawMessage(`{"title":"keep me"}`)})
+
+	// Query should return 1 result before delete
+	results, err := s.Query(ctx, &Query{Type: "note", Skill: "notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("before delete: got %d results, want 1", len(results))
+	}
+
+	if err := s.Delete(ctx, "d1", "notes"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query should return 0 results after delete
+	results, err = s.Query(ctx, &Query{Type: "note", Skill: "notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("after delete: got %d results, want 0", len(results))
+	}
+}
+
+func TestHistoryOrdering(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+
+	versions := []string{`{"v":1}`, `{"v":2}`, `{"v":3}`, `{"v":4}`, `{"v":5}`}
+	for _, d := range versions {
+		s.Put(ctx, &Object{
+			ID: "h1", Type: "doc", Skill: "editor",
+			Data: json.RawMessage(d),
+		})
+	}
+
+	history, err := s.History(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 5 {
+		t.Fatalf("history length = %d, want 5", len(history))
+	}
+	for i, obj := range history {
+		want := i + 1
+		if obj.Version != want {
+			t.Errorf("history[%d].Version = %d, want %d", i, obj.Version, want)
+		}
+	}
+}
+
+func TestQueryCrossSkillPrivate(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+
+	// Skill A creates a private object
+	s.Put(ctx, &Object{ID: "secret", Type: "config", Skill: "skill-a", Data: json.RawMessage(`{"key":"val"}`), Public: false})
+
+	// Skill B queries — should not see skill A's private object
+	results, err := s.Query(ctx, &Query{Type: "config", Skill: "skill-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("skill-b saw %d results, want 0 (private to skill-a)", len(results))
+	}
+}
+
+func TestQueryFilterNonJSONData(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+
+	// Put objects with non-JSON-object data (string and array)
+	s.Put(ctx, &Object{ID: "str1", Type: "blob", Skill: "test", Data: json.RawMessage(`"just a string"`)})
+	s.Put(ctx, &Object{ID: "arr1", Type: "blob", Skill: "test", Data: json.RawMessage(`[1,2,3]`)})
+	// Put one normal JSON object that matches the filter
+	s.Put(ctx, &Object{ID: "obj1", Type: "blob", Skill: "test", Data: json.RawMessage(`{"status":"active"}`)})
+
+	results, err := s.Query(ctx, &Query{
+		Type:   "blob",
+		Skill:  "test",
+		Filter: map[string]any{"status": "active"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (non-object data should be excluded by filter)", len(results))
+	}
+	if results[0].ID != "obj1" {
+		t.Errorf("got ID %q, want %q", results[0].ID, "obj1")
+	}
+}

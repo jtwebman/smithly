@@ -2,8 +2,11 @@ package credentials
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -201,5 +204,117 @@ func TestOAuth2TokenValid(t *testing.T) {
 	}
 	if tok.Valid() {
 		t.Error("token expiring within grace period should not be valid")
+	}
+}
+
+func TestFileStoreCorruptedJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credentials.json")
+
+	// Write invalid JSON to the file
+	if err := os.WriteFile(path, []byte(`{not valid json!!!`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewFileStore(path)
+	_, err := store.Get(context.Background(), "google")
+	if err == nil {
+		t.Fatal("expected parse error for corrupted JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse credentials") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "parse credentials")
+	}
+}
+
+func TestFileStoreEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credentials.json")
+
+	// Create a 0-byte file
+	if err := os.WriteFile(path, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewFileStore(path)
+	_, err := store.Get(context.Background(), "google")
+	if err == nil {
+		t.Fatal("expected parse error for empty file, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse credentials") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "parse credentials")
+	}
+}
+
+func TestFileStoreConcurrentAccess(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFileStore(filepath.Join(dir, "credentials.json"))
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	for i := range 10 {
+		wg.Add(2)
+		provider := fmt.Sprintf("provider-%d", i)
+
+		go func() {
+			defer wg.Done()
+			tok := &OAuth2Token{AccessToken: provider + "-token"}
+			if err := store.Put(ctx, provider, tok); err != nil {
+				t.Errorf("Put(%s): %v", provider, err)
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			// Get may or may not find the token depending on timing; just ensure no panic/race.
+			_, err := store.Get(ctx, provider)
+			if err != nil {
+				t.Errorf("Get(%s): %v", provider, err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestFileStorePutOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFileStore(filepath.Join(dir, "credentials.json"))
+	ctx := context.Background()
+
+	// Put initial value
+	first := &OAuth2Token{
+		AccessToken:  "first-access",
+		RefreshToken: "first-refresh",
+		TokenType:    "Bearer",
+	}
+	if err := store.Put(ctx, "google", first); err != nil {
+		t.Fatal(err)
+	}
+
+	// Overwrite with second value
+	second := &OAuth2Token{
+		AccessToken:  "second-access",
+		RefreshToken: "second-refresh",
+		TokenType:    "Basic",
+	}
+	if err := store.Put(ctx, "google", second); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify we get the second value back
+	got, err := store.Get(ctx, "google")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected token, got nil")
+	}
+	if got.AccessToken != "second-access" {
+		t.Errorf("access_token = %q, want %q", got.AccessToken, "second-access")
+	}
+	if got.RefreshToken != "second-refresh" {
+		t.Errorf("refresh_token = %q, want %q", got.RefreshToken, "second-refresh")
+	}
+	if got.TokenType != "Basic" {
+		t.Errorf("token_type = %q, want %q", got.TokenType, "Basic")
 	}
 }
