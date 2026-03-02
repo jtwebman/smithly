@@ -29,6 +29,15 @@ type Telegram struct {
 	offset      int
 }
 
+// NewTelegram creates a Telegram channel adapter for the given agent.
+func NewTelegram(token string, a *agent.Agent, autoApprove bool) *Telegram {
+	return &Telegram{
+		Token:       token,
+		Agent:       a,
+		AutoApprove: autoApprove,
+	}
+}
+
 // Start implements Channel. It verifies the bot token and polls for updates until ctx is cancelled.
 func (t *Telegram) Start(ctx context.Context) error {
 	if t.BaseURL == "" {

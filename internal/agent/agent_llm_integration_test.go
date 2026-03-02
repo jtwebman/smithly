@@ -47,7 +47,11 @@ func runLLMSkillTest(t *testing.T, model, provider, baseURL, apiKey string) {
 3. Report the result
 
 Keep bash scripts simple. To read JSON stdin in bash: read input from stdin, parse with sed or grep. Example: input=$(cat); a=$(echo "$input" | grep -o '"a":[0-9]*' | grep -o '[0-9]*')`
-	a := agent.New("test-agent", model, provider, baseURL, apiKey, ws, store)
+	a := agent.New(agent.Config{
+		ID: "test-agent", Model: model, Provider: provider,
+		BaseURL: baseURL, APIKey: apiKey,
+		Workspace: ws, Store: store,
+	})
 
 	skillsDir := t.TempDir()
 

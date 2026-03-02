@@ -26,7 +26,7 @@ func (m *mockProvider) Run(_ context.Context, opts sandbox.RunOpts) (*sandbox.Ru
 
 func TestRunCodeSkillNotFound(t *testing.T) {
 	reg := skills.NewRegistry()
-	reg.Add(&skills.Skill{
+	reg.Register(&skills.Skill{
 		Manifest: skills.Manifest{Skill: skills.SkillMeta{Name: "other-skill"}},
 	})
 
@@ -45,7 +45,7 @@ func TestRunCodeSkillNotFound(t *testing.T) {
 
 func TestRunCodeSkillInstructionSkill(t *testing.T) {
 	reg := skills.NewRegistry()
-	reg.Add(&skills.Skill{
+	reg.Register(&skills.Skill{
 		Manifest: skills.Manifest{Skill: skills.SkillMeta{Name: "my-instruction", Type: "instruction"}},
 	})
 
@@ -61,7 +61,7 @@ func TestRunCodeSkillInstructionSkill(t *testing.T) {
 
 func TestRunCodeSkillSuccess(t *testing.T) {
 	reg := skills.NewRegistry()
-	reg.Add(&skills.Skill{
+	reg.Register(&skills.Skill{
 		Manifest: skills.Manifest{
 			Skill: skills.SkillMeta{Name: "echo-skill", Type: "code"},
 			Code:  &skills.CodeSkillConfig{Runtime: "bash", Entrypoint: "run.sh"},
@@ -86,7 +86,7 @@ func TestRunCodeSkillSuccess(t *testing.T) {
 
 func TestRunCodeSkillNonZeroExit(t *testing.T) {
 	reg := skills.NewRegistry()
-	reg.Add(&skills.Skill{
+	reg.Register(&skills.Skill{
 		Manifest: skills.Manifest{
 			Skill: skills.SkillMeta{Name: "fail-skill", Type: "code"},
 			Code:  &skills.CodeSkillConfig{Runtime: "bash", Entrypoint: "run.sh"},
@@ -111,7 +111,7 @@ func TestRunCodeSkillNonZeroExit(t *testing.T) {
 
 func TestRunCodeSkillNilInput(t *testing.T) {
 	reg := skills.NewRegistry()
-	reg.Add(&skills.Skill{
+	reg.Register(&skills.Skill{
 		Manifest: skills.Manifest{
 			Skill: skills.SkillMeta{Name: "input-skill", Type: "code"},
 			Code:  &skills.CodeSkillConfig{Runtime: "bash", Entrypoint: "run.sh"},

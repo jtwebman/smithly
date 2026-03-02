@@ -25,6 +25,11 @@ type CLI struct {
 	cancel context.CancelFunc
 }
 
+// NewCLI creates a CLI channel for the given agent with stdin/stdout.
+func NewCLI(a *agent.Agent) *CLI {
+	return &CLI{Agent: a}
+}
+
 // Start implements Channel. It delegates to Run and blocks until ctx is cancelled or EOF.
 func (c *CLI) Start(ctx context.Context) error {
 	ctx, c.cancel = context.WithCancel(ctx)

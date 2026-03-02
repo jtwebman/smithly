@@ -228,11 +228,7 @@ func cmdStart() {
 				dbStore.Close()
 				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
 			}
-			tg := &channels.Telegram{
-				Token:       ch.BotToken,
-				Agent:       a,
-				AutoApprove: ch.AutoApprove,
-			}
+			tg := channels.NewTelegram(ch.BotToken, a, ch.AutoApprove)
 			go func(tg *channels.Telegram) {
 				if err := tg.Start(ctx); err != nil && ctx.Err() == nil {
 					slog.Error("telegram channel error", "err", err)
@@ -317,7 +313,7 @@ func cmdChat() {
 		log.Fatalf("Failed to load agent: %v", err)
 	}
 
-	cli := &channels.CLI{Agent: a}
+	cli := channels.NewCLI(a)
 	if err := cli.Run(context.Background()); err != nil {
 		store.Close()
 		log.Fatal(err)
@@ -1500,13 +1496,10 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 		return nil, fmt.Errorf("load workspace for %s: %w", ac.ID, err)
 	}
 
-	a := agent.New(ac.ID, ac.Model, ac.Provider, ac.BaseURL, ac.APIKey, ws, store)
-	a.MaxContext = ac.MaxContext
-
 	// Configure cost-based spending limits
-	a.Pricing = agent.LookupPricing(ac.Model)
+	pricing := agent.LookupPricing(ac.Model)
 	if ac.Pricing != nil {
-		a.Pricing = agent.ModelPricing{
+		pricing = agent.ModelPricing{
 			InputPerMillion:       ac.Pricing.InputPerMillion,
 			OutputPerMillion:      ac.Pricing.OutputPerMillion,
 			CachedInputPerMillion: ac.Pricing.CachedPerMillion,
@@ -1519,7 +1512,6 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 			Window:  cl.Window,
 		})
 	}
-	a.CostWindows = agent.ParseCostWindows(costConfigs)
 
 	// Load instruction skills from workspace skills/ directory
 	skillRegistry := skills.NewRegistry()
@@ -1534,23 +1526,22 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 				slog.Warn("failed to load skill", "skill", entry.Name(), "err", err)
 				continue
 			}
-			if err := skillRegistry.Add(s); err != nil {
+			if err := skillRegistry.Register(s); err != nil {
 				slog.Warn("skill registration failed", "skill", entry.Name(), "err", err)
 				continue
 			}
 			slog.Info("loaded skill", "skill", s.Manifest.Skill.Name)
 		}
 	}
-	a.Skills = skillRegistry
 
 	// Create sandbox provider for code skill execution
-	provider, err := sandbox.NewProvider(cfg.Sandbox, sc, cfg.DataStores, proxyAddr)
+	codeRunner, err := sandbox.NewProvider(cfg.Sandbox, sc, cfg.DataStores, proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	a.CodeRunner = provider
 
 	// Populate services info for system prompt injection
+	var services *agent.Services
 	var svc agent.Services
 	svc.DataStores = cfg.DataStores
 	if cfg.Sidecar.Port != 0 || cfg.Sidecar.Bind != "" {
@@ -1568,8 +1559,24 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 		svc.SecretNames = append(svc.SecretNames, s.Name)
 	}
 	if len(svc.DataStores) > 0 || svc.SidecarURL != "" || len(svc.SecretNames) > 0 {
-		a.Services = &svc
+		services = &svc
 	}
+
+	a := agent.New(agent.Config{
+		ID:          ac.ID,
+		Model:       ac.Model,
+		Provider:    ac.Provider,
+		BaseURL:     ac.BaseURL,
+		APIKey:      ac.APIKey,
+		MaxContext:  ac.MaxContext,
+		Pricing:     pricing,
+		CostWindows: agent.ParseCostWindows(costConfigs),
+		Workspace:   ws,
+		Store:       store,
+		Skills:      skillRegistry,
+		Services:    services,
+		CodeRunner:  codeRunner,
+	})
 
 	// Create embedding client if configured
 	var embedder embedding.Client
@@ -1586,7 +1593,7 @@ func loadAgent(ac config.AgentConfig, cfg *config.Config, store db.Store, credSt
 	searcher := memory.NewSearcher(store, embedder)
 
 	// Register built-in tools (filtered by agent's tool config)
-	registerTools(a.Tools, cfg, ac.Tools, skillRegistry, credStore, provider, skillsDir, store, ac.ID, searcher)
+	registerTools(a.Tools, cfg, ac.Tools, skillRegistry, credStore, codeRunner, skillsDir, store, ac.ID, searcher)
 
 	// Ensure agent exists in DB
 	if _, err := store.GetAgent(context.Background(), ac.ID); err != nil {

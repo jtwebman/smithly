@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"strings"
 	"time"
 
 	"smithly.dev/internal/config"
@@ -16,47 +15,8 @@ type EnvConfig struct {
 }
 
 // BuildEnv constructs environment variables for a code skill execution.
-// It injects sidecar credentials, data store connection info, and proxy settings.
-// Returns the augmented env slice and the issued sidecar token (empty if no sidecar).
-// The caller must defer RevokeToken on the returned token if non-empty.
+// Delegates to skills.BuildEnv — this wrapper exists so sandbox providers
+// can pass their EnvConfig without importing skills directly.
 func BuildEnv(ec EnvConfig, skillName string, timeout time.Duration, base []string) (env []string, token string) {
-	env = append(env, base...)
-
-	// Sidecar credentials
-	if ec.Sidecar != nil {
-		token = ec.Sidecar.IssueToken(skillName, timeout+30*time.Second)
-		env = append(env,
-			"SMITHLY_API="+ec.Sidecar.URL(),
-			"SMITHLY_TOKEN="+token,
-		)
-	}
-
-	// Data store connection info
-	dbTypeSet := false
-	for _, ds := range ec.DataStores {
-		prefix := "SMITHLY_" + strings.ToUpper(ds.Type)
-		switch ds.Type {
-		case "sqlite":
-			env = append(env, prefix+"_PATH="+ds.Path)
-		default:
-			env = append(env, prefix+"_URL="+ds.URL)
-		}
-		if !dbTypeSet {
-			env = append(env, "SMITHLY_DB_TYPE="+ds.Type)
-			dbTypeSet = true
-		}
-	}
-
-	// Proxy for outbound network gating
-	if ec.ProxyAddr != "" {
-		proxyURL := "http://" + ec.ProxyAddr
-		env = append(env,
-			"HTTP_PROXY="+proxyURL,
-			"HTTPS_PROXY="+proxyURL,
-			"http_proxy="+proxyURL,
-			"https_proxy="+proxyURL,
-		)
-	}
-
-	return env, token
+	return skills.BuildEnv(ec.Sidecar, ec.DataStores, ec.ProxyAddr, skillName, timeout, base)
 }

@@ -123,7 +123,7 @@ type ApprovalFunc func(toolName string, description string) bool
 func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessage, approve ApprovalFunc) (string, error) {
 	t, ok := r.Get(name)
 	if !ok {
-		return "", fmt.Errorf("unknown tool: %s", name)
+		return "", fmt.Errorf("unknown tool: %q", name)
 	}
 
 	if t.NeedsApproval() && approve != nil {

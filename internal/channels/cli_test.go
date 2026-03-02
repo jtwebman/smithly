@@ -70,7 +70,11 @@ func newTestCLIAgent(t *testing.T, srv *httptest.Server) *agent.Agent {
 	ws := &workspace.Workspace{
 		Identity: workspace.Identity{Name: "TestBot"},
 	}
-	return agent.NewWithClient("test", "test-model", "", srv.URL, "key", ws, store, srv.Client())
+	return agent.New(agent.Config{
+		ID: "test", Model: "test-model",
+		BaseURL: srv.URL, APIKey: "key",
+		Workspace: ws, Store: store, Client: srv.Client(),
+	})
 }
 
 func TestCLIExitCommand(t *testing.T) {

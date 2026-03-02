@@ -160,7 +160,7 @@ func (w *WriteSkill) Run(_ context.Context, args json.RawMessage) (string, error
 	if err != nil {
 		return "", fmt.Errorf("load skill: %w", err)
 	}
-	if err := w.registry.Add(skill); err != nil {
+	if err := w.registry.Register(skill); err != nil {
 		return "", fmt.Errorf("register skill: %w", err)
 	}
 

@@ -21,7 +21,7 @@ func TestRegistryAddAndGet(t *testing.T) {
 	r := NewRegistry()
 	s := testSkill("test")
 
-	if err := r.Add(s); err != nil {
+	if err := r.Register(s); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -38,15 +38,15 @@ func TestRegistryAddDuplicate(t *testing.T) {
 	r := NewRegistry()
 	s := testSkill("dup")
 
-	r.Add(s)
-	if err := r.Add(s); err == nil {
+	r.Register(s)
+	if err := r.Register(s); err == nil {
 		t.Error("expected error for duplicate skill")
 	}
 }
 
 func TestRegistryRemove(t *testing.T) {
 	r := NewRegistry()
-	r.Add(testSkill("removeme"))
+	r.Register(testSkill("removeme"))
 
 	if !r.Remove("removeme") {
 		t.Error("Remove should return true for existing skill")
@@ -61,9 +61,9 @@ func TestRegistryRemove(t *testing.T) {
 
 func TestRegistryAll(t *testing.T) {
 	r := NewRegistry()
-	r.Add(testSkill("a"))
-	r.Add(testSkill("b"))
-	r.Add(testSkill("c"))
+	r.Register(testSkill("a"))
+	r.Register(testSkill("b"))
+	r.Register(testSkill("c"))
 
 	all := r.All()
 	if len(all) != 3 {
@@ -73,9 +73,9 @@ func TestRegistryAll(t *testing.T) {
 
 func TestRegistryMatch(t *testing.T) {
 	r := NewRegistry()
-	r.Add(testSkill("review", Trigger{Type: "keyword", Pattern: "review"}))
-	r.Add(testSkill("summary", Trigger{Type: "keyword", Pattern: "summarize"}))
-	r.Add(testSkill("safety", Trigger{Type: "always"}))
+	r.Register(testSkill("review", Trigger{Type: "keyword", Pattern: "review"}))
+	r.Register(testSkill("summary", Trigger{Type: "keyword", Pattern: "summarize"}))
+	r.Register(testSkill("safety", Trigger{Type: "always"}))
 
 	// "review this code" should match review + safety
 	matched := r.Match("review this code")
@@ -111,11 +111,11 @@ func TestRegistrySummary(t *testing.T) {
 	r := NewRegistry()
 	review := testSkill("review", Trigger{Type: "keyword", Pattern: "review"})
 	review.Manifest.Skill.Description = "Code review helper"
-	r.Add(review)
+	r.Register(review)
 
 	safety := testSkill("safety", Trigger{Type: "always"})
 	safety.Manifest.Skill.Description = "Safety guidelines"
-	r.Add(safety)
+	r.Register(safety)
 
 	summary := r.Summary()
 	if summary == "" {
@@ -172,7 +172,7 @@ func TestLoadExampleSkills(t *testing.T) {
 			t.Errorf("Load(%s): %v", entry.Name(), err)
 			continue
 		}
-		if err := r.Add(s); err != nil {
+		if err := r.Register(s); err != nil {
 			t.Errorf("Add(%s): %v", entry.Name(), err)
 		}
 	}

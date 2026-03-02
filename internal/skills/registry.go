@@ -15,8 +15,8 @@ func NewRegistry() *Registry {
 	return &Registry{skills: make(map[string]*Skill)}
 }
 
-// Add registers a skill. Returns an error if a skill with the same name exists.
-func (r *Registry) Add(s *Skill) error {
+// Register adds a skill to the registry. Returns an error if a skill with the same name exists.
+func (r *Registry) Register(s *Skill) error {
 	name := s.Manifest.Skill.Name
 	if _, exists := r.skills[name]; exists {
 		return fmt.Errorf("skill %q already installed", name)

@@ -41,15 +41,34 @@ type Agent struct {
 	LLM         LLMClient
 }
 
-// New creates a new agent.
-func New(id, model, provider, baseURL, apiKey string, ws *workspace.Workspace, store db.Store) *Agent {
-	return NewWithClient(id, model, provider, baseURL, apiKey, ws, store, &http.Client{Timeout: 5 * time.Minute})
+// Config holds all parameters for constructing an Agent.
+type Config struct {
+	ID          string
+	Model       string
+	Provider    string // "anthropic", "openai", etc.
+	BaseURL     string // LLM API base URL (empty = default for provider)
+	APIKey      string
+	MaxContext  int
+	Pricing     ModelPricing
+	CostWindows []*CostWindow
+	Workspace   *workspace.Workspace
+	Store       db.Store
+	Skills      *skills.Registry
+	Services    *Services
+	CodeRunner  sandbox.Provider
+	Client      *http.Client // optional, for testing (nil = 5 min timeout default)
 }
 
-// NewWithClient creates a new agent with a custom HTTP client (for testing).
-func NewWithClient(id, model, provider, baseURL, apiKey string, ws *workspace.Workspace, store db.Store, client *http.Client) *Agent {
+// New creates a fully initialized agent from config.
+func New(cfg Config) *Agent {
+	client := cfg.Client
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Minute}
+	}
+
+	baseURL := cfg.BaseURL
 	if baseURL == "" {
-		switch provider {
+		switch cfg.Provider {
 		case "anthropic":
 			baseURL = "https://api.anthropic.com/v1"
 		default:
@@ -57,16 +76,27 @@ func NewWithClient(id, model, provider, baseURL, apiKey string, ws *workspace.Wo
 		}
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+
+	sk := cfg.Skills
+	if sk == nil {
+		sk = skills.NewRegistry()
+	}
+
 	return &Agent{
-		ID:        id,
-		Model:     model,
-		BaseURL:   baseURL,
-		APIKey:    apiKey,
-		Workspace: ws,
-		Store:     store,
-		Tools:     tools.NewRegistry(),
-		Skills:    skills.NewRegistry(),
-		LLM:       NewLLMClientForModel(provider, model, baseURL, apiKey, client),
+		ID:          cfg.ID,
+		Model:       cfg.Model,
+		BaseURL:     baseURL,
+		APIKey:      cfg.APIKey,
+		MaxContext:  cfg.MaxContext,
+		Pricing:     cfg.Pricing,
+		CostWindows: cfg.CostWindows,
+		Workspace:   cfg.Workspace,
+		Store:       cfg.Store,
+		Tools:       tools.NewRegistry(),
+		Skills:      sk,
+		Services:    cfg.Services,
+		CodeRunner:  cfg.CodeRunner,
+		LLM:         NewLLMClientForModel(cfg.Provider, cfg.Model, baseURL, cfg.APIKey, client),
 	}
 }
 

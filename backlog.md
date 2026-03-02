@@ -598,6 +598,15 @@ See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
 ### Summary Insert Error ✅
 - [x] `internal/agent/context.go` — `_ = err` on `InsertSummary` → `slog.Warn` (non-fatal but logged)
 
+### Pattern Consistency (principal engineer review) ✅
+- [x] BuildEnv duplication eliminated — canonical `skills.BuildEnv()`, `sandbox/env.go` is thin wrapper
+- [x] Registry naming standardized — `skills.Registry.Add()` → `Register()` (matches `tools.Registry.Register()`)
+- [x] Channel constructors added — `NewCLI()`, `NewTelegram()` (no bare struct literals from outside package)
+- [x] Agent two-phase init eliminated — single `agent.New(cfg Config)` constructor, no post-construction mutation
+- [x] `Runner.SetProxy()` removed — proxy address passed via `NewRunner()` constructor (functional style)
+- [x] Error format fix — `tools.go` unknown tool name uses `%q` instead of `%s`
+- [x] All 18 golangci-lint linters pass clean
+
 ### Remaining (deferred)
 - [ ] Add `t.Parallel()` to pure-function tests (gatekeeper, config, sandbox, robots, credentials)
 - [ ] Telegram: add test for exact 4096-char boundary

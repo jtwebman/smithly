@@ -163,7 +163,11 @@ func newTestTGAgent(t *testing.T, llmSrv *httptest.Server) *agent.Agent {
 	ws := &workspace.Workspace{
 		Identity: workspace.Identity{Name: "TGBot"},
 	}
-	return agent.NewWithClient("test", "test-model", "", llmSrv.URL, "key", ws, store, llmSrv.Client())
+	return agent.New(agent.Config{
+		ID: "test", Model: "test-model",
+		BaseURL: llmSrv.URL, APIKey: "key",
+		Workspace: ws, Store: store, Client: llmSrv.Client(),
+	})
 }
 
 func TestTelegramHandleMessage(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
 
@@ -43,7 +42,7 @@ type Runner struct {
 }
 
 // NewRunner creates a code skill runner with the given execution timeout.
-func NewRunner(timeout time.Duration, sidecar SidecarIface, stores []config.DataStoreConfig) *Runner {
+func NewRunner(timeout time.Duration, sidecar SidecarIface, stores []config.DataStoreConfig, proxyAddr string) *Runner {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
@@ -51,12 +50,8 @@ func NewRunner(timeout time.Duration, sidecar SidecarIface, stores []config.Data
 		timeout:    timeout,
 		sidecar:    sidecar,
 		dataStores: stores,
+		proxyAddr:  proxyAddr,
 	}
-}
-
-// SetProxy configures the HTTP proxy address for outbound network access.
-func (r *Runner) SetProxy(addr string) {
-	r.proxyAddr = addr
 }
 
 // Run executes a code skill with JSON input on stdin and captures JSON output on stdout.
@@ -78,41 +73,11 @@ func (r *Runner) Run(ctx context.Context, skill *Skill, input json.RawMessage, e
 		}
 	}
 
-	// Inject sidecar env vars
-	if r.sidecar != nil {
-		token := r.sidecar.IssueToken(skill.Manifest.Skill.Name, r.timeout+30*time.Second)
+	// Build skill environment (sidecar credentials, data store connections, proxy)
+	var token string
+	env, token = BuildEnv(r.sidecar, r.dataStores, r.proxyAddr, skill.Manifest.Skill.Name, r.timeout, env)
+	if token != "" {
 		defer r.sidecar.RevokeToken(token)
-		env = append(env,
-			"SMITHLY_API="+r.sidecar.URL(),
-			"SMITHLY_TOKEN="+token,
-		)
-	}
-
-	// Inject data store env vars — skill connects directly
-	dbTypeSet := false
-	for _, ds := range r.dataStores {
-		prefix := "SMITHLY_" + strings.ToUpper(ds.Type)
-		switch ds.Type {
-		case "sqlite":
-			env = append(env, prefix+"_PATH="+ds.Path)
-		default:
-			env = append(env, prefix+"_URL="+ds.URL)
-		}
-		if !dbTypeSet {
-			env = append(env, "SMITHLY_DB_TYPE="+ds.Type)
-			dbTypeSet = true
-		}
-	}
-
-	// Inject proxy env vars for outbound network gating
-	if r.proxyAddr != "" {
-		proxyURL := "http://" + r.proxyAddr
-		env = append(env,
-			"HTTP_PROXY="+proxyURL,
-			"HTTPS_PROXY="+proxyURL,
-			"http_proxy="+proxyURL,
-			"https_proxy="+proxyURL,
-		)
 	}
 
 	// Determine command to run

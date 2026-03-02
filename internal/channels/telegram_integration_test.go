@@ -76,7 +76,11 @@ func TestIntegrationTelegramRoundTrip(t *testing.T) {
 	ws := &workspace.Workspace{
 		Identity: workspace.Identity{Name: "IntegrationBot"},
 	}
-	a := agent.NewWithClient("integration", "test", "", llmSrv.URL, "key", ws, store, llmSrv.Client())
+	a := agent.New(agent.Config{
+		ID: "integration", Model: "test",
+		BaseURL: llmSrv.URL, APIKey: "key",
+		Workspace: ws, Store: store, Client: llmSrv.Client(),
+	})
 
 	tg := &channels.Telegram{
 		Token: token,

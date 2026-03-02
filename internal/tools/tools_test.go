@@ -397,7 +397,7 @@ func TestClaudeCodeTool(t *testing.T) {
 
 func TestReadSkillTool(t *testing.T) {
 	sr := skills.NewRegistry()
-	sr.Add(&skills.Skill{
+	sr.Register(&skills.Skill{
 		Manifest: skills.Manifest{
 			Skill: skills.SkillMeta{Name: "test-skill", Description: "A test skill"},
 		},
