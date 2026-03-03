@@ -123,6 +123,10 @@ type Callbacks struct {
 	// Source identifies where the user message came from (e.g. "cli", "api",
 	// "channel:telegram"). Defaults to "cli" when empty.
 	Source string
+
+	// Trust overrides the default "trusted" level for inbound messages.
+	// Empty defaults to "trusted". Webhook sources use "semi-trusted".
+	Trust string
 }
 
 // chatMessage is a message in the OpenAI chat format, extended for tool use.
@@ -318,12 +322,16 @@ func (a *Agent) Chat(ctx context.Context, userMessage string, cb *Callbacks) (st
 		if source == "" {
 			source = "cli"
 		}
+		trust := cb.Trust
+		if trust == "" {
+			trust = "trusted"
+		}
 		if err := a.Store.AppendMessage(ctx, &db.Message{
 			AgentID: a.ID,
 			Role:    "user",
 			Content: userMessage,
 			Source:  source,
-			Trust:   "trusted",
+			Trust:   trust,
 		}); err != nil {
 			return "", fmt.Errorf("save user message: %w", err)
 		}

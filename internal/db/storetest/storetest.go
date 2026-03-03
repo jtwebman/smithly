@@ -51,6 +51,15 @@ func RunAll(t *testing.T, factory Factory) {
 		{"GetMessagesByIDs", testGetMessagesByIDs},
 		{"AppendMessageSetsID", testAppendMessageSetsID},
 		{"MigrateIdempotent", testMigrateIdempotent},
+		{"CreateAndListBindings", testCreateAndListBindings},
+		{"DeleteBinding", testDeleteBinding},
+		{"ResolveBindingExactContact", testResolveBindingExactContact},
+		{"ResolveBindingChannelFallback", testResolveBindingChannelFallback},
+		{"ResolveBindingWildcard", testResolveBindingWildcard},
+		{"ResolveBindingNotFound", testResolveBindingNotFound},
+		{"ResolveBindingPriority", testResolveBindingPriority},
+		{"LogAndListWebhooks", testLogAndListWebhooks},
+		{"ListWebhooksFilterByName", testListWebhooksFilterByName},
 	}
 
 	for _, tt := range tests {
@@ -863,6 +872,299 @@ func testAppendMessageSetsID(t *testing.T, store db.Store) {
 	}
 	if msg.ID == 0 {
 		t.Error("msg.ID should be set after AppendMessage")
+	}
+}
+
+// --- Binding Tests ---
+
+func testCreateAndListBindings(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot2", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	b1 := &db.Binding{Channel: "telegram", Contact: "12345", AgentID: "bot1"}
+	b2 := &db.Binding{Channel: "telegram", AgentID: "bot2"}
+	b3 := &db.Binding{Channel: "discord", Contact: "ch99", AgentID: "bot1"}
+
+	for _, b := range []*db.Binding{b1, b2, b3} {
+		if err := store.CreateBinding(ctx, b); err != nil {
+			t.Fatalf("CreateBinding: %v", err)
+		}
+		if b.ID == 0 {
+			t.Error("expected non-zero ID after CreateBinding")
+		}
+	}
+
+	// List all
+	all, err := store.ListBindings(ctx, "")
+	if err != nil {
+		t.Fatalf("ListBindings: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("len = %d, want 3", len(all))
+	}
+
+	// List by channel
+	tg, err := store.ListBindings(ctx, "telegram")
+	if err != nil {
+		t.Fatalf("ListBindings telegram: %v", err)
+	}
+	if len(tg) != 2 {
+		t.Fatalf("telegram len = %d, want 2", len(tg))
+	}
+	// Highest priority first
+	if tg[0].Priority < tg[1].Priority {
+		t.Errorf("expected descending priority, got %d then %d", tg[0].Priority, tg[1].Priority)
+	}
+}
+
+func testDeleteBinding(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	b := &db.Binding{Channel: "telegram", Contact: "999", AgentID: "bot1"}
+	if err := store.CreateBinding(ctx, b); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+
+	if err := store.DeleteBinding(ctx, b.ID); err != nil {
+		t.Fatalf("DeleteBinding: %v", err)
+	}
+
+	list, err := store.ListBindings(ctx, "telegram")
+	if err != nil {
+		t.Fatalf("ListBindings: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("expected 0 bindings after delete, got %d", len(list))
+	}
+}
+
+func testResolveBindingExactContact(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot2", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	// Channel-only fallback
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "telegram", AgentID: "bot2"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+	// Exact contact match
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "telegram", Contact: "42", AgentID: "bot1"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+
+	got, err := store.ResolveBinding(ctx, "telegram", "42")
+	if err != nil {
+		t.Fatalf("ResolveBinding: %v", err)
+	}
+	if got.AgentID != "bot1" {
+		t.Errorf("AgentID = %q, want bot1", got.AgentID)
+	}
+	if got.Priority != 20 {
+		t.Errorf("Priority = %d, want 20", got.Priority)
+	}
+}
+
+func testResolveBindingChannelFallback(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	// Channel-only binding (no contact)
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "telegram", AgentID: "bot1"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+
+	got, err := store.ResolveBinding(ctx, "telegram", "unknown-chat")
+	if err != nil {
+		t.Fatalf("ResolveBinding: %v", err)
+	}
+	if got.AgentID != "bot1" {
+		t.Errorf("AgentID = %q, want bot1", got.AgentID)
+	}
+	if got.Priority != 5 {
+		t.Errorf("Priority = %d, want 5", got.Priority)
+	}
+}
+
+func testResolveBindingWildcard(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	// Wildcard binding
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "*", AgentID: "bot1"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+
+	got, err := store.ResolveBinding(ctx, "discord", "any-channel")
+	if err != nil {
+		t.Fatalf("ResolveBinding: %v", err)
+	}
+	if got.AgentID != "bot1" {
+		t.Errorf("AgentID = %q, want bot1", got.AgentID)
+	}
+	if got.Priority != 0 {
+		t.Errorf("Priority = %d, want 0", got.Priority)
+	}
+}
+
+func testResolveBindingNotFound(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	_, err := store.ResolveBinding(ctx, "telegram", "12345")
+	if err == nil {
+		t.Fatal("expected error for no binding, got nil")
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("expected db.ErrNotFound, got %v", err)
+	}
+}
+
+func testResolveBindingPriority(t *testing.T, store db.Store) {
+	ctx := context.Background()
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot1", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot2", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &db.Agent{ID: "bot3", Model: "m", WorkspacePath: "w"}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	// Wildcard (priority 0)
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "*", AgentID: "bot3"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+	// Channel-only (priority 5)
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "telegram", AgentID: "bot2"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+	// Contact-specific (priority 20)
+	if err := store.CreateBinding(ctx, &db.Binding{Channel: "telegram", Contact: "vip", AgentID: "bot1"}); err != nil {
+		t.Fatalf("CreateBinding: %v", err)
+	}
+
+	// VIP contact should get bot1
+	got, err := store.ResolveBinding(ctx, "telegram", "vip")
+	if err != nil {
+		t.Fatalf("ResolveBinding vip: %v", err)
+	}
+	if got.AgentID != "bot1" {
+		t.Errorf("vip AgentID = %q, want bot1", got.AgentID)
+	}
+
+	// Regular contact should get bot2 (channel fallback)
+	got, err = store.ResolveBinding(ctx, "telegram", "regular")
+	if err != nil {
+		t.Fatalf("ResolveBinding regular: %v", err)
+	}
+	if got.AgentID != "bot2" {
+		t.Errorf("regular AgentID = %q, want bot2", got.AgentID)
+	}
+
+	// Unknown channel should get bot3 (wildcard)
+	got, err = store.ResolveBinding(ctx, "slack", "any")
+	if err != nil {
+		t.Fatalf("ResolveBinding slack: %v", err)
+	}
+	if got.AgentID != "bot3" {
+		t.Errorf("slack AgentID = %q, want bot3", got.AgentID)
+	}
+}
+
+// --- Webhook Log Tests ---
+
+func testLogAndListWebhooks(t *testing.T, store db.Store) {
+	ctx := context.Background()
+
+	entry := &db.WebhookEntry{
+		Webhook:        "github",
+		Headers:        `{"Content-Type":"application/json"}`,
+		Body:           `{"action":"push"}`,
+		SourceIP:       "1.2.3.4",
+		SignatureValid: true,
+		AgentID:        "coder",
+	}
+	if err := store.LogWebhook(ctx, entry); err != nil {
+		t.Fatalf("LogWebhook: %v", err)
+	}
+	if entry.ID == 0 {
+		t.Error("expected non-zero ID after LogWebhook")
+	}
+
+	// Log a second entry
+	entry2 := &db.WebhookEntry{
+		Webhook: "stripe",
+		Body:    `{"type":"charge.succeeded"}`,
+		AgentID: "billing",
+	}
+	if err := store.LogWebhook(ctx, entry2); err != nil {
+		t.Fatalf("LogWebhook: %v", err)
+	}
+
+	// List all
+	all, err := store.ListWebhookLog(ctx, "", 10)
+	if err != nil {
+		t.Fatalf("ListWebhookLog: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("len = %d, want 2", len(all))
+	}
+	// Most recent first
+	if all[0].Webhook != "stripe" {
+		t.Errorf("first = %q, want stripe", all[0].Webhook)
+	}
+	if all[1].Webhook != "github" {
+		t.Errorf("second = %q, want github", all[1].Webhook)
+	}
+	if !all[1].SignatureValid {
+		t.Error("expected SignatureValid=true for github entry")
+	}
+	if all[1].SourceIP != "1.2.3.4" {
+		t.Errorf("SourceIP = %q, want 1.2.3.4", all[1].SourceIP)
+	}
+}
+
+func testListWebhooksFilterByName(t *testing.T, store db.Store) {
+	ctx := context.Background()
+
+	for _, name := range []string{"github", "github", "stripe"} {
+		if err := store.LogWebhook(ctx, &db.WebhookEntry{
+			Webhook: name,
+			Body:    `{}`,
+		}); err != nil {
+			t.Fatalf("LogWebhook: %v", err)
+		}
+	}
+
+	gh, err := store.ListWebhookLog(ctx, "github", 10)
+	if err != nil {
+		t.Fatalf("ListWebhookLog github: %v", err)
+	}
+	if len(gh) != 2 {
+		t.Fatalf("github len = %d, want 2", len(gh))
+	}
+
+	stripe, err := store.ListWebhookLog(ctx, "stripe", 10)
+	if err != nil {
+		t.Fatalf("ListWebhookLog stripe: %v", err)
+	}
+	if len(stripe) != 1 {
+		t.Fatalf("stripe len = %d, want 1", len(stripe))
 	}
 }
 

@@ -53,6 +53,16 @@ type Store interface {
 	ListDomains(ctx context.Context) ([]*DomainEntry, error)
 	SetDomain(ctx context.Context, entry *DomainEntry) error
 	TouchDomain(ctx context.Context, domain string) error
+
+	// Bindings (channel → agent routing)
+	CreateBinding(ctx context.Context, b *Binding) error
+	ListBindings(ctx context.Context, channel string) ([]*Binding, error)
+	DeleteBinding(ctx context.Context, id int64) error
+	ResolveBinding(ctx context.Context, channel, contact string) (*Binding, error)
+
+	// Webhook log (inbound webhook delivery audit)
+	LogWebhook(ctx context.Context, entry *WebhookEntry) error
+	ListWebhookLog(ctx context.Context, webhook string, limit int) ([]*WebhookEntry, error)
 }
 
 // Agent represents an agent configuration in the database.
@@ -115,6 +125,29 @@ type DomainEntry struct {
 	AccessCount  int
 	RequestedBy  string
 	Notes        string
+}
+
+// Binding maps a channel/contact pair to an agent with priority-based matching.
+type Binding struct {
+	ID       int64
+	Channel  string // "telegram", "discord", "*"
+	Server   string // optional guild/group identifier
+	Contact  string // optional chat/channel identifier
+	AgentID  string
+	Priority int // auto-computed: contact=20, server=10, channel-only=5, wildcard=0
+}
+
+// WebhookEntry is a logged inbound webhook delivery.
+type WebhookEntry struct {
+	ID             int64
+	Webhook        string
+	Headers        string // JSON-encoded headers
+	Body           string
+	SourceIP       string
+	SignatureValid bool
+	AgentID        string
+	Processed      bool
+	CreatedAt      time.Time
 }
 
 // AuditQuery filters audit log queries.

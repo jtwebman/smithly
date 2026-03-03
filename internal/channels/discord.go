@@ -41,6 +41,7 @@ const (
 type Discord struct {
 	Token       string
 	Agent       *agent.Agent
+	Resolver    AgentResolver // nil = use Agent field (legacy mode)
 	AutoApprove bool
 	GatewayURL  string       // override for testing (ws:// URL)
 	APIURL      string       // override for testing (REST base URL)
@@ -58,6 +59,15 @@ func NewDiscord(token string, a *agent.Agent, autoApprove bool) *Discord {
 	return &Discord{
 		Token:       token,
 		Agent:       a,
+		AutoApprove: autoApprove,
+	}
+}
+
+// NewDiscordWithResolver creates a Discord adapter that resolves agents per-message.
+func NewDiscordWithResolver(token string, resolver AgentResolver, autoApprove bool) *Discord {
+	return &Discord{
+		Token:       token,
+		Resolver:    resolver,
 		AutoApprove: autoApprove,
 	}
 }
@@ -270,6 +280,18 @@ func (d *Discord) handleMessage(ctx context.Context, msg discordMessage) {
 	// Send typing indicator
 	d.sendTyping(ctx, msg.ChannelID)
 
+	// Resolve agent: per-message binding or legacy single-agent
+	a := d.Agent
+	if d.Resolver != nil {
+		resolved, err := d.Resolver.ResolveAgent(ctx, "discord", msg.ChannelID)
+		if err != nil {
+			slog.Error("discord resolve agent error", "channel_id", msg.ChannelID, "err", err)
+			d.sendChannelMessage(ctx, msg.ChannelID, fmt.Sprintf("Error: %v", err))
+			return
+		}
+		a = resolved
+	}
+
 	cb := &agent.Callbacks{
 		Source: "channel:discord",
 		Approve: func(toolName string, description string) bool {
@@ -277,7 +299,7 @@ func (d *Discord) handleMessage(ctx context.Context, msg discordMessage) {
 		},
 	}
 
-	response, err := d.Agent.Chat(ctx, msg.Content, cb)
+	response, err := a.Chat(ctx, msg.Content, cb)
 	if err != nil {
 		slog.Error("discord chat error", "channel_id", msg.ChannelID, "err", err)
 		d.sendChannelMessage(ctx, msg.ChannelID, fmt.Sprintf("Error: %v", err))

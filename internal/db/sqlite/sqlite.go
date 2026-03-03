@@ -664,6 +664,169 @@ func (s *Store) TouchDomain(ctx context.Context, domain string) error {
 	return err
 }
 
+// --- Bindings ---
+
+func bindingPriority(channel, server, contact string) int {
+	if contact != "" {
+		return 20
+	}
+	if server != "" {
+		return 10
+	}
+	if channel != "*" {
+		return 5
+	}
+	return 0
+}
+
+func (s *Store) CreateBinding(ctx context.Context, b *db.Binding) error {
+	b.Priority = bindingPriority(b.Channel, b.Server, b.Contact)
+
+	var server, contact *string
+	if b.Server != "" {
+		server = &b.Server
+	}
+	if b.Contact != "" {
+		contact = &b.Contact
+	}
+
+	res, err := s.conn.ExecContext(ctx,
+		`INSERT INTO bindings (channel, server, contact, agent_id, priority)
+		 VALUES (?, ?, ?, ?, ?)`,
+		b.Channel, server, contact, b.AgentID, b.Priority,
+	)
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err == nil {
+		b.ID = id
+	}
+	return nil
+}
+
+func (s *Store) ListBindings(ctx context.Context, channel string) ([]*db.Binding, error) {
+	var query string
+	var args []any
+	if channel != "" {
+		query = `SELECT id, channel, server, contact, agent_id, priority
+			FROM bindings WHERE channel = ? ORDER BY priority DESC`
+		args = []any{channel}
+	} else {
+		query = `SELECT id, channel, server, contact, agent_id, priority
+			FROM bindings ORDER BY priority DESC`
+	}
+
+	rows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bindings []*db.Binding
+	for rows.Next() {
+		b := &db.Binding{}
+		var server, contact sql.NullString
+		if err := rows.Scan(&b.ID, &b.Channel, &server, &contact, &b.AgentID, &b.Priority); err != nil {
+			return nil, err
+		}
+		b.Server = server.String
+		b.Contact = contact.String
+		bindings = append(bindings, b)
+	}
+	return bindings, rows.Err()
+}
+
+func (s *Store) DeleteBinding(ctx context.Context, id int64) error {
+	_, err := s.conn.ExecContext(ctx, "DELETE FROM bindings WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) ResolveBinding(ctx context.Context, channel, contact string) (*db.Binding, error) {
+	row := s.conn.QueryRowContext(ctx,
+		`SELECT id, channel, server, contact, agent_id, priority
+		 FROM bindings
+		 WHERE (channel = ? AND contact = ?)
+		    OR (channel = ? AND contact IS NULL AND server IS NULL)
+		    OR (channel = '*' AND contact IS NULL AND server IS NULL)
+		 ORDER BY priority DESC
+		 LIMIT 1`,
+		channel, contact, channel,
+	)
+
+	b := &db.Binding{}
+	var server, contactVal sql.NullString
+	err := row.Scan(&b.ID, &b.Channel, &server, &contactVal, &b.AgentID, &b.Priority)
+	if err != nil {
+		return nil, wrapNotFound(err)
+	}
+	b.Server = server.String
+	b.Contact = contactVal.String
+	return b, nil
+}
+
+// --- Webhook Log ---
+
+func (s *Store) LogWebhook(ctx context.Context, entry *db.WebhookEntry) error {
+	res, err := s.conn.ExecContext(ctx,
+		`INSERT INTO webhook_log (webhook, headers, body, source_ip, signature_valid, agent_id, processed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		entry.Webhook, entry.Headers, entry.Body, entry.SourceIP,
+		boolToInt(entry.SignatureValid), entry.AgentID, boolToInt(entry.Processed),
+	)
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err == nil {
+		entry.ID = id
+	}
+	return nil
+}
+
+func (s *Store) ListWebhookLog(ctx context.Context, webhook string, limit int) ([]*db.WebhookEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var query string
+	var args []any
+	if webhook != "" {
+		query = `SELECT id, webhook, headers, body, source_ip, signature_valid, agent_id, processed, created_at
+			FROM webhook_log WHERE webhook = ? ORDER BY id DESC LIMIT ?`
+		args = []any{webhook, limit}
+	} else {
+		query = `SELECT id, webhook, headers, body, source_ip, signature_valid, agent_id, processed, created_at
+			FROM webhook_log ORDER BY id DESC LIMIT ?`
+		args = []any{limit}
+	}
+
+	rows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []*db.WebhookEntry
+	for rows.Next() {
+		e := &db.WebhookEntry{}
+		var sigValid, processed int
+		var headers, sourceIP, agentID sql.NullString
+		var createdAt string
+		if err := rows.Scan(&e.ID, &e.Webhook, &headers, &e.Body, &sourceIP, &sigValid, &agentID, &processed, &createdAt); err != nil {
+			return nil, err
+		}
+		e.Headers = headers.String
+		e.SourceIP = sourceIP.String
+		e.SignatureValid = sigValid != 0
+		e.AgentID = agentID.String
+		e.Processed = processed != 0
+		e.CreatedAt = parseTime(createdAt)
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // --- helpers ---
 
 type scannable interface {

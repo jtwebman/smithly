@@ -20,6 +20,8 @@ import (
 	"smithly.dev/internal/sidecar"
 	"smithly.dev/internal/store"
 	"smithly.dev/internal/tools"
+	"smithly.dev/internal/tunnel"
+	"smithly.dev/internal/webhook"
 )
 
 // cmdStart runs the gateway and all agents.
@@ -77,15 +79,21 @@ func cmdStart() {
 
 	// Start channel adapters
 	for _, ch := range cfg.Channels {
+		resolver := &channels.BindingResolver{
+			Store:        dbStore,
+			Agents:       gw,
+			DefaultAgent: ch.Agent,
+		}
+
 		switch ch.Type {
 		case "telegram":
-			a, ok := gw.GetAgent(ch.Agent)
-			if !ok {
+			// Verify default agent exists
+			if _, ok := gw.GetAgent(ch.Agent); !ok {
 				cancel()
 				dbStore.Close()
 				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
 			}
-			tg := channels.NewTelegram(ch.BotToken, a, ch.AutoApprove)
+			tg := channels.NewTelegramWithResolver(ch.BotToken, resolver, ch.AutoApprove)
 			go func(tg *channels.Telegram) {
 				if err := tg.Start(ctx); err != nil && ctx.Err() == nil {
 					slog.Error("telegram channel error", "err", err)
@@ -93,13 +101,13 @@ func cmdStart() {
 			}(tg)
 			slog.Info("channel started", "type", "telegram", "agent", ch.Agent)
 		case "discord":
-			a, ok := gw.GetAgent(ch.Agent)
-			if !ok {
+			// Verify default agent exists
+			if _, ok := gw.GetAgent(ch.Agent); !ok {
 				cancel()
 				dbStore.Close()
 				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
 			}
-			dc := channels.NewDiscord(ch.BotToken, a, ch.AutoApprove)
+			dc := channels.NewDiscordWithResolver(ch.BotToken, resolver, ch.AutoApprove)
 			go func(dc *channels.Discord) {
 				if err := dc.Start(ctx); err != nil && ctx.Err() == nil {
 					slog.Error("discord channel error", "err", err)
@@ -113,11 +121,80 @@ func cmdStart() {
 		}
 	}
 
+	// Start webhook server + tunnel
+	var whServer *webhook.Server
+	var whTunnel tunnel.Tunnel
+	if len(cfg.Webhooks) > 0 {
+		webhooks := make(map[string]*webhook.WebhookConfig, len(cfg.Webhooks))
+		for _, wh := range cfg.Webhooks {
+			// Verify agent exists
+			if _, ok := gw.GetAgent(wh.Agent); !ok {
+				cancel()
+				dbStore.Close()
+				log.Fatalf("webhook %s: agent %q not found", wh.Name, wh.Agent)
+			}
+			webhooks[wh.Name] = &webhook.WebhookConfig{
+				Name:        wh.Name,
+				Secret:      wh.Secret,
+				AgentID:     wh.Agent,
+				AutoApprove: wh.AutoApprove,
+			}
+		}
+
+		whBind := cfg.Webhook.Bind
+		if whBind == "" {
+			whBind = "127.0.0.1"
+		}
+		whPort := cfg.Webhook.Port
+		if whPort == 0 {
+			whPort = defaultWebhookPort
+		}
+
+		whServer = &webhook.Server{
+			Bind:     whBind,
+			Port:     whPort,
+			Webhooks: webhooks,
+			Store:    dbStore,
+			Agents:   gw,
+		}
+
+		go func() {
+			if err := whServer.Start(); err != nil && ctx.Err() == nil {
+				slog.Error("webhook server error", "err", err)
+			}
+		}()
+
+		// Start tunnel if configured
+		whAddr := fmt.Sprintf("%s:%d", whBind, whPort)
+		if cfg.Webhook.Tunnel.Provider == "ngrok" {
+			whTunnel = &tunnel.Ngrok{
+				Authtoken: cfg.Webhook.Tunnel.Authtoken,
+				Domain:    cfg.Webhook.Tunnel.Domain,
+			}
+			publicURL, err := whTunnel.Start(ctx, whAddr)
+			if err != nil {
+				slog.Error("ngrok tunnel failed", "err", err)
+			} else {
+				slog.Info("webhook tunnel active", "url", publicURL)
+			}
+		}
+	}
+
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
 		slog.Info("shutting down")
+		if whTunnel != nil {
+			if err := whTunnel.Stop(ctx); err != nil {
+				slog.Error("tunnel shutdown error", "err", err)
+			}
+		}
+		if whServer != nil {
+			if err := whServer.Shutdown(ctx); err != nil {
+				slog.Error("webhook server shutdown error", "err", err)
+			}
+		}
 		if gkProxy != nil {
 			if err := gkProxy.Shutdown(ctx); err != nil {
 				slog.Error("gatekeeper shutdown error", "err", err)
@@ -136,6 +213,17 @@ func cmdStart() {
 	fmt.Printf("Sidecar:    %s\n", sc.URL())
 	if gkProxy != nil {
 		fmt.Printf("Gatekeeper: http://%s\n", gkProxy.Addr())
+	}
+	if whServer != nil {
+		whBind := cfg.Webhook.Bind
+		if whBind == "" {
+			whBind = "127.0.0.1"
+		}
+		whPort := cfg.Webhook.Port
+		if whPort == 0 {
+			whPort = defaultWebhookPort
+		}
+		fmt.Printf("Webhooks:   http://%s:%d\n", whBind, whPort)
 	}
 	fmt.Printf("Sandbox:    %s\n", cfg.Sandbox.Provider)
 	fmt.Printf("Token:      %s\n\n", cfg.Gateway.Token)

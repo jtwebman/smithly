@@ -9,6 +9,7 @@ const (
 	defaultOAuthCallbackPort = 18790
 	defaultSidecarPort       = 18791
 	defaultGatekeeperPort    = 18792
+	defaultWebhookPort       = 18793
 )
 
 func main() {
@@ -32,10 +33,14 @@ func main() {
 		cmdOAuth2()
 	case "audit":
 		cmdAudit()
+	case "binding":
+		cmdBinding()
 	case "domain":
 		cmdDomain()
 	case "memory":
 		cmdMemory()
+	case "webhook":
+		cmdWebhook()
 	case "doctor":
 		cmdDoctor()
 	case "version":
@@ -60,7 +65,9 @@ Commands:
   skill     Manage instruction skills (list, add, remove)
   oauth2    Manage OAuth2 providers (auth, list)
   audit     Show audit log
+  binding   Manage channel → agent bindings
   domain    Manage network domain allowlist
+  webhook   List configured webhooks and delivery log
   memory    Search, stats, export, and embed conversation memory
   doctor    Check dependencies
   version   Print version

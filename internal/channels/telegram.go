@@ -23,6 +23,7 @@ const (
 type Telegram struct {
 	Token       string
 	Agent       *agent.Agent
+	Resolver    AgentResolver // nil = use Agent field (legacy mode)
 	AutoApprove bool
 	BaseURL     string // override for testing (default "https://api.telegram.org/bot")
 	client      *http.Client
@@ -35,6 +36,15 @@ func NewTelegram(token string, a *agent.Agent, autoApprove bool) *Telegram {
 	return &Telegram{
 		Token:       token,
 		Agent:       a,
+		AutoApprove: autoApprove,
+	}
+}
+
+// NewTelegramWithResolver creates a Telegram adapter that resolves agents per-message.
+func NewTelegramWithResolver(token string, resolver AgentResolver, autoApprove bool) *Telegram {
+	return &Telegram{
+		Token:       token,
+		Resolver:    resolver,
 		AutoApprove: autoApprove,
 	}
 }
@@ -103,6 +113,19 @@ func (t *Telegram) handleMessage(ctx context.Context, msg *tgMessage) {
 	// Send typing indicator
 	t.sendChatAction(ctx, chatID, "typing")
 
+	// Resolve agent: per-message binding or legacy single-agent
+	a := t.Agent
+	if t.Resolver != nil {
+		contact := fmt.Sprintf("%d", chatID)
+		resolved, err := t.Resolver.ResolveAgent(ctx, "telegram", contact)
+		if err != nil {
+			slog.Error("telegram resolve agent error", "chat_id", chatID, "err", err)
+			t.sendMessage(ctx, chatID, fmt.Sprintf("Error: %v", err))
+			return
+		}
+		a = resolved
+	}
+
 	cb := &agent.Callbacks{
 		Source: "channel:telegram",
 		Approve: func(toolName string, description string) bool {
@@ -110,7 +133,7 @@ func (t *Telegram) handleMessage(ctx context.Context, msg *tgMessage) {
 		},
 	}
 
-	response, err := t.Agent.Chat(ctx, msg.Text, cb)
+	response, err := a.Chat(ctx, msg.Text, cb)
 	if err != nil {
 		slog.Error("telegram chat error", "chat_id", chatID, "err", err)
 		t.sendMessage(ctx, chatID, fmt.Sprintf("Error: %v", err))

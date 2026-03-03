@@ -24,8 +24,10 @@ type Config struct {
 	DataStores  []DataStoreConfig `toml:"datastore"`
 	Secrets     []SecretConfig    `toml:"secret"`
 	Gatekeeper  GatekeeperConfig  `toml:"gatekeeper"`
-	Channels    []ChannelConfig   `toml:"channels"`
-	Agents      []AgentConfig     `toml:"agents"`
+	Channels    []ChannelConfig      `toml:"channels"`
+	Webhook     WebhookServerConfig  `toml:"webhook"`
+	Webhooks    []WebhookConfig      `toml:"webhooks"`
+	Agents      []AgentConfig        `toml:"agents"`
 }
 
 
@@ -130,6 +132,28 @@ type ChannelConfig struct {
 	BotToken    string `toml:"bot_token"`    // bot API token
 	Agent       string `toml:"agent"`        // default agent ID to route messages to
 	AutoApprove bool   `toml:"auto_approve"` // auto-approve tool calls (default false = deny all)
+}
+
+// WebhookServerConfig configures the inbound webhook HTTP server.
+type WebhookServerConfig struct {
+	Bind   string              `toml:"bind"`   // default "127.0.0.1"
+	Port   int                 `toml:"port"`   // default 18793
+	Tunnel WebhookTunnelConfig `toml:"tunnel"`
+}
+
+// WebhookTunnelConfig configures public URL tunneling for the webhook server.
+type WebhookTunnelConfig struct {
+	Provider  string `toml:"provider"`  // "ngrok", "none" (default)
+	Authtoken string `toml:"authtoken"` // ngrok auth token
+	Domain    string `toml:"domain"`    // optional fixed domain (paid ngrok)
+}
+
+// WebhookConfig defines a named inbound webhook endpoint.
+type WebhookConfig struct {
+	Name        string `toml:"name"`
+	Secret      string `toml:"secret"`       // HMAC-SHA256 key, empty = skip verification
+	Agent       string `toml:"agent"`
+	AutoApprove bool   `toml:"auto_approve"`
 }
 
 type DataStoreConfig struct {

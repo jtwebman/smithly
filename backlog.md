@@ -378,18 +378,23 @@ See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
 - [ ] CSRF protection (for web UI)
 - [ ] Telegram markdown formatting
 
-### Channel Bindings
-- [ ] DB-based channel bindings with Store methods
-- [ ] Route channels → agents via binding rules
-- [ ] Per-contact agent routing
-- [ ] Priority-based matching (most specific wins)
-- [ ] Default catch-all agent
+### Channel Bindings ✅
+- [x] DB-based channel bindings with Store methods (CreateBinding, ListBindings, DeleteBinding, ResolveBinding)
+- [x] Route channels → agents via binding rules (BindingResolver)
+- [x] Per-contact agent routing (Telegram chatID, Discord channelID)
+- [x] Priority-based matching (contact=20, server=10, channel=5, wildcard=0)
+- [x] Default catch-all agent (falls back to `[[channels]]` config agent)
 
-### Webhooks
-- [ ] Inbound webhook handler
-- [ ] HMAC signature verification
-- [ ] Route webhook → agent/skill via config
-- [ ] Payloads tagged `semi-trusted` by firewall
+### Webhooks ✅
+- [x] Inbound webhook handler (dedicated HTTP server on port 18793)
+- [x] HMAC-SHA256 signature verification (GitHub-compatible `X-Hub-Signature-256`)
+- [x] Route webhook → agent via `[[webhooks]]` config
+- [x] Payloads tagged `semi-trusted` via `Trust` field on `agent.Callbacks`
+- [x] `webhook_log` DB table for audit/replay (all deliveries logged)
+- [x] Tunnel provider abstraction (`internal/tunnel/`) with ngrok-go SDK + no-op
+- [x] `smithly webhook list` / `smithly webhook log` CLI commands
+- [x] 12 unit tests (HMAC, delivery, unknown webhook, oversized body, fast response)
+- [x] 5 integration subtests (full round-trip with tool call, invalid sig, no-secret, unknown, health)
 
 ### Advanced
 - [ ] Dynamic agent spawning (sub-agents)
