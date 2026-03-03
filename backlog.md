@@ -371,7 +371,7 @@ See [INSTALL.md](INSTALL.md) § 11 for full Telegram setup instructions.
 ## Phase 8b: Channels (remaining)
 
 ### Channel Adapters
-- [ ] Discord adapter
+- [x] Discord adapter (WebSocket Gateway + REST API, `github.com/coder/websocket`, 10 unit tests + 2 integration tests)
 - [ ] Slack adapter
 - [ ] Web UI channel (chat + agent dashboard)
 - [ ] Session management (for web UI)

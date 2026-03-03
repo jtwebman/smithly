@@ -92,6 +92,20 @@ func cmdStart() {
 				}
 			}(tg)
 			slog.Info("channel started", "type", "telegram", "agent", ch.Agent)
+		case "discord":
+			a, ok := gw.GetAgent(ch.Agent)
+			if !ok {
+				cancel()
+				dbStore.Close()
+				log.Fatalf("channel %s: agent %q not found", ch.Type, ch.Agent)
+			}
+			dc := channels.NewDiscord(ch.BotToken, a, ch.AutoApprove)
+			go func(dc *channels.Discord) {
+				if err := dc.Start(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("discord channel error", "err", err)
+				}
+			}(dc)
+			slog.Info("channel started", "type", "discord", "agent", ch.Agent)
 		default:
 			cancel()
 			dbStore.Close()
