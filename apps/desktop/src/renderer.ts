@@ -6,13 +6,28 @@ import { Terminal } from "@xterm/xterm";
 type PlanningScope = "project" | "task";
 
 interface DesktopProjectSummary {
+  readonly approvalPolicySummary: string;
   readonly id: string;
+  readonly metadataSummary: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
+  readonly verificationSummary: string;
   readonly activeTaskCount: number;
   readonly activeSessionCount: number;
   readonly backlogCount: number;
+}
+
+interface DesktopProjectRegistrationInput {
+  readonly approvalPolicy: {
+    readonly requireApprovalForHighRiskTasks: boolean;
+    readonly requireApprovalForNewBacklogItems: boolean;
+    readonly requireApprovalForScopeChanges: boolean;
+  };
+  readonly metadata: Readonly<Record<string, string>>;
+  readonly name?: string;
+  readonly repoPath: string;
+  readonly verificationCommands: readonly string[];
 }
 
 interface DesktopStatus {
@@ -88,7 +103,7 @@ interface PlanningOutputEvent {
 
 interface SmithlyDesktopApi {
   getStatus(): Promise<DesktopStatus>;
-  registerProject(repoPath: string, name?: string): Promise<DesktopStatus>;
+  registerProject(input: DesktopProjectRegistrationInput): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
   submitPlanningInput(
     scope: PlanningScope,
@@ -120,6 +135,21 @@ const projectRegistrationPathNode = document.getElementById(
 ) as HTMLInputElement | null;
 const projectRegistrationNameNode = document.getElementById(
   "project-registration-name",
+) as HTMLInputElement | null;
+const projectRegistrationVerificationNode = document.getElementById(
+  "project-registration-verification",
+) as HTMLTextAreaElement | null;
+const projectRegistrationMetadataNode = document.getElementById(
+  "project-registration-metadata",
+) as HTMLTextAreaElement | null;
+const projectRegistrationApprovalNewBacklogNode = document.getElementById(
+  "project-registration-approval-new-backlog",
+) as HTMLInputElement | null;
+const projectRegistrationApprovalScopeNode = document.getElementById(
+  "project-registration-approval-scope",
+) as HTMLInputElement | null;
+const projectRegistrationApprovalHighRiskNode = document.getElementById(
+  "project-registration-approval-high-risk",
 ) as HTMLInputElement | null;
 const projectRegistrationStatusNode = document.getElementById("project-registration-status");
 const backlogListNode = document.getElementById("backlog-list");
@@ -189,6 +219,9 @@ function renderProjects(status: DesktopStatus): void {
         <div>
           <h3>${escapeHtml(project.name)}</h3>
           <p>${escapeHtml(project.repoPath)}</p>
+          <p class="project-card__meta">Verification: ${escapeHtml(project.verificationSummary)}</p>
+          <p class="project-card__meta">Approval: ${escapeHtml(project.approvalPolicySummary)}</p>
+          <p class="project-card__meta">Metadata: ${escapeHtml(project.metadataSummary)}</p>
         </div>
         <span class="project-status" data-status="${escapeHtml(project.status)}">${escapeHtml(project.status)}</span>
       </header>
@@ -639,6 +672,8 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
 
   const repoPath = projectRegistrationPathNode.value.trim();
   const projectName = projectRegistrationNameNode?.value.trim() ?? "";
+  const verificationCommands = parseMultilineList(projectRegistrationVerificationNode?.value ?? "");
+  const metadata = parseMetadataEntries(projectRegistrationMetadataNode?.value ?? "");
 
   if (repoPath.length === 0) {
     renderProjectRegistrationStatus("Local repo path is required.");
@@ -649,10 +684,18 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
 
   try {
     const previousStatus = currentStatus;
-    const status = await window.smithlyDesktop.registerProject(
+    const status = await window.smithlyDesktop.registerProject({
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: projectRegistrationApprovalHighRiskNode?.checked ?? true,
+        requireApprovalForNewBacklogItems:
+          projectRegistrationApprovalNewBacklogNode?.checked ?? true,
+        requireApprovalForScopeChanges: projectRegistrationApprovalScopeNode?.checked ?? true,
+      },
+      metadata,
+      ...(projectName.length > 0 ? { name: projectName } : {}),
       repoPath,
-      projectName.length > 0 ? projectName : undefined,
-    );
+      verificationCommands,
+    });
 
     renderDesktopStatus(status);
     renderProjectRegistrationStatus(
@@ -662,6 +705,26 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
 
     if (projectRegistrationNameNode !== null) {
       projectRegistrationNameNode.value = "";
+    }
+
+    if (projectRegistrationVerificationNode !== null) {
+      projectRegistrationVerificationNode.value = "";
+    }
+
+    if (projectRegistrationMetadataNode !== null) {
+      projectRegistrationMetadataNode.value = "";
+    }
+
+    if (projectRegistrationApprovalNewBacklogNode !== null) {
+      projectRegistrationApprovalNewBacklogNode.checked = true;
+    }
+
+    if (projectRegistrationApprovalScopeNode !== null) {
+      projectRegistrationApprovalScopeNode.checked = true;
+    }
+
+    if (projectRegistrationApprovalHighRiskNode !== null) {
+      projectRegistrationApprovalHighRiskNode.checked = true;
     }
 
     if (previousStatus?.selectedProject === undefined && status.selectedProject !== undefined) {
@@ -702,6 +765,34 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
+}
+
+function parseMultilineList(input: string): string[] {
+  return input
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function parseMetadataEntries(input: string): Record<string, string> {
+  const metadataEntries: Record<string, string> = {};
+
+  for (const line of parseMultilineList(input)) {
+    const separatorIndex = line.indexOf("=");
+
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+
+    if (key.length > 0 && value.length > 0) {
+      metadataEntries[key] = value;
+    }
+  }
+
+  return metadataEntries;
 }
 
 void renderStatus();

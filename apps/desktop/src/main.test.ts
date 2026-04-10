@@ -41,11 +41,14 @@ describe("desktop bootstrap", () => {
         {
           activeSessionCount: 1,
           activeTaskCount: 1,
+          approvalPolicySummary: "new backlog, scope changes, high risk",
           backlogCount: 1,
           id: "project-smithly",
+          metadataSummary: "themePreference=system",
           name: "Smithly",
           repoPath: "/home/jt/projects/smithly",
           status: "active",
+          verificationSummary: "npm run check",
         },
       ],
       selectedProject: {

@@ -8,7 +8,12 @@ import { createConfig } from "@smithly/core";
 
 import { closeContext, createContext } from "./context.ts";
 import { listProjects } from "./data.ts";
-import { ProjectRegistrationError, registerLocalProject } from "./projects.ts";
+import {
+  parseProjectMetadata,
+  ProjectRegistrationError,
+  registerLocalProject,
+  updateProjectMetadata,
+} from "./projects.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -33,14 +38,32 @@ describe("project registration", () => {
     });
 
     const project = registerLocalProject(context, {
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: false,
+      },
+      metadata: {
+        owner: "jt",
+      },
       name: "Fixture Repo",
       repoPath: `${repoDirectory}/.`,
+      verificationCommands: ["npm run check", "npm run test"],
     });
 
     expect(project.name).toBe("Fixture Repo");
     expect(project.repoPath).toBe(repoDirectory);
     expect(project.status).toBe("active");
     expect(listProjects(context)).toEqual([project]);
+    expect(parseProjectMetadata(project)).toEqual({
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: false,
+        requireApprovalForNewBacklogItems: true,
+        requireApprovalForScopeChanges: true,
+      },
+      metadata: {
+        owner: "jt",
+      },
+      verificationCommands: ["npm run check", "npm run test"],
+    });
 
     closeContext(context);
   });
@@ -90,5 +113,69 @@ describe("project registration", () => {
     ).toThrowError("Local repo path must point to a git working tree");
 
     closeContext(context);
+  });
+
+  it("updates project metadata with typed verification and approval settings", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-data-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      repoPath: repoDirectory,
+    });
+
+    const updatedProject = updateProjectMetadata(context, {
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: false,
+        requireApprovalForNewBacklogItems: false,
+        requireApprovalForScopeChanges: true,
+      },
+      metadata: {
+        owner: "jt",
+        runtime: "desktop",
+      },
+      projectId: project.id,
+      verificationCommands: ["npm run lint"],
+    });
+
+    expect(parseProjectMetadata(updatedProject)).toEqual({
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: false,
+        requireApprovalForNewBacklogItems: false,
+        requireApprovalForScopeChanges: true,
+      },
+      metadata: {
+        owner: "jt",
+        runtime: "desktop",
+      },
+      verificationCommands: ["npm run lint"],
+    });
+
+    closeContext(context);
+  });
+
+  it("parses legacy project metadata JSON without dropping old fields", () => {
+    expect(
+      parseProjectMetadata({
+        metadataJson: '{"themePreference":"system","verificationCommand":"npm run check"}',
+      }),
+    ).toEqual({
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: true,
+        requireApprovalForNewBacklogItems: true,
+        requireApprovalForScopeChanges: true,
+      },
+      metadata: {
+        themePreference: "system",
+      },
+      verificationCommands: ["npm run check"],
+    });
   });
 });

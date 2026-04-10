@@ -55,10 +55,8 @@ function createDesktopContext(): IStorageContext {
       ...fixture,
       project: {
         ...fixture.project,
-        metadataJson: JSON.stringify({
-          themePreference: "system",
-          verificationCommand: "npm run check",
-        }),
+        metadataJson:
+          '{"metadata":{"themePreference":"system"},"verificationCommands":["npm run check"],"approvalPolicy":{"requireApprovalForNewBacklogItems":true,"requireApprovalForScopeChanges":true,"requireApprovalForHighRiskTasks":true}}',
       },
     });
   }
@@ -99,11 +97,21 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.removeHandler("smithly:project-register");
   ipcMain.handle(
     "smithly:project-register",
-    (_event, repoPath: string, name?: string): IDesktopStatus => {
-      registerLocalProject(context, {
-        repoPath,
-        ...(name !== undefined ? { name } : {}),
-      });
+    (
+      _event,
+      input: {
+        readonly approvalPolicy?: {
+          readonly requireApprovalForHighRiskTasks?: boolean;
+          readonly requireApprovalForNewBacklogItems?: boolean;
+          readonly requireApprovalForScopeChanges?: boolean;
+        };
+        readonly metadata?: Readonly<Record<string, string>>;
+        readonly name?: string;
+        readonly repoPath: string;
+        readonly verificationCommands?: readonly string[];
+      },
+    ): IDesktopStatus => {
+      registerLocalProject(context, input);
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),

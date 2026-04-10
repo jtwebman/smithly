@@ -68,11 +68,23 @@ test("desktop shell can register a local repo path as a managed project", async 
 
     await window.locator("#project-registration-path").fill(localRepoDirectory);
     await window.locator("#project-registration-name").fill("Local Fixture");
+    await window.locator("#project-registration-verification").fill("npm run check\nnpm run test");
+    await window.locator("#project-registration-metadata").fill("owner=jt\nstack=electron");
+    await window.locator("#project-registration-approval-high-risk").uncheck();
     await window.locator("#project-registration-form button").click();
 
     await expect(window.locator("#project-count")).toHaveText("1");
     await expect(window.locator("#project-list")).toContainText("Local Fixture");
     await expect(window.locator("#project-list")).toContainText(localRepoDirectory);
+    await expect(window.locator("#project-list")).toContainText(
+      "Verification: npm run check | npm run test",
+    );
+    await expect(window.locator("#project-list")).toContainText(
+      "Approval: new backlog, scope changes",
+    );
+    await expect(window.locator("#project-list")).toContainText(
+      "Metadata: owner=jt | stack=electron",
+    );
     await expect(window.locator("#project-registration-status")).toContainText(
       "Registered Local Fixture.",
     );
@@ -97,6 +109,10 @@ test("desktop shell shows the seeded dashboard and attaches a project planning s
     await expect(window.locator("#theme-mode")).toHaveText("dark -> dark");
     await expect(window.locator("#data-directory")).toHaveText(dataDirectory);
     await expect(window.locator("#project-list")).toContainText("Smithly");
+    await expect(window.locator("#project-list")).toContainText("Verification: npm run check");
+    await expect(window.locator("#project-list")).toContainText(
+      "Approval: new backlog, scope changes, high risk",
+    );
     await expect(window.locator("#backlog-list")).toContainText("Bootstrap the desktop shell");
     await expect(window.locator("#task-list")).toContainText("taskrun-bootstrap-ui");
     await expect(window.locator("#approvals-list")).toContainText("Approve shell bootstrap work");

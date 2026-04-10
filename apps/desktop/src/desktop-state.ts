@@ -7,6 +7,7 @@ import {
   listChatThreadsForProject,
   listMemoryNotesForProject,
   listProjects,
+  parseProjectMetadata,
   listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
@@ -16,10 +17,13 @@ import {
 import packageJson from "../../../package.json" with { type: "json" };
 
 export interface IDesktopProjectSummary {
+  readonly approvalPolicySummary: string;
   readonly id: string;
+  readonly metadataSummary: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
+  readonly verificationSummary: string;
   readonly activeTaskCount: number;
   readonly activeSessionCount: number;
   readonly backlogCount: number;
@@ -97,6 +101,7 @@ export function buildDesktopStatus(
   resolvedThemeMode: ThemeMode,
 ): IDesktopStatus {
   const projects = listProjects(context).map((project) => {
+    const metadata = parseProjectMetadata(project);
     const activeTaskCount = listTaskRunsForProject(context, project.id).filter((taskRun) =>
       ["queued", "running", "awaiting_review"].includes(taskRun.status),
     ).length;
@@ -108,11 +113,17 @@ export function buildDesktopStatus(
     return {
       activeSessionCount,
       activeTaskCount,
+      approvalPolicySummary: formatApprovalPolicySummary(metadata.approvalPolicy),
       backlogCount,
       id: project.id,
+      metadataSummary: formatMetadataSummary(metadata.metadata),
       name: project.name,
       repoPath: project.repoPath,
       status: project.status,
+      verificationSummary:
+        metadata.verificationCommands.length > 0
+          ? metadata.verificationCommands.join(" | ")
+          : "No verification commands configured",
     };
   });
   const selectedProject = projects.find((project) => project.status !== "archived") ?? projects[0];
@@ -339,4 +350,34 @@ function parseAcceptanceCriteria(serializedValue: string): string[] {
   } catch {
     return [];
   }
+}
+
+function formatApprovalPolicySummary(
+  approvalPolicy: ReturnType<typeof parseProjectMetadata>["approvalPolicy"],
+): string {
+  const requirements: string[] = [];
+
+  if (approvalPolicy.requireApprovalForNewBacklogItems) {
+    requirements.push("new backlog");
+  }
+
+  if (approvalPolicy.requireApprovalForScopeChanges) {
+    requirements.push("scope changes");
+  }
+
+  if (approvalPolicy.requireApprovalForHighRiskTasks) {
+    requirements.push("high risk");
+  }
+
+  return requirements.length > 0 ? requirements.join(", ") : "No approval gates configured";
+}
+
+function formatMetadataSummary(metadata: Readonly<Record<string, string>>): string {
+  const entries = Object.entries(metadata);
+
+  if (entries.length === 0) {
+    return "No metadata";
+  }
+
+  return entries.map(([key, value]) => `${key}=${value}`).join(" | ");
 }

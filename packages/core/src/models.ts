@@ -39,6 +39,18 @@ export type MemoryNoteType = "fact" | "decision" | "note" | "session_summary";
 export type VerificationRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
 export type ReviewRunStatus = "queued" | "running" | "approved" | "changes_requested" | "failed";
 
+export interface IProjectApprovalPolicy {
+  readonly requireApprovalForHighRiskTasks: boolean;
+  readonly requireApprovalForNewBacklogItems: boolean;
+  readonly requireApprovalForScopeChanges: boolean;
+}
+
+export interface IProjectMetadata {
+  readonly approvalPolicy: IProjectApprovalPolicy;
+  readonly metadata: Readonly<Record<string, string>>;
+  readonly verificationCommands: readonly string[];
+}
+
 export interface IProjectRecord {
   readonly id: string;
   readonly name: string;

@@ -62,11 +62,13 @@
       }
 
       button,
-      input {
+      input,
+      textarea {
         font: inherit;
       }
 
-      input {
+      input,
+      textarea {
         width: 100%;
         padding: 12px 14px;
         border: 1px solid var(--border);
@@ -200,6 +202,10 @@
       .project-card p {
         margin-top: 8px;
         font-size: 0.94rem;
+      }
+
+      .project-card__meta {
+        font-size: 0.88rem;
       }
 
       .project-list {
@@ -444,6 +450,45 @@
                   type="text"
                   placeholder="Optional display name"
                 />
+                <textarea
+                  id="project-registration-verification"
+                  name="project-registration-verification"
+                  rows="3"
+                  placeholder="Verification commands, one per line"
+                ></textarea>
+                <textarea
+                  id="project-registration-metadata"
+                  name="project-registration-metadata"
+                  rows="3"
+                  placeholder="Metadata entries, one key=value pair per line"
+                ></textarea>
+                <label>
+                  <input
+                    id="project-registration-approval-new-backlog"
+                    name="project-registration-approval-new-backlog"
+                    type="checkbox"
+                    checked
+                  />
+                  Require approval for new backlog items
+                </label>
+                <label>
+                  <input
+                    id="project-registration-approval-scope"
+                    name="project-registration-approval-scope"
+                    type="checkbox"
+                    checked
+                  />
+                  Require approval for scope changes
+                </label>
+                <label>
+                  <input
+                    id="project-registration-approval-high-risk"
+                    name="project-registration-approval-high-risk"
+                    type="checkbox"
+                    checked
+                  />
+                  Require approval for high-risk tasks
+                </label>
               </div>
               <div class="project-registration__actions">
                 <button type="submit">Register Project</button>

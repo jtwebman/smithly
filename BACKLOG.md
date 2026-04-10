@@ -40,7 +40,7 @@
 ## Phase 4: Project Registry
 
 22. `done` Implement project registration for local repo paths
-23. `todo` Store per-project metadata, verification commands, and approval policy
+23. `done` Store per-project metadata, verification commands, and approval policy
 24. `todo` Add UI to create, edit, archive, and reactivate projects
 25. `todo` Support draft and approved backlog items with priority, scope, risk, and review metadata
 26. `todo` Add tests for project registration and backlog flows

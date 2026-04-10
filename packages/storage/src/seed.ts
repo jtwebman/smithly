@@ -159,7 +159,8 @@ export function createInitialSeedFixture(): ISeedFixture {
       createdAt,
       defaultBranch: "main",
       id: "project-smithly",
-      metadataJson: '{"themePreference":"system","verificationCommand":"npm run check"}',
+      metadataJson:
+        '{"metadata":{"themePreference":"system"},"verificationCommands":["npm run check"],"approvalPolicy":{"requireApprovalForNewBacklogItems":true,"requireApprovalForScopeChanges":true,"requireApprovalForHighRiskTasks":true}}',
       name: "Smithly",
       repoPath: "/home/jt/projects/smithly",
       status: "active",
