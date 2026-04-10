@@ -88,6 +88,7 @@ interface PlanningOutputEvent {
 
 interface SmithlyDesktopApi {
   getStatus(): Promise<DesktopStatus>;
+  registerProject(repoPath: string, name?: string): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
   submitPlanningInput(
     scope: PlanningScope,
@@ -111,6 +112,16 @@ const themeNode = document.getElementById("theme-mode");
 const dataDirectoryNode = document.getElementById("data-directory");
 const projectCountNode = document.getElementById("project-count");
 const projectListNode = document.getElementById("project-list");
+const projectRegistrationForm = document.getElementById(
+  "project-registration-form",
+) as HTMLFormElement | null;
+const projectRegistrationPathNode = document.getElementById(
+  "project-registration-path",
+) as HTMLInputElement | null;
+const projectRegistrationNameNode = document.getElementById(
+  "project-registration-name",
+) as HTMLInputElement | null;
+const projectRegistrationStatusNode = document.getElementById("project-registration-status");
 const backlogListNode = document.getElementById("backlog-list");
 const taskListNode = document.getElementById("task-list");
 const approvalsListNode = document.getElementById("approvals-list");
@@ -198,6 +209,10 @@ function renderProjects(status: DesktopStatus): void {
     `;
     projectListNode.append(article);
   }
+}
+
+function renderProjectRegistrationStatus(message: string): void {
+  setNodeText(projectRegistrationStatusNode, message);
 }
 
 function renderList(
@@ -332,9 +347,11 @@ function renderPlanningPane(status: DesktopStatus): void {
   const activeThread = getActivePlanningThread(status, activePlanningScope);
   const activeSession = getActivePlanningSession(status, activePlanningScope);
   const selectedBacklogItem = status.selectedProject?.selectedBacklogItem;
+  const hasSelectedProject = status.selectedProject !== undefined;
 
   if (projectPlanningButton !== null) {
     projectPlanningButton.dataset.active = String(activePlanningScope === "project");
+    projectPlanningButton.disabled = !hasSelectedProject;
   }
 
   if (taskPlanningButton !== null) {
@@ -342,18 +359,26 @@ function renderPlanningPane(status: DesktopStatus): void {
     taskPlanningButton.disabled = selectedBacklogItem === undefined;
   }
 
+  if (planningInputNode !== null) {
+    planningInputNode.disabled = !hasSelectedProject;
+  }
+
   setNodeText(planningTitleNode, activeThread?.title ?? "No planning thread");
   setNodeText(
     planningStatusNode,
-    activeSession
-      ? `${activePlanningScope} planning session ${activeSession.status}`
-      : `${activePlanningScope} planning session idle`,
+    !hasSelectedProject
+      ? "Register a local project to enable planning."
+      : activeSession
+        ? `${activePlanningScope} planning session ${activeSession.status}`
+        : `${activePlanningScope} planning session idle`,
   );
   setNodeText(
     terminalCaptionNode,
-    activeThread
-      ? "Claude planning transcript attached to the selected thread."
-      : "Select a planning thread to start a Claude planning session.",
+    !hasSelectedProject
+      ? "Register a local git repository to attach a planning session."
+      : activeThread
+        ? "Claude planning transcript attached to the selected thread."
+        : "Select a planning thread to start a Claude planning session.",
   );
 
   renderPlanningHistory(activeThread?.messages ?? []);
@@ -437,6 +462,11 @@ function syncTerminalTranscript(status: DesktopStatus): void {
   terminal.writeln(`smithly-shell: ${activePlanningScope} planning transcript attached`);
   terminal.writeln(`theme: ${status.resolvedThemeMode} (${status.themePreference})`);
 
+  if (status.selectedProject === undefined) {
+    terminal.writeln("[smithly] Register a local git repository to begin.");
+    return;
+  }
+
   if (activeThread === undefined) {
     terminal.writeln("[smithly] No planning thread is available.");
     return;
@@ -515,6 +545,10 @@ async function activatePlanningScope(scope: PlanningScope): Promise<void> {
 
   if (currentStatus !== null) {
     renderPlanningPane(currentStatus);
+  }
+
+  if (currentStatus?.selectedProject === undefined) {
+    return;
   }
 
   const backlogItemId =
@@ -596,6 +630,48 @@ planningForm?.addEventListener("submit", async (event) => {
   void pollStatus(8, 250);
 });
 
+projectRegistrationForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (projectRegistrationPathNode === null) {
+    return;
+  }
+
+  const repoPath = projectRegistrationPathNode.value.trim();
+  const projectName = projectRegistrationNameNode?.value.trim() ?? "";
+
+  if (repoPath.length === 0) {
+    renderProjectRegistrationStatus("Local repo path is required.");
+    return;
+  }
+
+  renderProjectRegistrationStatus("Registering local project...");
+
+  try {
+    const previousStatus = currentStatus;
+    const status = await window.smithlyDesktop.registerProject(
+      repoPath,
+      projectName.length > 0 ? projectName : undefined,
+    );
+
+    renderDesktopStatus(status);
+    renderProjectRegistrationStatus(
+      `Registered ${status.projects[status.projects.length - 1]?.name ?? "project"}.`,
+    );
+    projectRegistrationPathNode.value = "";
+
+    if (projectRegistrationNameNode !== null) {
+      projectRegistrationNameNode.value = "";
+    }
+
+    if (previousStatus?.selectedProject === undefined && status.selectedProject !== undefined) {
+      await activatePlanningScope("project");
+    }
+  } catch (error: unknown) {
+    renderProjectRegistrationStatus(error instanceof Error ? error.message : String(error));
+  }
+});
+
 projectPlanningButton?.addEventListener("click", () => {
   void activatePlanningScope("project");
 });
@@ -611,8 +687,12 @@ taskPlanningButton?.addEventListener("click", () => {
 async function renderStatus(): Promise<void> {
   try {
     initTerminal();
-    renderDesktopStatus(await window.smithlyDesktop.getStatus());
-    await activatePlanningScope("project");
+    const status = await window.smithlyDesktop.getStatus();
+    renderDesktopStatus(status);
+
+    if (status.selectedProject !== undefined) {
+      await activatePlanningScope("project");
+    }
   } catch (error: unknown) {
     renderError(error instanceof Error ? error.message : String(error));
   }

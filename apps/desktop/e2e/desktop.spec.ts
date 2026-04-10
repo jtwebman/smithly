@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -22,7 +22,10 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
   };
 }
 
-async function launchDesktop(themePreference: "dark" | "light" | "system"): Promise<{
+async function launchDesktop(options: {
+  readonly seedInitialState?: boolean;
+  readonly themePreference: "dark" | "light" | "system";
+}): Promise<{
   readonly dataDirectory: string;
   readonly electronApp: Awaited<ReturnType<typeof electron.launch>>;
   readonly window: Awaited<ReturnType<Awaited<ReturnType<typeof electron.launch>>["firstWindow"]>>;
@@ -30,7 +33,10 @@ async function launchDesktop(themePreference: "dark" | "light" | "system"): Prom
   const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-ui-"));
   const electronApp = await electron.launch({
     args: [resolve("dist/apps/desktop/src/main.js")],
-    env: createBaseEnv(dataDirectory, themePreference),
+    env: {
+      ...createBaseEnv(dataDirectory, options.themePreference),
+      ...(options.seedInitialState ? { SMITHLY_SEED_INITIAL_STATE: "1" } : {}),
+    },
   });
   const window = await electronApp.firstWindow();
 
@@ -49,8 +55,39 @@ async function closeDesktop(
   rmSync(dataDirectory, { force: true, recursive: true });
 }
 
+test("desktop shell can register a local repo path as a managed project", async () => {
+  const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-"));
+  mkdirSync(join(localRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await expect(window.locator("#project-count")).toHaveText("0");
+    await expect(window.locator("#planning-status")).toContainText(
+      "Register a local project to enable planning.",
+    );
+
+    await window.locator("#project-registration-path").fill(localRepoDirectory);
+    await window.locator("#project-registration-name").fill("Local Fixture");
+    await window.locator("#project-registration-form button").click();
+
+    await expect(window.locator("#project-count")).toHaveText("1");
+    await expect(window.locator("#project-list")).toContainText("Local Fixture");
+    await expect(window.locator("#project-list")).toContainText(localRepoDirectory);
+    await expect(window.locator("#project-registration-status")).toContainText(
+      "Registered Local Fixture.",
+    );
+    await expect(window.locator("#planning-status")).toContainText("project planning session");
+  } finally {
+    rmSync(localRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("desktop shell shows the seeded dashboard and attaches a project planning session", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
 
   try {
     await expect(window).toHaveTitle("Smithly");
@@ -87,7 +124,10 @@ test("desktop shell shows the seeded dashboard and attaches a project planning s
 });
 
 test("operator can send a prompt into the project planning session", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
 
   try {
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
@@ -112,7 +152,10 @@ test("operator can send a prompt into the project planning session", async () =>
 });
 
 test("project planning can create a draft backlog item through Smithly MCP", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
 
   try {
     await expect(window.locator("#backlog-list .list-card")).toHaveCount(1);
@@ -141,7 +184,10 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
 });
 
 test("operator can switch to task planning and attach a task-scoped Claude session", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
 
   try {
     await window.locator("#task-planning-button").click();
@@ -170,7 +216,10 @@ test("operator can switch to task planning and attach a task-scoped Claude sessi
 });
 
 test("task planning can revise the focused backlog item through Smithly MCP", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
 
   try {
     await window.locator("#task-planning-button").click();
@@ -209,7 +258,10 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
 });
 
 test("desktop shell supports explicit light theme preference", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("light");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "light",
+  });
 
   try {
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
@@ -221,7 +273,10 @@ test("desktop shell supports explicit light theme preference", async () => {
 });
 
 test("desktop shell resolves system theme preference to a concrete runtime theme", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("system");
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "system",
+  });
 
   try {
     await expect(window.locator("#theme-mode")).toHaveText(/^system -> (dark|light)$/u);

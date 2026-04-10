@@ -115,7 +115,7 @@ export function buildDesktopStatus(
       status: project.status,
     };
   });
-  const selectedProject = projects[0];
+  const selectedProject = projects.find((project) => project.status !== "archived") ?? projects[0];
 
   return {
     appVersion: packageJson.version,

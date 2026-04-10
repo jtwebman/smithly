@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   getStatus() {
     return ipcRenderer.invoke("smithly:desktop-status");
   },
+  registerProject(repoPath, name) {
+    return ipcRenderer.invoke("smithly:project-register", repoPath, name);
+  },
   ensurePlanningSession(scope, backlogItemId) {
     return ipcRenderer.invoke("smithly:planning-session:ensure", scope, backlogItemId);
   },

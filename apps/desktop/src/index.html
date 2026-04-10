@@ -66,6 +66,15 @@
         font: inherit;
       }
 
+      input {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--panel-strong);
+      }
+
       .shell {
         display: grid;
         min-height: 100vh;
@@ -114,6 +123,7 @@
 
       .metrics,
       .project-list,
+      .project-registration,
       .workspace-grid,
       .workspace-secondary,
       .workspace-tertiary,
@@ -194,6 +204,27 @@
 
       .project-list {
         margin-top: 18px;
+      }
+
+      .project-registration {
+        margin-top: 18px;
+      }
+
+      .project-registration__fields {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .project-registration__actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .project-registration__status {
+        min-height: 1.5rem;
+        margin-top: 10px;
+        font-size: 0.94rem;
       }
 
       .project-card {
@@ -399,6 +430,26 @@
                 </p>
               </div>
             </div>
+            <form id="project-registration-form" class="project-registration">
+              <div class="project-registration__fields">
+                <input
+                  id="project-registration-path"
+                  name="project-registration-path"
+                  type="text"
+                  placeholder="/absolute/path/to/local/repo"
+                />
+                <input
+                  id="project-registration-name"
+                  name="project-registration-name"
+                  type="text"
+                  placeholder="Optional display name"
+                />
+              </div>
+              <div class="project-registration__actions">
+                <button type="submit">Register Project</button>
+              </div>
+              <p id="project-registration-status" class="project-registration__status"></p>
+            </form>
             <div id="project-list" class="project-list"></div>
           </div>
 

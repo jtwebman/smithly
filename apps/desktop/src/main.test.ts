@@ -165,4 +165,28 @@ describe("desktop bootstrap", () => {
     expect(resolveDesktopThemeMode("system", true)).toBe("dark");
     expect(resolveDesktopThemeMode("system", false)).toBe("light");
   });
+
+  it("returns an empty selected project state when no projects are registered", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-empty-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+        themePreference: "system",
+      }),
+    });
+
+    expect(buildDesktopStatus(context, "light")).toEqual({
+      appVersion: "0.1.0",
+      dataDirectory,
+      projectCount: 0,
+      projects: [],
+      resolvedThemeMode: "light",
+      themePreference: "system",
+    });
+
+    context.db.close();
+  });
 });

@@ -2,6 +2,7 @@ export * from "./context.ts";
 export * from "./data.ts";
 export * from "./migrations.ts";
 export * from "./planning.ts";
+export * from "./projects.ts";
 export * from "./seed.ts";
 export * from "./smithly-storage.ts";
 export * from "./sqlite-db.ts";

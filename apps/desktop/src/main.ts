@@ -8,6 +8,7 @@ import {
   createContext,
   createInitialSeedFixture,
   listProjects,
+  registerLocalProject,
   seedInitialState,
   type IStorageContext,
 } from "@smithly/storage";
@@ -25,7 +26,7 @@ let planningSessionManager: PlanningSessionManager | null = null;
 export async function bootstrapDesktopApp(): Promise<void> {
   await app.whenReady();
 
-  storageContext = ensureSeededDesktopContext();
+  storageContext = createDesktopContext();
   planningSessionManager = createPlanningSessionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
@@ -37,7 +38,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   });
 }
 
-function ensureSeededDesktopContext(): IStorageContext {
+function createDesktopContext(): IStorageContext {
   const config = createConfig({
     dataDirectory: resolveDesktopDataDirectory(),
     themePreference: resolveDesktopThemePreference(),
@@ -47,7 +48,7 @@ function ensureSeededDesktopContext(): IStorageContext {
   });
   const context = createContext({ config });
 
-  if (listProjects(context).length === 0) {
+  if (resolveShouldSeedInitialState() && listProjects(context).length === 0) {
     const fixture = createInitialSeedFixture();
 
     seedInitialState(context, {
@@ -94,6 +95,21 @@ function registerDesktopHandlers(context: IStorageContext): void {
       resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
     );
   });
+
+  ipcMain.removeHandler("smithly:project-register");
+  ipcMain.handle(
+    "smithly:project-register",
+    (_event, repoPath: string, name?: string): IDesktopStatus => {
+      registerLocalProject(context, {
+        repoPath,
+        ...(name !== undefined ? { name } : {}),
+      });
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      );
+    },
+  );
 
   ipcMain.removeHandler("smithly:planning-session:ensure");
   ipcMain.handle(
@@ -155,6 +171,10 @@ function resolveDesktopThemePreference(): "dark" | "light" | "system" {
     default:
       return "system";
   }
+}
+
+function resolveShouldSeedInitialState(): boolean {
+  return process.env.SMITHLY_SEED_INITIAL_STATE?.trim() === "1";
 }
 
 function createPlanningSessionManager(context: IStorageContext): PlanningSessionManager {
