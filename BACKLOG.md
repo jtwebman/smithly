@@ -30,12 +30,12 @@
 
 ## Phase 3: Planning And Chat
 
-16. `started` Add project chat threads for planning and strategy conversations
-17. `started` Add task chat threads for refining individual tasks before approval
-18. `started` Allow project chat to create draft backlog items
-19. `started` Allow task chat to revise scope, notes, and acceptance criteria before approval
-20. `started` Add chat history persistence and UI
-21. `started` Add tests for project and task chat flows
+16. `done` Add project chat threads for planning and strategy conversations
+17. `done` Add task chat threads for refining individual tasks before approval
+18. `todo` Allow project chat to create draft backlog items
+19. `todo` Allow task chat to revise scope, notes, and acceptance criteria before approval
+20. `done` Add chat history persistence and UI
+21. `done` Add tests for project and task chat flows
 
 ## Phase 4: Project Registry
 
@@ -48,7 +48,7 @@
 ## Phase 5: Claude Session Management (~/projects/pterm might help here)
 
 27. `todo` Spawn and manage Claude Code CLI sessions per project
-28. `todo` Attach Claude sessions to `xterm.js` panes 
+28. `todo` Attach Claude sessions to `xterm.js` panes
 29. `todo` Add operator-driven Claude chat sessions for project planning and task planning
 30. `todo` Track Claude session lifecycle, transcript references, and status in the DB
 31. `todo` Ingest Claude hook events into Smithly state

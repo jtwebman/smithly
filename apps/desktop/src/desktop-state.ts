@@ -43,7 +43,9 @@ export interface IDesktopSelectedProject {
   readonly blockers: readonly IDesktopListItem[];
   readonly events: readonly IDesktopEventItem[];
   readonly projectPlanningChat?: IDesktopChatThread;
+  readonly projectPlanningSession?: IDesktopPlanningSession;
   readonly taskPlanningChat?: IDesktopChatThread;
+  readonly taskPlanningSession?: IDesktopPlanningSession;
   readonly selectedBacklogItem?: IDesktopBacklogDetail;
 }
 
@@ -82,6 +84,12 @@ export interface IDesktopBacklogDetail {
   readonly status: string;
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
+}
+
+export interface IDesktopPlanningSession {
+  readonly workerSessionId: string;
+  readonly terminalKey: string;
+  readonly status: string;
 }
 
 export function buildDesktopStatus(
@@ -151,11 +159,14 @@ function buildSelectedProject(
   const selectedBacklogItem = backlogItems[0];
   const projectPlanningThread = chatThreads.find((thread) => thread.kind === "project_planning");
   const taskPlanningThread = chatThreads.find((thread) => {
-    return (
-      thread.kind === "task_planning" &&
-      thread.backlogItemId === selectedBacklogItem?.id
-    );
+    return thread.kind === "task_planning" && thread.backlogItemId === selectedBacklogItem?.id;
   });
+  const projectPlanningSession = projectPlanningThread
+    ? findPlanningSession(workerSessions, projectPlanningThread.id)
+    : undefined;
+  const taskPlanningSession = taskPlanningThread
+    ? findPlanningSession(workerSessions, taskPlanningThread.id)
+    : undefined;
 
   return {
     approvals: approvals.map((approval) => ({
@@ -238,14 +249,25 @@ function buildSelectedProject(
       ? {
           projectPlanningChat: {
             kind: projectPlanningThread.kind,
-            messages: listChatMessagesForThread(context, projectPlanningThread.id).map((message) => ({
-              bodyText: message.bodyText,
-              createdAt: message.createdAt,
-              id: message.id,
-              role: message.role,
-            })),
+            messages: listChatMessagesForThread(context, projectPlanningThread.id).map(
+              (message) => ({
+                bodyText: message.bodyText,
+                createdAt: message.createdAt,
+                id: message.id,
+                role: message.role,
+              }),
+            ),
             threadId: projectPlanningThread.id,
             title: projectPlanningThread.title,
+          },
+        }
+      : {}),
+    ...(projectPlanningSession !== undefined
+      ? {
+          projectPlanningSession: {
+            status: projectPlanningSession.status,
+            terminalKey: projectPlanningSession.terminalKey ?? "planning:project:missing",
+            workerSessionId: projectPlanningSession.id,
           },
         }
       : {}),
@@ -282,7 +304,27 @@ function buildSelectedProject(
           },
         }
       : {}),
+    ...(taskPlanningSession !== undefined
+      ? {
+          taskPlanningSession: {
+            status: taskPlanningSession.status,
+            terminalKey: taskPlanningSession.terminalKey ?? "planning:task:missing",
+            workerSessionId: taskPlanningSession.id,
+          },
+        }
+      : {}),
   };
+}
+
+function findPlanningSession(
+  workerSessions: ReturnType<typeof listWorkerSessionsForProject>,
+  threadId: string,
+) {
+  return [...workerSessions]
+    .filter((session) => {
+      return session.workerKind === "claude" && session.transcriptRef === `chat-thread:${threadId}`;
+    })
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
 
 function parseAcceptanceCriteria(serializedValue: string): string[] {

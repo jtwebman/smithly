@@ -61,6 +61,11 @@
           linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
       }
 
+      button,
+      input {
+        font: inherit;
+      }
+
       .shell {
         display: grid;
         min-height: 100vh;
@@ -109,7 +114,10 @@
 
       .metrics,
       .project-list,
-      .workspace-grid {
+      .workspace-grid,
+      .workspace-secondary,
+      .workspace-tertiary,
+      .stack {
         display: grid;
         gap: 16px;
       }
@@ -152,10 +160,9 @@
         min-height: 0;
       }
 
-      .workspace-secondary {
-        display: grid;
+      .workspace-secondary,
+      .workspace-tertiary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 24px;
       }
 
       .panel {
@@ -169,7 +176,10 @@
       }
 
       .panel-header,
-      .project-card__header {
+      .project-card__header,
+      .chat-message__row,
+      .planning-toolbar,
+      .planning-form {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
@@ -190,16 +200,38 @@
         padding: 18px;
       }
 
-      .project-status {
+      .project-status,
+      .scope-toggle button {
         display: inline-flex;
         align-items: center;
         min-height: 32px;
         padding: 0 12px;
         border-radius: 999px;
+        border: 1px solid var(--border);
         background: var(--status-active);
         color: var(--accent);
         text-transform: capitalize;
         font-size: 0.88rem;
+      }
+
+      .scope-toggle {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .scope-toggle button {
+        cursor: pointer;
+        background: transparent;
+      }
+
+      .scope-toggle button[data-active="true"] {
+        background: var(--status-active);
+      }
+
+      .scope-toggle button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
       }
 
       .project-metrics {
@@ -210,7 +242,7 @@
       }
 
       #terminal {
-        min-height: 460px;
+        min-height: 320px;
         margin-top: 16px;
         padding: 12px;
         border: 1px solid var(--border);
@@ -224,13 +256,13 @@
       }
 
       .stack {
-        display: grid;
-        gap: 14px;
         margin-top: 18px;
       }
 
       .list-card,
-      .event-item {
+      .event-item,
+      .chat-message,
+      .subpanel {
         padding: 14px 16px;
         border: 1px solid var(--border);
         border-radius: 18px;
@@ -244,13 +276,16 @@
       }
 
       .list-card p,
-      .event-item p {
+      .event-item p,
+      .chat-message p,
+      .subpanel p {
         margin-top: 8px;
         font-size: 0.92rem;
       }
 
       .list-card time,
-      .event-item time {
+      .event-item time,
+      .chat-message time {
         display: inline-block;
         margin-top: 8px;
         font-size: 0.8rem;
@@ -263,10 +298,47 @@
         font-size: 0.86rem;
       }
 
+      .planning-form {
+        align-items: center;
+        margin-top: 16px;
+      }
+
+      .planning-form input {
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--panel-strong);
+      }
+
+      .planning-form button {
+        min-height: 44px;
+        padding: 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--panel-strong);
+        cursor: pointer;
+      }
+
       .empty-state {
         padding: 18px;
         border: 1px dashed var(--border);
         border-radius: 18px;
+      }
+
+      ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 1280px) {
+        .workspace-tertiary {
+          grid-template-columns: 1fr;
+        }
       }
 
       @media (max-width: 1100px) {
@@ -279,10 +351,7 @@
           border-bottom: 1px solid var(--border);
         }
 
-        .workspace-grid {
-          grid-template-columns: 1fr;
-        }
-
+        .workspace-grid,
         .workspace-secondary {
           grid-template-columns: 1fr;
         }
@@ -296,8 +365,8 @@
         <h1>Smithly</h1>
         <p>
           Control surface for project planning, approvals, worker sessions, and persistent task
-          state. This shell is intentionally narrow: one dashboard and one terminal pane over the
-          local-first storage model.
+          state. Planning now rides a Claude terminal session, while the app keeps the durable
+          record and operator context around it.
         </p>
         <dl class="metrics">
           <div class="metric-card">
@@ -340,8 +409,21 @@
                 <p id="shell-status">Connecting shell...</p>
               </div>
             </div>
+            <div class="scope-toggle">
+              <button id="project-planning-button" type="button">Project Planning</button>
+              <button id="task-planning-button" type="button">Task Planning</button>
+            </div>
             <div id="terminal"></div>
             <p id="terminal-caption" class="terminal-caption">Loading pane...</p>
+            <form id="planning-input-form" class="planning-form">
+              <input
+                id="planning-input"
+                name="planning-input"
+                type="text"
+                placeholder="Send a prompt to the active Claude planning session"
+              />
+              <button type="submit">Send</button>
+            </form>
           </div>
         </section>
 
@@ -367,6 +449,37 @@
             <div class="stack" id="approvals-list"></div>
             <div class="stack" id="blockers-list"></div>
           </div>
+        </section>
+
+        <section class="workspace-tertiary">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="planning-title">Planning Transcript</h2>
+                <p id="planning-status">Awaiting planning session.</p>
+              </div>
+            </div>
+            <div class="stack" id="planning-history"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Selected Backlog Focus</h2>
+                <p>Task planning stays anchored to the currently selected backlog item.</p>
+              </div>
+            </div>
+            <article class="subpanel">
+              <strong id="selected-backlog-title">No backlog item selected</strong>
+              <p>
+                <span class="list-status" id="selected-backlog-status">n/a</span>
+              </p>
+              <p id="selected-backlog-scope">
+                Project planning is active. Switch to task planning to focus one backlog item.
+              </p>
+              <ul id="selected-backlog-criteria"></ul>
+            </article>
+          </section>
         </section>
 
         <section class="panel">

@@ -57,8 +57,16 @@ describe("storage data layer", () => {
     expect(listTaskRunsForProject(context, fixture.project.id)).toEqual([fixture.taskRun]);
     expect(listBlockersForProject(context, fixture.project.id)).toEqual([fixture.blocker]);
     expect(listApprovalsForProject(context, fixture.project.id)).toEqual([fixture.approval]);
-    expect(listChatThreadsForProject(context, fixture.project.id)).toEqual([fixture.chatThread]);
-    expect(listChatMessagesForThread(context, fixture.chatThread.id)).toEqual(fixture.chatMessages);
+    expect(listChatThreadsForProject(context, fixture.project.id)).toEqual([
+      fixture.projectChatThread,
+      fixture.taskChatThread,
+    ]);
+    expect(listChatMessagesForThread(context, fixture.projectChatThread.id)).toEqual(
+      fixture.projectChatMessages,
+    );
+    expect(listChatMessagesForThread(context, fixture.taskChatThread.id)).toEqual(
+      fixture.taskChatMessages,
+    );
     expect(listMemoryNotesForProject(context, fixture.project.id)).toEqual([fixture.memoryNote]);
     expect(listVerificationRunsForTask(context, fixture.taskRun.id)).toEqual([
       fixture.verificationRun,

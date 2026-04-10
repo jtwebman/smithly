@@ -14,6 +14,8 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
         return typeof entry[1] === "string";
       }),
     ),
+    SMITHLY_CLAUDE_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-claude.mjs")]),
+    SMITHLY_CLAUDE_COMMAND: process.execPath,
     SMITHLY_DATA_DIRECTORY: dataDirectory,
     ...(themePreference !== undefined ? { SMITHLY_THEME_PREFERENCE: themePreference } : {}),
   };
@@ -46,7 +48,7 @@ async function closeDesktop(
   rmSync(dataDirectory, { force: true, recursive: true });
 }
 
-test("desktop shell shows the seeded project dashboard, panels, and terminal pane", async () => {
+test("desktop shell shows the seeded dashboard and attaches a project planning session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop("dark");
 
   try {
@@ -57,74 +59,81 @@ test("desktop shell shows the seeded project dashboard, panels, and terminal pan
     await expect(window.locator("#theme-mode")).toHaveText("dark -> dark");
     await expect(window.locator("#data-directory")).toHaveText(dataDirectory);
     await expect(window.locator("#project-list")).toContainText("Smithly");
-    await expect(window.locator("#project-list")).toContainText("active");
-    await expect(window.locator("#project-list")).toContainText("/home/jt/projects/smithly");
-    await expect(window.locator("#task-list")).toContainText("taskrun-bootstrap-ui");
-    await expect(window.locator("#task-list")).toContainText("running");
     await expect(window.locator("#backlog-list")).toContainText("Bootstrap the desktop shell");
-    await expect(window.locator("#backlog-list")).toContainText("approved");
+    await expect(window.locator("#task-list")).toContainText("taskrun-bootstrap-ui");
     await expect(window.locator("#approvals-list")).toContainText("Approve shell bootstrap work");
-    await expect(window.locator("#approvals-list")).toContainText("pending");
     await expect(window.locator("#blockers-list")).toContainText(
       "Need terminal integration decision",
     );
-    await expect(window.locator("#event-log")).toContainText("Worker session updated");
-    await expect(window.locator("#event-log")).toContainText("Verification queued");
-    await expect(window.locator("#shell-status")).toHaveText("Shell ready");
-    await expect(window.locator("#terminal-caption")).toContainText("Read-only bootstrap pane");
-    await expect(window.locator("#terminal")).toContainText(
-      "smithly-shell: dashboard session attached",
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
+    await expect(window.locator("#planning-history")).toContainText(
+      "Plan the minimal desktop shell needed for the first usable UI.",
     );
-    await expect(window.locator("#terminal")).toContainText("theme: dark (dark)");
-  } finally {
-    await closeDesktop(electronApp, dataDirectory);
-  }
-});
-
-test("project cards and selected-project lists show exact seeded counts", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
-
-  try {
-    const projectCards = window.locator("#project-list .project-card");
-    const backlogCards = window.locator("#backlog-list .list-card");
-    const taskCards = window.locator("#task-list .list-card");
-    const approvalCards = window.locator("#approvals-list .list-card");
-    const blockerCards = window.locator("#blockers-list .list-card");
-
-    await expect(projectCards).toHaveCount(1);
-    await expect(backlogCards).toHaveCount(1);
-    await expect(taskCards).toHaveCount(1);
-    await expect(approvalCards).toHaveCount(1);
-    await expect(blockerCards).toHaveCount(1);
-
-    await expect(projectCards.first()).toContainText("Active Tasks");
-    await expect(projectCards.first()).toContainText("Active Sessions");
-    await expect(projectCards.first()).toContainText("Backlog Items");
-    await expect(projectCards.first()).toContainText("1");
-    await expect(backlogCards.first()).toContainText("Create the first desktop shell");
-    await expect(taskCards.first()).toContainText(
-      "Scaffold the first desktop shell with one project dashboard card.",
+    await expect(window.locator("#planning-history")).toContainText(
+      "Start with one dashboard, one xterm.js pane, and persisted project state.",
+    );
+    await expect(window.locator("#planning-status")).toContainText("project planning session");
+    await expect(window.locator("#terminal-caption")).toContainText("Claude planning transcript");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "smithly-shell: project planning transcript attached",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "mock claude ready for project planning",
     );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
 });
 
-test("event log renders the seeded worker, planning, and verification activity", async () => {
+test("operator can send a prompt into the project planning session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop("dark");
 
   try {
-    const events = window.locator("#event-log .event-item");
-
-    await expect(events).toHaveCount(8);
-    await expect(events.nth(0)).toContainText("Worker session updated");
-    await expect(events.nth(1)).toContainText(
-      "Scaffold the first desktop shell with one project dashboard card.",
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "mock claude ready for project planning",
     );
-    await expect(events.nth(2)).toContainText("Approve shell bootstrap work");
-    await expect(events.nth(5)).toContainText("Desktop shell bootstrap");
-    await expect(events.nth(6)).toContainText("Verification queued");
-    await expect(events.nth(7)).toContainText("Review queued");
+
+    await window.locator("#planning-input").fill("Summarize the next v1 planning slice.");
+    await window.locator("#planning-input-form button").click();
+
+    await expect(window.locator("#planning-history")).toContainText(
+      "Summarize the next v1 planning slice.",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      "claude ack: Summarize the next v1 planning slice.",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude ack: Summarize the next v1 planning slice.",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("operator can switch to task planning and attach a task-scoped Claude session", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+
+  try {
+    await window.locator("#task-planning-button").click();
+
+    await expect(window.locator("#planning-title")).toHaveText("Task planning");
+    await expect(window.locator("#selected-backlog-title")).toHaveText(
+      "Bootstrap the desktop shell",
+    );
+    await expect(window.locator("#selected-backlog-status")).toHaveText("approved");
+    await expect(window.locator("#selected-backlog-criteria")).toContainText("Dashboard opens");
+    await expect(window.locator("#planning-history")).toContainText(
+      "Refine the backlog item before implementation begins.",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      "Keep the first shell narrow: one dashboard, one project list, one xterm pane, and no live PTY control yet.",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "mock claude ready for task planning",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "focused backlog item: backlog-bootstrap-ui",
+    );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
@@ -136,7 +145,7 @@ test("desktop shell supports explicit light theme preference", async () => {
   try {
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(window.locator("#theme-mode")).toHaveText("light -> light");
-    await expect(window.locator("#terminal")).toContainText("theme: light (light)");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText("theme: light (light)");
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }

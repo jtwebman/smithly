@@ -92,6 +92,36 @@ describe("desktop bootstrap", () => {
           },
         ]),
         projectId: "project-smithly",
+        projectPlanningChat: {
+          kind: "project_planning",
+          messages: [
+            {
+              bodyText: "Plan the minimal desktop shell needed for the first usable UI.",
+              createdAt: "2026-04-10T07:00:00.000Z",
+              id: "message-bootstrap-1",
+              role: "human",
+            },
+            {
+              bodyText: "Start with one dashboard, one xterm.js pane, and persisted project state.",
+              createdAt: "2026-04-10T07:05:00.000Z",
+              id: "message-bootstrap-2",
+              role: "claude",
+            },
+          ],
+          threadId: "thread-project-bootstrap-ui",
+          title: "Project planning",
+        },
+        selectedBacklogItem: {
+          acceptanceCriteria: [
+            "Dashboard opens",
+            "xterm.js pane is rendered",
+            "state comes from SQLite",
+          ],
+          id: "backlog-bootstrap-ui",
+          scopeSummary: "Create the first desktop shell and show one managed project.",
+          status: "approved",
+          title: "Bootstrap the desktop shell",
+        },
         taskRuns: [
           {
             id: "taskrun-bootstrap-ui",
@@ -101,6 +131,26 @@ describe("desktop bootstrap", () => {
             title: "taskrun-bootstrap-ui",
           },
         ],
+        taskPlanningChat: {
+          kind: "task_planning",
+          messages: [
+            {
+              bodyText: "Refine the backlog item before implementation begins.",
+              createdAt: "2026-04-10T07:00:00.000Z",
+              id: "message-task-bootstrap-1",
+              role: "human",
+            },
+            {
+              bodyText:
+                "Keep the first shell narrow: one dashboard, one project list, one xterm pane, and no live PTY control yet.",
+              createdAt: "2026-04-10T07:05:00.000Z",
+              id: "message-task-bootstrap-2",
+              role: "claude",
+            },
+          ],
+          threadId: "thread-task-bootstrap-ui",
+          title: "Task planning",
+        },
       },
       resolvedThemeMode: "dark",
       themePreference: "dark",

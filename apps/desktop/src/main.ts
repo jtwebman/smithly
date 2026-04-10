@@ -17,13 +17,16 @@ import {
   resolveDesktopThemeMode,
   type IDesktopStatus,
 } from "./desktop-state.ts";
+import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 
 let storageContext: IStorageContext | null = null;
+let planningSessionManager: PlanningSessionManager | null = null;
 
 export async function bootstrapDesktopApp(): Promise<void> {
   await app.whenReady();
 
   storageContext = ensureSeededDesktopContext();
+  planningSessionManager = createPlanningSessionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
 
@@ -38,6 +41,9 @@ function ensureSeededDesktopContext(): IStorageContext {
   const config = createConfig({
     dataDirectory: resolveDesktopDataDirectory(),
     themePreference: resolveDesktopThemePreference(),
+    workers: {
+      claude: resolveClaudeWorkerCommand(),
+    },
   });
   const context = createContext({ config });
 
@@ -88,6 +94,44 @@ function registerDesktopHandlers(context: IStorageContext): void {
       resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
     );
   });
+
+  ipcMain.removeHandler("smithly:planning-session:ensure");
+  ipcMain.handle(
+    "smithly:planning-session:ensure",
+    (_event, scope: PlanningScope, backlogItemId?: string): IDesktopStatus => {
+      requirePlanningSessionManager().ensureSession({
+        ...(backlogItemId !== undefined ? { backlogItemId } : {}),
+        projectId: requirePrimaryProjectId(context),
+        scope,
+      });
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:planning-session:submit");
+  ipcMain.handle(
+    "smithly:planning-session:submit",
+    (
+      _event,
+      scope: PlanningScope,
+      backlogItemId: string | undefined,
+      bodyText: string,
+    ): IDesktopStatus => {
+      requirePlanningSessionManager().submitInput({
+        ...(backlogItemId !== undefined ? { backlogItemId } : {}),
+        bodyText,
+        projectId: requirePrimaryProjectId(context),
+        scope,
+      });
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      );
+    },
+  );
 }
 
 function resolveDesktopDataDirectory(): string {
@@ -113,6 +157,58 @@ function resolveDesktopThemePreference(): "dark" | "light" | "system" {
   }
 }
 
+function createPlanningSessionManager(context: IStorageContext): PlanningSessionManager {
+  return new PlanningSessionManager(context, (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send("smithly:planning-output", event);
+    }
+  });
+}
+
+function requirePlanningSessionManager(): PlanningSessionManager {
+  if (planningSessionManager === null) {
+    throw new Error("Planning session manager is not available.");
+  }
+
+  return planningSessionManager;
+}
+
+function requirePrimaryProjectId(context: IStorageContext): string {
+  const project = listProjects(context)[0];
+
+  if (project === undefined) {
+    throw new Error("No managed project is available.");
+  }
+
+  return project.id;
+}
+
+function parseWorkerCommandArgs(environmentVariableName: string): string[] | undefined {
+  const rawValue = process.env[environmentVariableName]?.trim();
+
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const parsedValue = JSON.parse(rawValue);
+
+  if (!Array.isArray(parsedValue) || parsedValue.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${environmentVariableName} must be a JSON string array.`);
+  }
+
+  return parsedValue;
+}
+
+function resolveClaudeWorkerCommand(): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  return {
+    args: parseWorkerCommandArgs("SMITHLY_CLAUDE_ARGS_JSON") ?? [],
+    command: process.env.SMITHLY_CLAUDE_COMMAND?.trim() || "claude",
+  };
+}
+
 function resolvePreloadPath(): string {
   return join(dirname(), "preload.cjs");
 }
@@ -126,6 +222,8 @@ function dirname(): string {
 }
 
 app.on("window-all-closed", () => {
+  planningSessionManager?.dispose();
+  planningSessionManager = null;
   storageContext?.db.close();
   storageContext = null;
 
