@@ -1,0 +1,118 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import { createConfig } from "@smithly/core";
+import { createContext, createInitialSeedFixture, seedInitialState } from "@smithly/storage";
+
+import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directoryPath of temporaryDirectories.splice(0)) {
+    rmSync(directoryPath, { force: true, recursive: true });
+  }
+});
+
+describe("desktop bootstrap", () => {
+  it("builds dashboard state from the storage context", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-bootstrap-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+        themePreference: "dark",
+      }),
+    });
+
+    seedInitialState(context, fixture);
+
+    expect(buildDesktopStatus(context, "dark")).toEqual({
+      appVersion: "0.1.0",
+      dataDirectory,
+      projectCount: 1,
+      projects: [
+        {
+          activeSessionCount: 1,
+          activeTaskCount: 1,
+          backlogCount: 1,
+          id: "project-smithly",
+          name: "Smithly",
+          repoPath: "/home/jt/projects/smithly",
+          status: "active",
+        },
+      ],
+      selectedProject: {
+        approvals: [
+          {
+            id: "approval-bootstrap-ui",
+            status: "pending",
+            subtitle: "Allow the initial Electron shell and xterm.js pane wiring to proceed.",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Approve shell bootstrap work",
+          },
+        ],
+        backlogItems: [
+          {
+            id: "backlog-bootstrap-ui",
+            status: "approved",
+            subtitle: "Create the first desktop shell and show one managed project.",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Bootstrap the desktop shell",
+          },
+        ],
+        blockers: [
+          {
+            id: "blocker-pterm-direction",
+            status: "open",
+            subtitle:
+              "Confirm whether pterm should be embedded directly or treated as a reference only.",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Need terminal integration decision",
+          },
+        ],
+        events: expect.arrayContaining([
+          {
+            detail: "codex session is running",
+            id: "worker-session-codex-bootstrap-ui",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Worker session updated",
+          },
+          {
+            detail: "npm run check",
+            id: "verification-verification-bootstrap-ui",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Verification queued",
+          },
+        ]),
+        projectId: "project-smithly",
+        taskRuns: [
+          {
+            id: "taskrun-bootstrap-ui",
+            status: "running",
+            subtitle: "Scaffold the first desktop shell with one project dashboard card.",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "taskrun-bootstrap-ui",
+          },
+        ],
+      },
+      resolvedThemeMode: "dark",
+      themePreference: "dark",
+    });
+
+    context.db.close();
+  });
+
+  it("resolves system theme preference with a dark fallback policy", () => {
+    expect(resolveDesktopThemeMode("dark", false)).toBe("dark");
+    expect(resolveDesktopThemeMode("light", true)).toBe("light");
+    expect(resolveDesktopThemeMode("system", true)).toBe("dark");
+    expect(resolveDesktopThemeMode("system", false)).toBe("light");
+  });
+});

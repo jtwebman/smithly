@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smithly</title>
+    <link rel="stylesheet" href="./vendor/xterm.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@xterm/xterm": "./vendor/xterm.mjs",
+          "@xterm/addon-fit": "./vendor/addon-fit.mjs"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d131b;
+        --bg-accent: #16212c;
+        --panel: rgba(16, 24, 36, 0.84);
+        --panel-strong: rgba(12, 19, 29, 0.94);
+        --border: rgba(137, 171, 210, 0.18);
+        --ink: #e6edf6;
+        --muted: #9eb2c8;
+        --accent: #73d8c9;
+        --accent-strong: #8ecfff;
+        --danger: #ff7b7b;
+        --shadow: rgba(2, 8, 16, 0.42);
+        --status-active: rgba(157, 223, 114, 0.2);
+      }
+
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --bg: #f4efe7;
+        --bg-accent: #fdf7ee;
+        --panel: rgba(255, 252, 247, 0.92);
+        --panel-strong: rgba(255, 255, 255, 0.98);
+        --border: rgba(34, 57, 82, 0.12);
+        --ink: #223952;
+        --muted: #5d7084;
+        --accent: #176f73;
+        --accent-strong: #1d5ea8;
+        --danger: #b14949;
+        --shadow: rgba(59, 77, 97, 0.12);
+        --status-active: rgba(79, 140, 61, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Avenir Next", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(115, 216, 201, 0.18), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(142, 207, 255, 0.18), transparent 28%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
+      }
+
+      .shell {
+        display: grid;
+        min-height: 100vh;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+      }
+
+      .sidebar,
+      .workspace {
+        padding: 28px;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--panel), transparent);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 24px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 0.72rem;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 16px 0 10px;
+        font-size: clamp(2.5rem, 4vw, 4.75rem);
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .metrics,
+      .project-list,
+      .workspace-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .metrics {
+        margin-top: 28px;
+      }
+
+      .metric-card,
+      .panel,
+      .project-card {
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: var(--panel);
+        box-shadow: 0 20px 48px var(--shadow);
+        backdrop-filter: blur(12px);
+      }
+
+      .metric-card {
+        padding: 18px 20px;
+      }
+
+      .metric-card dt,
+      .project-metrics dt {
+        margin: 0 0 6px;
+        font-size: 0.74rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .metric-card dd,
+      .project-metrics dd {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .workspace-grid {
+        grid-template-columns: minmax(320px, 420px) 1fr;
+        min-height: 0;
+      }
+
+      .workspace-secondary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
+      }
+
+      .panel {
+        padding: 22px;
+      }
+
+      .panel h2,
+      .project-card h3 {
+        margin: 0;
+        font-size: 1.15rem;
+      }
+
+      .panel-header,
+      .project-card__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .panel-header p,
+      .project-card p {
+        margin-top: 8px;
+        font-size: 0.94rem;
+      }
+
+      .project-list {
+        margin-top: 18px;
+      }
+
+      .project-card {
+        padding: 18px;
+      }
+
+      .project-status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: var(--status-active);
+        color: var(--accent);
+        text-transform: capitalize;
+        font-size: 0.88rem;
+      }
+
+      .project-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 18px 0 0;
+      }
+
+      #terminal {
+        min-height: 460px;
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel-strong);
+      }
+
+      .terminal-caption {
+        margin-top: 12px;
+        font-size: 0.9rem;
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .list-card,
+      .event-item {
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel-strong);
+      }
+
+      .list-card__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .list-card p,
+      .event-item p {
+        margin-top: 8px;
+        font-size: 0.92rem;
+      }
+
+      .list-card time,
+      .event-item time {
+        display: inline-block;
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
+      .list-status {
+        color: var(--accent);
+        text-transform: capitalize;
+        font-size: 0.86rem;
+      }
+
+      .empty-state {
+        padding: 18px;
+        border: 1px dashed var(--border);
+        border-radius: 18px;
+      }
+
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .workspace-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace-secondary {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <span class="eyebrow">Local Desktop Operator</span>
+        <h1>Smithly</h1>
+        <p>
+          Control surface for project planning, approvals, worker sessions, and persistent task
+          state. This shell is intentionally narrow: one dashboard and one terminal pane over the
+          local-first storage model.
+        </p>
+        <dl class="metrics">
+          <div class="metric-card">
+            <dt>App Version</dt>
+            <dd id="app-version">Loading...</dd>
+          </div>
+          <div class="metric-card">
+            <dt>Theme</dt>
+            <dd id="theme-mode">Loading...</dd>
+          </div>
+          <div class="metric-card">
+            <dt>Data Directory</dt>
+            <dd id="data-directory">Loading...</dd>
+          </div>
+          <div class="metric-card">
+            <dt>Managed Projects</dt>
+            <dd id="project-count">Loading...</dd>
+          </div>
+        </dl>
+      </aside>
+
+      <section class="workspace">
+        <section class="workspace-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Projects</h2>
+                <p>
+                  Current status, active work, and live session counts from the local SQLite store.
+                </p>
+              </div>
+            </div>
+            <div id="project-list" class="project-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Operator Pane</h2>
+                <p id="shell-status">Connecting shell...</p>
+              </div>
+            </div>
+            <div id="terminal"></div>
+            <p id="terminal-caption" class="terminal-caption">Loading pane...</p>
+          </div>
+        </section>
+
+        <section class="workspace-secondary">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Backlog And Tasks</h2>
+                <p>Selected-project work definition and current task execution state.</p>
+              </div>
+            </div>
+            <div class="stack" id="backlog-list"></div>
+            <div class="stack" id="task-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Approvals And Blockers</h2>
+                <p>Operator decisions and current unresolved work constraints.</p>
+              </div>
+            </div>
+            <div class="stack" id="approvals-list"></div>
+            <div class="stack" id="blockers-list"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Event Log</h2>
+              <p>Derived worker and project activity ordered by the latest recorded timestamp.</p>
+            </div>
+          </div>
+          <div class="stack" id="event-log"></div>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

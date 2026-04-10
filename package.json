@@ -1,0 +1,38 @@
+{
+  "name": "smithly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local desktop operator app for managing software projects with AI workers under human supervision.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-storage-assets.mjs && node scripts/copy-desktop-assets.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage",
+    "clean": "rm -rf coverage dist node_modules apps/*/node_modules packages/*/node_modules",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint --deny-warnings . && node scripts/check-package-versions.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@types/node": "25.6.0",
+    "@vitest/coverage-v8": "4.1.4",
+    "playwright": "1.59.1",
+    "typescript": "6.0.2",
+    "vite": "8.0.8",
+    "vite-plus": "0.1.16",
+    "vitest": "4.1.4"
+  },
+  "engines": {
+    "node": "24.14.1",
+    "npm": "11.11.0"
+  },
+  "packageManager": "npm@11.11.0"
+}

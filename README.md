@@ -1,0 +1,75 @@
+# Smithly
+
+Smithly is a local desktop operator app for managing software projects with AI workers under human supervision.
+
+The initial product is a desktop-first control surface for one operator on one machine. Claude Code acts as planner and orchestrator. Codex acts as coding executor. Smithly owns durable task state, chats, approvals, blockers, verification, review history, and other audit data in SQLite instead of treating terminal output as the source of truth.
+
+## V1 Scope
+
+- local desktop app
+- one operator
+- one machine
+- Electron-based UI path
+- SQLite as the system of record
+- chat-first planning and control
+- background execution of approved work
+- dark and light mode support, defaulting to system theme when available and dark otherwise
+
+## Platform Support
+
+Smithly v1 is developed and tested for:
+
+- macOS
+- Linux
+
+Windows is intentionally out of scope for the first usable version, but the repository and package layout should not block later Windows support.
+
+## Repository Layout
+
+```text
+apps/
+  desktop/    Electron desktop application shell
+packages/
+  core/       Shared app/domain contracts and context boundaries
+  storage/    SQLite schema, migrations, and persistence layer
+```
+
+## Current Bootstrap Path
+
+1. scaffold the monorepo
+2. add project and contribution documentation
+3. set up TypeScript, formatting, linting, tests, coverage, and CI
+4. define core config and context boundaries
+5. define the initial SQLite schema
+6. implement migration-controlled storage
+
+## Development
+
+```bash
+npm install
+npm run check
+npm run build
+```
+
+Current workspace tooling uses:
+
+- `vite-plus` for repo-level formatting and lint tooling
+- `vitest` for tests and coverage
+- `typescript` for typecheck and the current build output
+
+## Working Principles
+
+- keep scope tight to the local desktop app
+- prefer exact pinned versions
+- use context-first functional patterns
+- keep storage and application boundaries explicit
+- do not overbuild memory or retrieval before real usage demands it
+- preserve a path toward future multi-machine ideas without expanding current scope
+
+## Status
+
+Backlog and future-scope notes live in:
+
+- `BACKLOG.md`
+- `PLAN.md`
+- `FUTURE.md`

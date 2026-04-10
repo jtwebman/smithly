@@ -1,0 +1,18 @@
+{
+  "name": "@smithly/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "build": "tsc -p ../../tsconfig.build.json && node ../../scripts/copy-desktop-assets.mjs",
+    "start": "electron ../../dist/apps/desktop/src/main.js"
+  },
+  "dependencies": {
+    "@smithly/core": "0.1.0",
+    "@smithly/storage": "0.1.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "electron": "41.2.0"
+  }
+}
