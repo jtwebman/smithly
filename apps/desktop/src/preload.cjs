@@ -22,4 +22,16 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
       ipcRenderer.removeListener(eventName, wrappedListener);
     };
   },
+  onStatusUpdate(listener) {
+    const eventName = "smithly:desktop-status-updated";
+    const wrappedListener = (_event, payload) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on(eventName, wrappedListener);
+
+    return () => {
+      ipcRenderer.removeListener(eventName, wrappedListener);
+    };
+  },
 });

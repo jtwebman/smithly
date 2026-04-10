@@ -103,6 +103,8 @@ export function ensureDatabase(options: EnsureDatabaseOptions): EnsureDatabaseRe
   const database = new DatabaseSync(databasePath);
 
   try {
+    configureWritableDatabase(database);
+
     for (const migration of pendingMigrations) {
       applyMigration(database, migration, sqlLoader, now);
     }
@@ -296,4 +298,10 @@ function hasTable(database: DatabaseSync, tableName: string): boolean {
     .get(tableName) as { name?: string } | undefined;
 
   return row?.name === tableName;
+}
+
+function configureWritableDatabase(database: DatabaseSync): void {
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA busy_timeout = 5000");
+  database.exec("PRAGMA foreign_keys = ON");
 }

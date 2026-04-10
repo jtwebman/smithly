@@ -17,6 +17,7 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
     SMITHLY_CLAUDE_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-claude.mjs")]),
     SMITHLY_CLAUDE_COMMAND: process.execPath,
     SMITHLY_DATA_DIRECTORY: dataDirectory,
+    SMITHLY_NODE_COMMAND: process.execPath,
     ...(themePreference !== undefined ? { SMITHLY_THEME_PREFERENCE: themePreference } : {}),
   };
 }
@@ -110,6 +111,35 @@ test("operator can send a prompt into the project planning session", async () =>
   }
 });
 
+test("project planning can create a draft backlog item through Smithly MCP", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+
+  try {
+    await expect(window.locator("#backlog-list .list-card")).toHaveCount(1);
+
+    await window
+      .locator("#planning-input")
+      .fill(
+        "create draft: Add Smithly MCP write path | Create draft backlog items through planning MCP tools.",
+      );
+    await window.locator("#planning-input-form button").click();
+
+    await expect(window.locator("#backlog-list .list-card")).toHaveCount(2);
+    await expect(window.locator("#backlog-list")).toContainText("Add Smithly MCP write path");
+    await expect(window.locator("#backlog-list")).toContainText(
+      "Create draft backlog items through planning MCP tools.",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      'Created draft backlog item "Add Smithly MCP write path"',
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool create_draft_backlog_item",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("operator can switch to task planning and attach a task-scoped Claude session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop("dark");
 
@@ -133,6 +163,45 @@ test("operator can switch to task planning and attach a task-scoped Claude sessi
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "focused backlog item: backlog-bootstrap-ui",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("task planning can revise the focused backlog item through Smithly MCP", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop("dark");
+
+  try {
+    await window.locator("#task-planning-button").click();
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "mock claude ready for task planning",
+    );
+
+    await window
+      .locator("#planning-input")
+      .fill(
+        "revise task: Use Smithly MCP-backed planning actions for backlog updates. | Claude can revise the task scope through MCP; Acceptance criteria are persisted in SQLite | Track the first revision path through the task planning thread.",
+      );
+    await window.locator("#planning-input-form button").click();
+
+    await expect(window.locator("#selected-backlog-scope")).toHaveText(
+      "Use Smithly MCP-backed planning actions for backlog updates.",
+    );
+    await expect(window.locator("#selected-backlog-criteria")).toContainText(
+      "Claude can revise the task scope through MCP",
+    );
+    await expect(window.locator("#selected-backlog-criteria")).toContainText(
+      "Acceptance criteria are persisted in SQLite",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      'Updated backlog item "Bootstrap the desktop shell" with 2 acceptance criteria.',
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      "Track the first revision path through the task planning thread.",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool revise_backlog_item",
     );
   } finally {
     await closeDesktop(electronApp, dataDirectory);

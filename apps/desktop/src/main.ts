@@ -161,6 +161,16 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
   return new PlanningSessionManager(context, (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("smithly:planning-output", event);
+      window.webContents.send(
+        "smithly:desktop-status-updated",
+        buildDesktopStatus(
+          context,
+          resolveDesktopThemeMode(
+            context.config.ui.themePreference,
+            nativeTheme.shouldUseDarkColors,
+          ),
+        ),
+      );
     }
   });
 }
@@ -215,6 +225,10 @@ function resolvePreloadPath(): string {
 
 function resolveRendererHtmlPath(): string {
   return join(dirname(), "index.html");
+}
+
+export function resolveDesktopMcpServerPath(): string {
+  return join(dirname(), "../../../packages/mcp-server/src/main.js");
 }
 
 function dirname(): string {

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { spawn, type IPty } from "node-pty";
 
@@ -50,6 +52,16 @@ interface IPlanningRuntimeSession {
   readonly threadId: string;
   readonly workerSessionId: string;
   lineBuffer: string;
+}
+
+interface IMcpServerConfig {
+  readonly mcpServers: {
+    readonly smithly: {
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly env: Record<string, string>;
+    };
+  };
 }
 
 export class PlanningSessionManager {
@@ -142,15 +154,17 @@ export class PlanningSessionManager {
     });
 
     try {
+      const mcpConfig = this.buildMcpServerConfig(thread, input);
       const pty = spawn(
         this.context.config.workers.claude.command,
-        [...this.context.config.workers.claude.args],
+        this.buildWorkerArgs(this.context.config.workers.claude.command, mcpConfig),
         {
           cols: 120,
           cwd: project.repoPath,
           env: {
             ...process.env,
             SMITHLY_BACKLOG_ITEM_ID: input.backlogItemId ?? "",
+            SMITHLY_MCP_CONFIG_JSON: JSON.stringify(mcpConfig),
             SMITHLY_PROJECT_ID: input.projectId,
             SMITHLY_THREAD_ID: thread.id,
             SMITHLY_THREAD_KIND: thread.kind,
@@ -295,6 +309,36 @@ export class PlanningSessionManager {
     return `planning:task:${input.backlogItemId}`;
   }
 
+  private buildMcpServerConfig(
+    thread: IChatThreadRecord,
+    input: IEnsurePlanningSessionInput,
+  ): IMcpServerConfig {
+    return {
+      mcpServers: {
+        smithly: {
+          args: [resolveMcpServerPath()],
+          command: process.env.SMITHLY_NODE_COMMAND?.trim() || "node",
+          env: {
+            SMITHLY_BACKLOG_ITEM_ID: input.backlogItemId ?? "",
+            SMITHLY_DATA_DIRECTORY: this.context.config.storage.dataDirectory,
+            SMITHLY_PROJECT_ID: input.projectId,
+            SMITHLY_THREAD_ID: thread.id,
+          },
+        },
+      },
+    };
+  }
+
+  private buildWorkerArgs(command: string, mcpConfig: IMcpServerConfig): string[] {
+    const configuredArgs = [...this.context.config.workers.claude.args];
+
+    if (basename(command) !== "claude") {
+      return configuredArgs;
+    }
+
+    return [...configuredArgs, "--mcp-config", JSON.stringify(mcpConfig), "--strict-mcp-config"];
+  }
+
   private touchThread(thread: IChatThreadRecord): void {
     upsertChatThread(this.context, {
       ...thread,
@@ -379,6 +423,14 @@ export class PlanningSessionManager {
       },
     ];
   }
+}
+
+function resolveMcpServerPath(): string {
+  return join(dirname(), "../../../packages/mcp-server/src/main.js");
+}
+
+function dirname(): string {
+  return fileURLToPath(new URL(".", import.meta.url));
 }
 
 function stripAnsi(value: string): string {

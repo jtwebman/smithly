@@ -21,7 +21,7 @@ export function openSqliteDb(databasePath: string): SqliteDb {
 export function createSqliteDb(database: DatabaseSync): SqliteDb {
   let inTransaction = false;
 
-  database.exec("PRAGMA foreign_keys = ON");
+  configureWritableDatabase(database);
 
   return {
     raw: database,
@@ -105,4 +105,10 @@ export function createSqliteDb(database: DatabaseSync): SqliteDb {
       database.close();
     },
   };
+}
+
+function configureWritableDatabase(database: DatabaseSync): void {
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA busy_timeout = 5000");
+  database.exec("PRAGMA foreign_keys = ON");
 }

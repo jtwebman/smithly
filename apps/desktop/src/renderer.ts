@@ -95,6 +95,7 @@ interface SmithlyDesktopApi {
     bodyText: string,
   ): Promise<DesktopStatus>;
   onPlanningOutput(listener: (payload: PlanningOutputEvent) => void): () => void;
+  onStatusUpdate(listener: (status: DesktopStatus) => void): () => void;
 }
 
 declare global {
@@ -147,7 +148,11 @@ window.smithlyDesktop.onPlanningOutput((payload) => {
     terminal?.write(payload.rawData);
   }
 
-  appendPlanningOutput(payload);
+  void pollStatus(6, 250);
+});
+
+window.smithlyDesktop.onStatusUpdate((status) => {
+  renderDesktopStatus(status);
 });
 
 function setNodeText(node: HTMLElement | null, text: string): void {
@@ -517,54 +522,18 @@ async function activatePlanningScope(scope: PlanningScope): Promise<void> {
 
   renderPlanningPending(scope);
   renderDesktopStatus(await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId));
+  void pollStatus(4, 250);
 }
 
 function renderPlanningPending(scope: PlanningScope): void {
   setNodeText(shellStatusNode, `Connecting ${scope} planning session...`);
 }
 
-function appendPlanningOutput(payload: PlanningOutputEvent): void {
-  if (currentStatus === null || payload.entries.length === 0) {
-    return;
+async function pollStatus(rounds: number, delayMs: number): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    await delay(delayMs);
+    renderDesktopStatus(await window.smithlyDesktop.getStatus());
   }
-
-  const selectedProject = currentStatus.selectedProject;
-
-  if (selectedProject === undefined) {
-    return;
-  }
-
-  const projectSession = selectedProject.projectPlanningSession;
-  const taskSession = selectedProject.taskPlanningSession;
-  const nextSelectedProject = {
-    ...selectedProject,
-  };
-
-  if (
-    projectSession?.terminalKey === payload.terminalKey &&
-    selectedProject.projectPlanningChat !== undefined
-  ) {
-    nextSelectedProject.projectPlanningChat = {
-      ...selectedProject.projectPlanningChat,
-      messages: [...selectedProject.projectPlanningChat.messages, ...payload.entries],
-    };
-  }
-
-  if (
-    taskSession?.terminalKey === payload.terminalKey &&
-    selectedProject.taskPlanningChat !== undefined
-  ) {
-    nextSelectedProject.taskPlanningChat = {
-      ...selectedProject.taskPlanningChat,
-      messages: [...selectedProject.taskPlanningChat.messages, ...payload.entries],
-    };
-  }
-
-  currentStatus = {
-    ...currentStatus,
-    selectedProject: nextSelectedProject,
-  };
-  renderPlanningPane(currentStatus);
 }
 
 function getActivePlanningThread(
@@ -624,6 +593,7 @@ planningForm?.addEventListener("submit", async (event) => {
     await window.smithlyDesktop.submitPlanningInput(activePlanningScope, backlogItemId, bodyText),
   );
   planningInputNode.value = "";
+  void pollStatus(8, 250);
 });
 
 projectPlanningButton?.addEventListener("click", () => {
@@ -646,6 +616,12 @@ async function renderStatus(): Promise<void> {
   } catch (error: unknown) {
     renderError(error instanceof Error ? error.message : String(error));
   }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }
 
 void renderStatus();
