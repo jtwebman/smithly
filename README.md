@@ -49,7 +49,10 @@ packages/
 npm install
 npm run check
 npm run build
+npm run dev
 ```
+
+`npm run dev` builds the current workspace output and launches the desktop app.
 
 Current workspace tooling uses:
 
