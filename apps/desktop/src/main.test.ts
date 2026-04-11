@@ -1,6 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,7 +21,6 @@ import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts"
 import {
   recoverOrphanedClaudeSessions,
   recoverProjectExecutionStates,
-  resolveDefaultDesktopDataDirectory,
 } from "./main.ts";
 
 const temporaryDirectories: string[] = [];
@@ -254,10 +252,6 @@ describe("desktop bootstrap", () => {
     });
 
     context.db.close();
-  });
-
-  it("uses ~/.smithly as the default desktop data directory", () => {
-    expect(resolveDefaultDesktopDataDirectory()).toBe(join(homedir(), ".smithly"));
   });
 
   it("prefers the requested selected project when multiple projects exist", () => {

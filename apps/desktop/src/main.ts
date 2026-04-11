@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -529,11 +528,7 @@ function resolveDesktopDataDirectory(): string {
     return environmentOverride;
   }
 
-  return resolveDefaultDesktopDataDirectory();
-}
-
-export function resolveDefaultDesktopDataDirectory(): string {
-  return join(homedir(), ".smithly");
+  return join(app.getPath("userData"), "data");
 }
 
 function resolveDesktopThemePreference(): "dark" | "light" | "system" {
