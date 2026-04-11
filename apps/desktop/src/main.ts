@@ -27,6 +27,7 @@ import {
   resolveDesktopThemeMode,
   type IDesktopStatus,
 } from "./desktop-state.ts";
+import { BlockerRoutingManager } from "./blocker-routing-manager.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 import { ProjectExecutionManager } from "./project-execution.ts";
@@ -42,6 +43,7 @@ let verificationManager: VerificationManager | null = null;
 let reviewManager: ReviewManager | null = null;
 let projectExecutionManager: ProjectExecutionManager | null = null;
 let taskMergeManager: TaskMergeManager | null = null;
+let blockerRoutingManager: BlockerRoutingManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 let isAppQuitting = false;
@@ -69,10 +71,12 @@ export async function bootstrapDesktopApp(): Promise<void> {
   verificationManager = createVerificationManager(storageContext);
   taskMergeManager = createTaskMergeManager(storageContext);
   reviewManager = createReviewManager(storageContext);
+  blockerRoutingManager = createBlockerRoutingManager(storageContext);
   projectExecutionManager = createProjectExecutionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
   projectExecutionManager.resumeActiveProjects();
+  blockerRoutingManager.processOpenBlockers();
   verificationManager.processQueuedRuns();
   reviewManager.processQueuedRuns();
 
@@ -554,6 +558,7 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
     }
 
     broadcastDesktopStatus(context);
+    blockerRoutingManager?.processOpenBlockers();
     verificationManager?.processQueuedRuns();
     reviewManager?.processQueuedRuns();
   });
@@ -566,6 +571,7 @@ function createCodexSessionManager(context: IStorageContext): CodexSessionManage
     }
 
     broadcastDesktopStatus(context);
+    blockerRoutingManager?.processOpenBlockers();
     verificationManager?.processQueuedRuns();
     reviewManager?.processQueuedRuns();
   });
@@ -605,6 +611,14 @@ function createReviewManager(context: IStorageContext): ReviewManager {
 
 function createTaskMergeManager(context: IStorageContext): TaskMergeManager {
   return new TaskMergeManager(context);
+}
+
+function createBlockerRoutingManager(context: IStorageContext): BlockerRoutingManager {
+  return new BlockerRoutingManager(context, {
+    onUpdated: () => {
+      broadcastDesktopStatus(context);
+    },
+  });
 }
 
 function broadcastDesktopStatus(context: IStorageContext): void {
@@ -863,6 +877,7 @@ if (typeof app?.on === "function") {
         reviewManager = null;
         projectExecutionManager = null;
         taskMergeManager = null;
+        blockerRoutingManager = null;
         storageContext?.db.close();
         storageContext = null;
         app.exit(0);

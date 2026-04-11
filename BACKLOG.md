@@ -132,9 +132,9 @@
 
 ## Phase 13: Blockers And Helper Routing
 
-72. `todo` Implement blocker classification: policy-answerable, helper-model-answerable, human-required
-73. `todo` Add helper-model routing for low-risk auto-answerable questions
-74. `todo` Add tests for blocker classification and helper-model routing
+72. `done` Implement blocker classification: policy-answerable, helper-model-answerable, human-required
+73. `done` Add helper-model routing for low-risk auto-answerable questions
+74. `done` Add tests for blocker classification and helper-model routing
 
 ## Phase 14: Multi-Project Operation
 
