@@ -27,6 +27,7 @@
 - Operators should also be able to open a backlog-item-scoped planning chat from any draft or approved item and use that chat to refine, split, add, remove, and reprioritize related work.
 - Operator-opened Claude chats should live in resumable right-side panels/tabs and restore after app restart when possible.
 - Background orchestration sessions should continue without occupying the main UI; expose them as attachable buttons/panels the operator can open temporarily.
+- Start orchestration with a single active coding task at a time per project; defer multi-worker or specialist-role parallelism until the core flow is proven.
 
 ## Phase 1: Bootstrap
 
@@ -153,7 +154,7 @@
 
 ## Phase 15: Multi-Project Operation
 
-82. `todo` Implement project scheduling and runnable-work selection across running projects
+82. `todo` Implement project scheduling and runnable-work selection across running projects with exactly one active coding task at a time per project
 83. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
 84. `todo` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
 85. `todo` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
@@ -162,6 +163,10 @@
 88. `todo` Add quota and credit pause-resume handling
 89. `todo` Add dashboard summaries across all projects
 90. `todo` Add tests for multi-project scheduling behavior and backlog-generation loops
+
+## Future Expansion Notes
+
+- After the single-lane execution model is reliable and easy to understand, evaluate optional multi-worker or specialist-role execution such as frontend, backend, ML, or infra lanes.
 
 ## Phase 16: Smithly Builds Smithly
 

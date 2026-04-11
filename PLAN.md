@@ -48,6 +48,7 @@ Smithly should make it easy to:
 - durable state in Smithly, not in terminal output
 - terminals are execution surfaces, not the source of truth
 - chat is a first-class planning and control interface
+- one active coding task at a time per project for the initial orchestration model
 - structured approvals and blockers
 - safe default behavior
 - explicit audit trail for actions and decisions
@@ -101,7 +102,7 @@ Smithly owns:
 - hook event ingestion
 - verification runners
 - review orchestration
-- scheduler that selects the next approved runnable task for Codex
+- scheduler that selects exactly one approved runnable task at a time for Codex per playing project
 
 ### Worker Model
 
@@ -284,6 +285,7 @@ The execution path should stay narrow:
 - Smithly runs the configured verification pipeline
 - Claude reviews the result and either approves completion, requests fixes, or raises a blocker
 - Smithly then moves to the next approved runnable item or waits for more operator planning and approval
+- only one coding task should be active per project at a time in v1
 
 This means orchestration can remain relatively lean. It does not need to behave like a fully autonomous project manager as long as it can keep the next approved coding task moving safely.
 
@@ -330,7 +332,7 @@ Paused work should be resumable and should not lose task state.
 - Telegram adapter
 - richer project memory and retrieval
 - cross-project prioritization
-- multiple worker pools
+- multiple worker pools and specialist roles such as frontend, backend, ML, or infra workers
 - deeper approval policy controls
 - team support
 - hosted sync or backup
