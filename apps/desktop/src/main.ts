@@ -59,6 +59,7 @@ function createDesktopContext(): IStorageContext {
         ...fixture.project,
         metadataJson:
           '{"metadata":{"themePreference":"system"},"verificationCommands":["npm run check"],"approvalPolicy":{"requireApprovalForNewBacklogItems":true,"requireApprovalForScopeChanges":true,"requireApprovalForHighRiskTasks":true}}',
+        repoPath: resolveSeedProjectRepoPath(),
       },
     });
   }
@@ -249,6 +250,10 @@ function resolveDesktopThemePreference(): "dark" | "light" | "system" {
 
 function resolveShouldSeedInitialState(): boolean {
   return process.env.SMITHLY_SEED_INITIAL_STATE?.trim() === "1";
+}
+
+function resolveSeedProjectRepoPath(): string {
+  return process.env.SMITHLY_SEED_PROJECT_REPO_PATH?.trim() || process.cwd();
 }
 
 function createPlanningSessionManager(context: IStorageContext): PlanningSessionManager {
