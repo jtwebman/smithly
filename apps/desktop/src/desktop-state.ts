@@ -41,6 +41,7 @@ export interface IDesktopStatus {
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: ThemeMode;
+  readonly selectedBacklogItemId?: string;
   readonly selectedProjectId?: string;
   readonly themePreference: ThemePreference;
   readonly projects: readonly IDesktopProjectSummary[];
@@ -58,6 +59,7 @@ export interface IDesktopSelectedProject {
   readonly projectPlanningSession?: IDesktopPlanningSession;
   readonly taskPlanningChat?: IDesktopChatThread;
   readonly taskPlanningSession?: IDesktopPlanningSession;
+  readonly selectedBacklogItemId?: string;
   readonly selectedBacklogItem?: IDesktopBacklogDetail;
 }
 
@@ -111,6 +113,7 @@ export function buildDesktopStatus(
   context: IStorageContext,
   resolvedThemeMode: ThemeMode,
   selectedProjectId?: string,
+  selectedBacklogItemId?: string,
 ): IDesktopStatus {
   const projects = listProjects(context).map((project) => {
     const metadata = parseProjectMetadata(project);
@@ -155,8 +158,11 @@ export function buildDesktopStatus(
     projects,
     resolvedThemeMode,
     ...(selectedProject !== undefined ? { selectedProjectId: selectedProject.id } : {}),
+    ...(selectedBacklogItemId !== undefined ? { selectedBacklogItemId } : {}),
     ...(selectedProject !== undefined
-      ? { selectedProject: buildSelectedProject(context, selectedProject.id) }
+      ? {
+          selectedProject: buildSelectedProject(context, selectedProject.id, selectedBacklogItemId),
+        }
       : {}),
     themePreference: context.config.ui.themePreference,
   };
@@ -180,6 +186,7 @@ export function resolveDesktopThemeMode(
 function buildSelectedProject(
   context: IStorageContext,
   projectId: string,
+  selectedBacklogItemId?: string,
 ): IDesktopSelectedProject {
   const backlogItems = listBacklogItemsForProject(context, projectId);
   const taskRuns = listTaskRunsForProject(context, projectId);
@@ -188,7 +195,10 @@ function buildSelectedProject(
   const workerSessions = listWorkerSessionsForProject(context, projectId);
   const chatThreads = listChatThreadsForProject(context, projectId);
   const memoryNotes = listMemoryNotesForProject(context, projectId);
-  const selectedBacklogItem = backlogItems[0];
+  const selectedBacklogItem =
+    (selectedBacklogItemId !== undefined
+      ? backlogItems.find((backlogItem) => backlogItem.id === selectedBacklogItemId)
+      : undefined) ?? backlogItems[0];
   const projectPlanningThread = chatThreads.find((thread) => thread.kind === "project_planning");
   const taskPlanningThread = chatThreads.find((thread) => {
     return thread.kind === "task_planning" && thread.backlogItemId === selectedBacklogItem?.id;
@@ -277,6 +287,7 @@ function buildSelectedProject(
       ),
     ].sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
     projectId,
+    ...(selectedBacklogItem !== undefined ? { selectedBacklogItemId: selectedBacklogItem.id } : {}),
     ...(projectPlanningThread !== undefined
       ? {
           projectPlanningChat: {

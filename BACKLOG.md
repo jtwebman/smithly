@@ -65,9 +65,9 @@
 
 ## Phase 5: Claude Session Management (~/projects/pterm might help here)
 
-29. `todo` Spawn and manage Claude Code CLI sessions per project
-30. `todo` Attach Claude sessions to right-side resumable session panes
-31. `todo` Add operator-driven Claude TUI sessions for project planning and task planning
+29. `done` Spawn and manage Claude Code CLI sessions per project
+30. `done` Attach Claude sessions to right-side resumable session panes
+31. `done` Add operator-driven Claude TUI sessions for project planning and task planning
 32. `todo` Track Claude session lifecycle, transcript references, summary snapshots, and status in the DB
 33. `todo` Ingest Claude hook events and structured outcomes into Smithly state without duplicating full raw chat
 34. `todo` Restore resumable operator-opened Claude sessions after app restart when possible

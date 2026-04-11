@@ -229,11 +229,54 @@
       }
 
       .project-card__actions,
-      .detail-actions {
+      .detail-actions,
+      .list-card__actions,
+      .session-tab-row {
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
         margin-top: 16px;
+      }
+
+      .list-card[data-selected="true"] {
+        border-color: var(--accent-strong);
+        box-shadow: 0 12px 32px rgba(26, 94, 168, 0.12);
+      }
+
+      .list-card__actions {
+        margin-top: 12px;
+      }
+
+      .session-tab-row {
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .session-tab,
+      .session-tab-close {
+        min-height: 40px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--panel-strong);
+        cursor: pointer;
+      }
+
+      .session-tab {
+        flex: 1;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 14px;
+      }
+
+      .session-tab[data-active="true"] {
+        border-color: var(--accent-strong);
+        background: var(--status-active);
+      }
+
+      .session-tab-close {
+        padding: 0 12px;
       }
 
       .project-status,
@@ -503,7 +546,7 @@
             <div class="panel-header">
               <div>
                 <h2 id="project-detail-title">Project detail</h2>
-                <p>Session transcript view for the currently attached planning context.</p>
+                <p>Project controls on the left, operator-opened Claude panes on the right.</p>
               </div>
               <div class="detail-actions">
                 <button id="project-edit-button" type="button">Edit Project</button>
@@ -515,6 +558,7 @@
               <button id="project-planning-button" type="button">Project Planning</button>
               <button id="task-planning-button" type="button">Task Planning</button>
             </div>
+            <div id="planning-pane-tabs" class="stack"></div>
             <div id="terminal"></div>
             <p id="terminal-caption" class="terminal-caption">Loading pane...</p>
             <form id="planning-input-form" class="planning-form">
@@ -566,8 +610,8 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h2 id="planning-title">Planning Transcript</h2>
-                <p id="planning-status">Awaiting planning session.</p>
+                <h2 id="planning-title">Claude Transcript</h2>
+                <p id="planning-status">Open a Claude pane to begin.</p>
               </div>
             </div>
             <div class="stack" id="planning-history"></div>

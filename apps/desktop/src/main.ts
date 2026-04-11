@@ -24,6 +24,7 @@ import { PlanningSessionManager, type PlanningScope } from "./planning-session.t
 let storageContext: IStorageContext | null = null;
 let planningSessionManager: PlanningSessionManager | null = null;
 let selectedProjectId: string | undefined;
+let selectedBacklogItemId: string | undefined;
 
 export async function bootstrapDesktopApp(): Promise<void> {
   await app.whenReady();
@@ -95,6 +96,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
       context,
       resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
       selectedProjectId,
+      selectedBacklogItemId,
     );
   });
 
@@ -117,10 +119,12 @@ function registerDesktopHandlers(context: IStorageContext): void {
     ): IDesktopStatus => {
       registerLocalProject(context, input);
       selectedProjectId = listProjects(context).at(-1)?.id;
+      selectedBacklogItemId = undefined;
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
         selectedProjectId,
+        selectedBacklogItemId,
       );
     },
   );
@@ -128,10 +132,23 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.removeHandler("smithly:project-select");
   ipcMain.handle("smithly:project-select", (_event, projectId: string): IDesktopStatus => {
     selectedProjectId = projectId;
+    selectedBacklogItemId = undefined;
     return buildDesktopStatus(
       context,
       resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
       selectedProjectId,
+      selectedBacklogItemId,
+    );
+  });
+
+  ipcMain.removeHandler("smithly:backlog-select");
+  ipcMain.handle("smithly:backlog-select", (_event, backlogItemId: string): IDesktopStatus => {
+    selectedBacklogItemId = backlogItemId;
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+      selectedBacklogItemId,
     );
   });
 
@@ -159,6 +176,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
         selectedProjectId,
+        selectedBacklogItemId,
       );
     },
   );
@@ -180,6 +198,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
         selectedProjectId,
+        selectedBacklogItemId,
       );
     },
   );
@@ -197,6 +216,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
         selectedProjectId,
+        selectedBacklogItemId,
       );
     },
   );
@@ -220,6 +240,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
         selectedProjectId,
+        selectedBacklogItemId,
       );
     },
   );
@@ -269,6 +290,7 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
             nativeTheme.shouldUseDarkColors,
           ),
           selectedProjectId,
+          selectedBacklogItemId,
         ),
       );
     }

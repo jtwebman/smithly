@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   selectProject(projectId) {
     return ipcRenderer.invoke("smithly:project-select", projectId);
   },
+  selectBacklogItem(backlogItemId) {
+    return ipcRenderer.invoke("smithly:backlog-select", backlogItemId);
+  },
   updateProject(input) {
     return ipcRenderer.invoke("smithly:project-update", input);
   },

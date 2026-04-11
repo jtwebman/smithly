@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 
 type PlanningScope = "project" | "task";
+type SessionPaneKey = `project:${string}` | `task:${string}`;
 
 interface DesktopProjectSummary {
   readonly approvalPolicy: {
@@ -42,6 +43,7 @@ interface DesktopStatus {
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: "dark" | "light";
+  readonly selectedBacklogItemId?: string;
   readonly selectedProjectId?: string;
   readonly themePreference: "dark" | "light" | "system";
   readonly projects: readonly DesktopProjectSummary[];
@@ -56,6 +58,7 @@ interface DesktopStatus {
     readonly projectPlanningSession?: DesktopPlanningSession;
     readonly taskPlanningChat?: DesktopChatThread;
     readonly taskPlanningSession?: DesktopPlanningSession;
+    readonly selectedBacklogItemId?: string;
     readonly selectedBacklogItem?: DesktopBacklogDetail;
   };
 }
@@ -116,6 +119,7 @@ interface SmithlyDesktopApi {
   getStatus(): Promise<DesktopStatus>;
   registerProject(input: DesktopProjectRegistrationInput): Promise<DesktopStatus>;
   selectProject(projectId: string): Promise<DesktopStatus>;
+  selectBacklogItem(backlogItemId: string): Promise<DesktopStatus>;
   setProjectStatus(projectId: string, status: "active" | "archived"): Promise<DesktopStatus>;
   updateProject(
     input: DesktopProjectRegistrationInput & { projectId: string },
@@ -177,6 +181,7 @@ const terminalNode = document.getElementById("terminal");
 const terminalCaptionNode = document.getElementById("terminal-caption");
 const shellStatusNode = document.getElementById("shell-status");
 const projectDetailTitleNode = document.getElementById("project-detail-title");
+const planningPaneTabsNode = document.getElementById("planning-pane-tabs");
 const planningTitleNode = document.getElementById("planning-title");
 const planningStatusNode = document.getElementById("planning-status");
 const planningHistoryNode = document.getElementById("planning-history");
@@ -204,14 +209,15 @@ const selectedBacklogScopeNode = document.getElementById("selected-backlog-scope
 const selectedBacklogCriteriaNode = document.getElementById("selected-backlog-criteria");
 
 let currentStatus: DesktopStatus | null = null;
-let activePlanningScope: PlanningScope = "project";
 let terminal: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let currentTerminalSignature = "";
 let editingProjectId: string | null = null;
+let activePlanningPaneKey: SessionPaneKey | null = null;
+let openPlanningPaneKeys: SessionPaneKey[] = [];
 
 window.smithlyDesktop.onPlanningOutput((payload) => {
-  const activeSession = getActivePlanningSession(currentStatus, activePlanningScope);
+  const activeSession = getActivePlanningSession(currentStatus, activePlanningPaneKey);
 
   if (activeSession?.terminalKey === payload.terminalKey) {
     terminal?.write(payload.rawData);
@@ -277,6 +283,14 @@ function renderProjects(status: DesktopStatus): void {
     });
     projectListNode.append(article);
   }
+}
+
+function createSessionPaneKey(scope: PlanningScope, backlogItemId?: string): SessionPaneKey {
+  if (scope === "project") {
+    return `project:${currentStatus?.selectedProjectId ?? "missing"}`;
+  }
+
+  return `task:${backlogItemId ?? "missing"}`;
 }
 
 function renderProjectRegistrationStatus(message: string): void {
@@ -412,26 +426,29 @@ function updateTerminalTheme(mode: "dark" | "light"): void {
 }
 
 function renderPlanningPane(status: DesktopStatus): void {
-  const activeThread = getActivePlanningThread(status, activePlanningScope);
-  const activeSession = getActivePlanningSession(status, activePlanningScope);
+  const activeThread = getActivePlanningThread(status, activePlanningPaneKey);
+  const activeSession = getActivePlanningSession(status, activePlanningPaneKey);
+  const activeScope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
   const selectedBacklogItem = status.selectedProject?.selectedBacklogItem;
   const hasSelectedProject = status.selectedProject !== undefined;
   const selectedProjectSummary = status.projects.find(
     (project) => project.id === status.selectedProjectId,
   );
 
+  renderPlanningPaneTabs(status);
+
   if (projectPlanningButton !== null) {
-    projectPlanningButton.dataset.active = String(activePlanningScope === "project");
+    projectPlanningButton.dataset.active = String(activeScope === "project");
     projectPlanningButton.disabled = !hasSelectedProject;
   }
 
   if (taskPlanningButton !== null) {
-    taskPlanningButton.dataset.active = String(activePlanningScope === "task");
+    taskPlanningButton.dataset.active = String(activeScope === "task");
     taskPlanningButton.disabled = selectedBacklogItem === undefined;
   }
 
   if (planningInputNode !== null) {
-    planningInputNode.disabled = !hasSelectedProject;
+    planningInputNode.disabled = activePlanningPaneKey === null;
   }
 
   if (projectDetailTitleNode !== null) {
@@ -457,9 +474,11 @@ function renderPlanningPane(status: DesktopStatus): void {
     planningStatusNode,
     !hasSelectedProject
       ? "Register a local project to enable planning."
-      : activeSession
-        ? `${activePlanningScope} planning session ${activeSession.status}`
-        : `${activePlanningScope} planning session idle`,
+      : activePlanningPaneKey === null
+        ? "Open a project or task Claude session to begin."
+        : activeSession
+          ? `${activeScope} planning session ${activeSession.status}`
+          : `${activeScope} planning session idle`,
   );
   setNodeText(
     terminalCaptionNode,
@@ -467,12 +486,64 @@ function renderPlanningPane(status: DesktopStatus): void {
       ? "Register a local git repository to attach a planning session."
       : activeThread
         ? "Claude planning transcript attached to the selected thread."
-        : "Select a planning thread to start a Claude planning session.",
+        : "Open a Claude pane to attach a planning session.",
   );
 
   renderPlanningHistory(activeThread?.messages ?? []);
   renderSelectedBacklog(selectedBacklogItem);
   syncTerminalTranscript(status);
+}
+
+function renderPlanningPaneTabs(status: DesktopStatus): void {
+  if (planningPaneTabsNode === null) {
+    return;
+  }
+
+  planningPaneTabsNode.innerHTML = "";
+
+  if (openPlanningPaneKeys.length === 0) {
+    const emptyNode = document.createElement("p");
+    emptyNode.className = "empty-state";
+    emptyNode.textContent = "No Claude panes are open.";
+    planningPaneTabsNode.append(emptyNode);
+    return;
+  }
+
+  for (const paneKey of openPlanningPaneKeys) {
+    const target = getPlanningTarget(status, paneKey);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "session-tab";
+    button.dataset.active = String(activePlanningPaneKey === paneKey);
+    button.innerHTML = `
+      <span>${escapeHtml(getPlanningPaneLabel(status, paneKey))}</span>
+      <span>${escapeHtml(target?.session?.status ?? "idle")}</span>
+    `;
+    button.addEventListener("click", async () => {
+      const backlogItemId = getBacklogItemIdFromPaneKey(paneKey);
+
+      if (backlogItemId !== undefined) {
+        await focusBacklogItem(backlogItemId);
+      }
+
+      activePlanningPaneKey = paneKey;
+      renderPlanningPane(currentStatus ?? status);
+    });
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "session-tab-close";
+    closeButton.textContent = "Close";
+    closeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closePlanningPane(paneKey, status);
+    });
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "session-tab-row";
+    wrapper.append(button, closeButton);
+    planningPaneTabsNode.append(wrapper);
+  }
 }
 
 function renderPlanningHistory(messages: readonly DesktopChatMessage[]): void {
@@ -540,9 +611,10 @@ function renderSelectedBacklog(backlogItem?: DesktopBacklogDetail): void {
 }
 
 function syncTerminalTranscript(status: DesktopStatus): void {
-  const activeThread = getActivePlanningThread(status, activePlanningScope);
+  const activeThread = getActivePlanningThread(status, activePlanningPaneKey);
+  const activeScope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
   const signature = [
-    activePlanningScope,
+    activePlanningPaneKey ?? "none",
     activeThread?.threadId ?? "none",
     activeThread?.messages.length ?? 0,
     status.resolvedThemeMode,
@@ -554,7 +626,7 @@ function syncTerminalTranscript(status: DesktopStatus): void {
 
   currentTerminalSignature = signature;
   terminal.reset();
-  terminal.writeln(`smithly-shell: ${activePlanningScope} planning transcript attached`);
+  terminal.writeln(`smithly-shell: ${activeScope ?? "idle"} planning transcript attached`);
   terminal.writeln(`theme: ${status.resolvedThemeMode} (${status.themePreference})`);
 
   if (status.selectedProject === undefined) {
@@ -593,14 +665,6 @@ function applyTheme(mode: "dark" | "light"): void {
 
 function renderSelectedProject(status: DesktopStatus): void {
   const selectedProject = status.selectedProject;
-  const upcomingWorkItems = [
-    ...(selectedProject?.backlogItems ?? []).filter(
-      (item) => !["done", "cancelled"].includes(item.status),
-    ),
-    ...(selectedProject?.taskRuns ?? []).filter(
-      (item) => !["done", "cancelled"].includes(item.status),
-    ),
-  ];
   const completedWorkItems = [
     ...(selectedProject?.backlogItems ?? []).filter((item) =>
       ["done", "cancelled"].includes(item.status),
@@ -610,11 +674,7 @@ function renderSelectedProject(status: DesktopStatus): void {
     ),
   ];
 
-  renderList(
-    backlogListNode,
-    upcomingWorkItems,
-    "No upcoming work is queued for the selected project.",
-  );
+  renderUpcomingWork(selectedProject);
   renderList(taskListNode, completedWorkItems, "No completed work has been recorded yet.");
   renderList(
     approvalsListNode,
@@ -648,22 +708,14 @@ function renderDesktopStatus(status: DesktopStatus): void {
 }
 
 async function activatePlanningScope(scope: PlanningScope): Promise<void> {
-  activePlanningScope = scope;
-
-  if (currentStatus !== null) {
-    renderPlanningPane(currentStatus);
-  }
-
   if (currentStatus?.selectedProject === undefined) {
     return;
   }
 
   const backlogItemId =
-    scope === "task" ? currentStatus?.selectedProject?.selectedBacklogItem?.id : undefined;
+    scope === "task" ? currentStatus.selectedProject.selectedBacklogItem?.id : undefined;
 
-  renderPlanningPending(scope);
-  renderDesktopStatus(await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId));
-  void pollStatus(4, 250);
+  await openPlanningPane(scope, backlogItemId);
 }
 
 function renderPlanningPending(scope: PlanningScope): void {
@@ -679,28 +731,28 @@ async function pollStatus(rounds: number, delayMs: number): Promise<void> {
 
 function getActivePlanningThread(
   status: DesktopStatus | null,
-  scope: PlanningScope,
+  paneKey: SessionPaneKey | null,
 ): DesktopChatThread | undefined {
-  if (status?.selectedProject === undefined) {
+  const target = getPlanningTarget(status, paneKey);
+
+  if (target === undefined) {
     return undefined;
   }
 
-  return scope === "project"
-    ? status.selectedProject.projectPlanningChat
-    : status.selectedProject.taskPlanningChat;
+  return target.thread;
 }
 
 function getActivePlanningSession(
   status: DesktopStatus | null,
-  scope: PlanningScope,
+  paneKey: SessionPaneKey | null,
 ): DesktopPlanningSession | undefined {
-  if (status?.selectedProject === undefined) {
+  const target = getPlanningTarget(status, paneKey);
+
+  if (target === undefined) {
     return undefined;
   }
 
-  return scope === "project"
-    ? status.selectedProject.projectPlanningSession
-    : status.selectedProject.taskPlanningSession;
+  return target.session;
 }
 
 function escapeHtml(value: string): string {
@@ -715,7 +767,11 @@ function escapeHtml(value: string): string {
 planningForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  if (planningInputNode === null || currentStatus?.selectedProject === undefined) {
+  if (
+    planningInputNode === null ||
+    currentStatus?.selectedProject === undefined ||
+    activePlanningPaneKey === null
+  ) {
     return;
   }
 
@@ -725,13 +781,16 @@ planningForm?.addEventListener("submit", async (event) => {
     return;
   }
 
+  const scope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
   const backlogItemId =
-    activePlanningScope === "task"
-      ? currentStatus.selectedProject.selectedBacklogItem?.id
-      : undefined;
+    scope === "task" ? getBacklogItemIdFromPaneKey(activePlanningPaneKey) : undefined;
+
+  if (scope === undefined) {
+    return;
+  }
 
   renderDesktopStatus(
-    await window.smithlyDesktop.submitPlanningInput(activePlanningScope, backlogItemId, bodyText),
+    await window.smithlyDesktop.submitPlanningInput(scope, backlogItemId, bodyText),
   );
   planningInputNode.value = "";
   void pollStatus(8, 250);
@@ -814,7 +873,8 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
     }
 
     if (previousStatus?.selectedProject === undefined && status.selectedProject !== undefined) {
-      await activatePlanningScope("project");
+      activePlanningPaneKey = null;
+      openPlanningPaneKeys = [];
     }
   } catch (error: unknown) {
     renderProjectRegistrationStatus(error instanceof Error ? error.message : String(error));
@@ -903,10 +963,6 @@ async function renderStatus(): Promise<void> {
     initTerminal();
     const status = await window.smithlyDesktop.getStatus();
     renderDesktopStatus(status);
-
-    if (status.selectedProject !== undefined) {
-      await activatePlanningScope("project");
-    }
   } catch (error: unknown) {
     renderError(error instanceof Error ? error.message : String(error));
   }
@@ -944,6 +1000,190 @@ function parseMetadataEntries(input: string): Record<string, string> {
   }
 
   return metadataEntries;
+}
+
+function renderUpcomingWork(selectedProject?: DesktopStatus["selectedProject"]): void {
+  if (backlogListNode === null) {
+    return;
+  }
+
+  backlogListNode.innerHTML = "";
+
+  const upcomingBacklogItems =
+    selectedProject?.backlogItems.filter((item) => !["done", "cancelled"].includes(item.status)) ??
+    [];
+  const upcomingTaskRuns =
+    selectedProject?.taskRuns.filter((item) => !["done", "cancelled"].includes(item.status)) ?? [];
+
+  if (upcomingBacklogItems.length === 0 && upcomingTaskRuns.length === 0) {
+    const emptyNode = document.createElement("p");
+    emptyNode.className = "empty-state";
+    emptyNode.textContent = "No upcoming work is queued for the selected project.";
+    backlogListNode.append(emptyNode);
+    return;
+  }
+
+  for (const backlogItem of upcomingBacklogItems) {
+    const element = document.createElement("article");
+    element.className = "list-card";
+    element.dataset.selected = String(selectedProject?.selectedBacklogItemId === backlogItem.id);
+    element.innerHTML = `
+      <div class="list-card__row">
+        <strong>${escapeHtml(backlogItem.title)}</strong>
+        <span class="list-status">${escapeHtml(backlogItem.status)}</span>
+      </div>
+      <p>${escapeHtml(backlogItem.subtitle)}</p>
+      <time>${escapeHtml(backlogItem.timestamp)}</time>
+    `;
+
+    const actions = document.createElement("div");
+    actions.className = "list-card__actions";
+
+    const focusButton = document.createElement("button");
+    focusButton.type = "button";
+    focusButton.textContent = "Focus";
+    focusButton.addEventListener("click", async () => {
+      await focusBacklogItem(backlogItem.id);
+    });
+
+    const taskChatButton = document.createElement("button");
+    taskChatButton.type = "button";
+    taskChatButton.textContent = "Open Task Chat";
+    taskChatButton.addEventListener("click", async () => {
+      await focusBacklogItem(backlogItem.id);
+      await openPlanningPane("task", backlogItem.id);
+    });
+
+    actions.append(focusButton, taskChatButton);
+    element.append(actions);
+    backlogListNode.append(element);
+  }
+
+  for (const taskRun of upcomingTaskRuns) {
+    const element = document.createElement("article");
+    element.className = "list-card";
+    element.innerHTML = `
+      <div class="list-card__row">
+        <strong>${escapeHtml(taskRun.title)}</strong>
+        <span class="list-status">${escapeHtml(taskRun.status)}</span>
+      </div>
+      <p>${escapeHtml(taskRun.subtitle)}</p>
+      <time>${escapeHtml(taskRun.timestamp)}</time>
+    `;
+    backlogListNode.append(element);
+  }
+}
+
+async function focusBacklogItem(backlogItemId: string): Promise<void> {
+  renderDesktopStatus(await window.smithlyDesktop.selectBacklogItem(backlogItemId));
+}
+
+async function openPlanningPane(scope: PlanningScope, backlogItemId?: string): Promise<void> {
+  if (currentStatus?.selectedProject === undefined) {
+    return;
+  }
+
+  const paneKey = createSessionPaneKey(scope, backlogItemId);
+
+  if (!openPlanningPaneKeys.includes(paneKey)) {
+    openPlanningPaneKeys = [...openPlanningPaneKeys, paneKey];
+  }
+
+  if (scope === "task" && backlogItemId !== undefined) {
+    await focusBacklogItem(backlogItemId);
+  }
+
+  activePlanningPaneKey = paneKey;
+  renderPlanningPending(scope);
+  renderDesktopStatus(await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId));
+  void pollStatus(4, 250);
+}
+
+function closePlanningPane(paneKey: SessionPaneKey, status: DesktopStatus): void {
+  openPlanningPaneKeys = openPlanningPaneKeys.filter((candidate) => candidate !== paneKey);
+
+  if (activePlanningPaneKey === paneKey) {
+    activePlanningPaneKey = openPlanningPaneKeys.at(-1) ?? null;
+  }
+
+  currentTerminalSignature = "";
+  renderPlanningPane(status);
+}
+
+function getPlanningPaneLabel(status: DesktopStatus | null, paneKey: SessionPaneKey): string {
+  const target = getPlanningTarget(status, paneKey);
+  const scope = getPlanningScopeFromPaneKey(paneKey);
+
+  if (scope === "project") {
+    return "Project Chat";
+  }
+
+  return target?.backlogItemTitle ? `Task: ${target.backlogItemTitle}` : "Task Chat";
+}
+
+function getPlanningTarget(
+  status: DesktopStatus | null,
+  paneKey: SessionPaneKey | null,
+):
+  | {
+      readonly backlogItemTitle?: string;
+      readonly session?: DesktopPlanningSession;
+      readonly thread?: DesktopChatThread;
+    }
+  | undefined {
+  if (status?.selectedProject === undefined || paneKey === null) {
+    return undefined;
+  }
+
+  if (paneKey.startsWith("project:")) {
+    return {
+      ...(status.selectedProject.projectPlanningSession !== undefined
+        ? { session: status.selectedProject.projectPlanningSession }
+        : {}),
+      ...(status.selectedProject.projectPlanningChat !== undefined
+        ? { thread: status.selectedProject.projectPlanningChat }
+        : {}),
+    };
+  }
+
+  const backlogItemId = getBacklogItemIdFromPaneKey(paneKey);
+  const selectedBacklogItem =
+    backlogItemId !== undefined && status.selectedProject.selectedBacklogItem?.id === backlogItemId
+      ? status.selectedProject.selectedBacklogItem
+      : undefined;
+  const backlogListItem =
+    backlogItemId !== undefined
+      ? status.selectedProject.backlogItems.find((item) => item.id === backlogItemId)
+      : undefined;
+
+  return {
+    ...(selectedBacklogItem?.title !== undefined || backlogListItem?.title !== undefined
+      ? { backlogItemTitle: selectedBacklogItem?.title ?? backlogListItem?.title ?? "Task Chat" }
+      : {}),
+    ...(status.selectedProject.taskPlanningSession !== undefined
+      ? { session: status.selectedProject.taskPlanningSession }
+      : {}),
+    ...(status.selectedProject.taskPlanningChat !== undefined
+      ? { thread: status.selectedProject.taskPlanningChat }
+      : {}),
+  };
+}
+
+function getPlanningScopeFromPaneKey(paneKey: SessionPaneKey | null): PlanningScope | undefined {
+  if (paneKey === null) {
+    return undefined;
+  }
+
+  return paneKey.startsWith("project:") ? "project" : "task";
+}
+
+function getBacklogItemIdFromPaneKey(paneKey: SessionPaneKey | null): string | undefined {
+  if (paneKey === null || !paneKey.startsWith("task:")) {
+    return undefined;
+  }
+
+  const [, backlogItemId] = paneKey.split(":", 2);
+  return backlogItemId || undefined;
 }
 
 void renderStatus();

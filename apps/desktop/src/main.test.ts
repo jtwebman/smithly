@@ -10,6 +10,7 @@ import {
   createInitialSeedFixture,
   registerLocalProject,
   seedInitialState,
+  upsertBacklogItem,
   updateProjectMetadata,
 } from "@smithly/storage";
 
@@ -145,6 +146,7 @@ describe("desktop bootstrap", () => {
           status: "approved",
           title: "Bootstrap the desktop shell",
         },
+        selectedBacklogItemId: "backlog-bootstrap-ui",
         taskRuns: [
           {
             id: "taskrun-bootstrap-ui",
@@ -276,6 +278,41 @@ describe("desktop bootstrap", () => {
 
     expect(status.selectedProjectId).toBe(secondProject.id);
     expect(status.selectedProject?.projectId).toBe(secondProject.id);
+
+    context.db.close();
+  });
+
+  it("prefers the requested selected backlog item within the selected project", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-backlog-selection-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, fixture);
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Second task exists"]),
+      createdAt: "2026-04-10T07:10:00.000Z",
+      id: "backlog-follow-up",
+      priority: 70,
+      projectId: fixture.project.id,
+      reviewMode: "ai",
+      riskLevel: "low",
+      scopeSummary: "Handle another narrow desktop follow-up.",
+      status: "draft",
+      title: "Add a second backlog item",
+      updatedAt: "2026-04-10T07:10:00.000Z",
+    });
+
+    const status = buildDesktopStatus(context, "dark", fixture.project.id, "backlog-follow-up");
+
+    expect(status.selectedProject?.selectedBacklogItemId).toBe("backlog-follow-up");
+    expect(status.selectedProject?.selectedBacklogItem?.title).toBe("Add a second backlog item");
 
     context.db.close();
   });
