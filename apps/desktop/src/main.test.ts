@@ -8,13 +8,17 @@ import { createConfig } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
+  listMemoryNotesForProject,
+  listWorkerSessionsForProject,
   registerLocalProject,
   seedInitialState,
   upsertBacklogItem,
+  upsertWorkerSession,
   updateProjectMetadata,
 } from "@smithly/storage";
 
 import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts";
+import { recoverOrphanedClaudeSessions } from "./main.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -313,6 +317,103 @@ describe("desktop bootstrap", () => {
 
     expect(status.selectedProject?.selectedBacklogItemId).toBe("backlog-follow-up");
     expect(status.selectedProject?.selectedBacklogItem?.title).toBe("Add a second backlog item");
+
+    context.db.close();
+  });
+
+  it("recovers orphaned Claude sessions on restart and records a recovery note", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-session-recovery-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, fixture);
+    upsertWorkerSession(context, {
+      createdAt: "2026-04-10T08:00:00.000Z",
+      id: "session-claude-project-recovery",
+      lastHeartbeatAt: "2026-04-10T08:05:00.000Z",
+      projectId: fixture.project.id,
+      startedAt: "2026-04-10T08:00:00.000Z",
+      status: "running",
+      terminalKey: "project:project-smithly",
+      transcriptRef: `chat-thread:${fixture.projectChatThread.id}|log-file:${join(
+        dataDirectory,
+        "claude-project.log",
+      )}`,
+      updatedAt: "2026-04-10T08:05:00.000Z",
+      workerKind: "claude",
+    });
+    upsertWorkerSession(context, {
+      createdAt: "2026-04-10T08:10:00.000Z",
+      id: "session-claude-task-recovery",
+      lastHeartbeatAt: "2026-04-10T08:15:00.000Z",
+      projectId: fixture.project.id,
+      startedAt: "2026-04-10T08:10:00.000Z",
+      status: "blocked",
+      terminalKey: "task:backlog-bootstrap-ui",
+      transcriptRef: `chat-thread:${fixture.taskChatThread.id}|log-file:${join(
+        dataDirectory,
+        "claude-task.log",
+      )}`,
+      updatedAt: "2026-04-10T08:15:00.000Z",
+      workerKind: "claude",
+    });
+
+    recoverOrphanedClaudeSessions(context, new Date("2026-04-10T09:00:00.000Z"));
+
+    expect(listWorkerSessionsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "session-codex-bootstrap-ui",
+          status: "running",
+          workerKind: "codex",
+        }),
+        expect.objectContaining({
+          endedAt: "2026-04-10T09:00:00.000Z",
+          id: "session-claude-project-recovery",
+          lastHeartbeatAt: "2026-04-10T09:00:00.000Z",
+          status: "failed",
+          updatedAt: "2026-04-10T09:00:00.000Z",
+          workerKind: "claude",
+        }),
+        expect.objectContaining({
+          endedAt: "2026-04-10T09:00:00.000Z",
+          id: "session-claude-task-recovery",
+          lastHeartbeatAt: "2026-04-10T09:00:00.000Z",
+          status: "failed",
+          updatedAt: "2026-04-10T09:00:00.000Z",
+          workerKind: "claude",
+        }),
+      ]),
+    );
+
+    expect(listMemoryNotesForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          backlogItemId: fixture.backlogItem.id,
+          bodyText:
+            "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+          id: "memory-session-recovery-session-claude-task-recovery",
+          noteType: "note",
+          sourceThreadId: fixture.taskChatThread.id,
+          title: "Recovered orphaned Claude session",
+        }),
+        expect.objectContaining({
+          bodyText:
+            "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+          id: "memory-session-recovery-session-claude-project-recovery",
+          noteType: "note",
+          sourceThreadId: fixture.projectChatThread.id,
+          title: "Recovered orphaned Claude session",
+        }),
+      ]),
+    );
 
     context.db.close();
   });

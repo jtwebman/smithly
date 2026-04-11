@@ -115,9 +115,20 @@ interface PlanningOutputEvent {
   readonly entries: readonly DesktopChatMessage[];
 }
 
+interface DesktopUiStateSnapshot {
+  readonly activePlanningPaneKey?: string;
+  readonly isOrchestrationVisible?: boolean;
+  readonly isProjectWorkspaceOpen?: boolean;
+  readonly openPlanningPaneKeys?: readonly string[];
+  readonly selectedBacklogItemId?: string;
+  readonly selectedProjectId?: string;
+}
+
 interface SmithlyDesktopApi {
   getStatus(): Promise<DesktopStatus>;
+  getSavedUiState(): Promise<DesktopUiStateSnapshot>;
   registerProject(input: DesktopProjectRegistrationInput): Promise<DesktopStatus>;
+  saveUiState(state: DesktopUiStateSnapshot): Promise<void>;
   selectProject(projectId: string): Promise<DesktopStatus>;
   selectBacklogItem(backlogItemId: string): Promise<DesktopStatus>;
   setProjectStatus(projectId: string, status: "active" | "archived"): Promise<DesktopStatus>;
@@ -655,6 +666,7 @@ function renderPlanningPaneTabs(status: DesktopStatus): void {
 
       activePlanningPaneKey = paneKey;
       renderPlanningPane(currentStatus ?? status);
+      void persistCurrentUiState();
     });
 
     const closeButton = document.createElement("button");
@@ -849,6 +861,7 @@ function renderDesktopStatus(status: DesktopStatus): void {
   renderWorkspaceVisibility(status);
   renderSelectedProject(status);
   setNodeText(shellStatusNode, "Shell ready");
+  void persistUiState(status);
 }
 
 async function activatePlanningScope(scope: PlanningScope): Promise<void> {
@@ -1072,6 +1085,8 @@ showOrchestrationButton?.addEventListener("click", () => {
     renderWorkspaceVisibility(currentStatus);
     renderPlanningPane(currentStatus);
   }
+
+  void persistCurrentUiState();
 });
 
 hideOrchestrationButton?.addEventListener("click", () => {
@@ -1080,6 +1095,8 @@ hideOrchestrationButton?.addEventListener("click", () => {
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
   }
+
+  void persistCurrentUiState();
 });
 
 closeProjectWorkspaceButton?.addEventListener("click", () => {
@@ -1089,13 +1106,17 @@ closeProjectWorkspaceButton?.addEventListener("click", () => {
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
   }
+
+  void persistCurrentUiState();
 });
 
 async function renderStatus(): Promise<void> {
   try {
     initTerminal();
-    const status = await window.smithlyDesktop.getStatus();
-    renderDesktopStatus(status);
+    const savedUiState = await window.smithlyDesktop.getSavedUiState();
+    const restoredStatus = await restoreSavedUiState(savedUiState);
+
+    renderDesktopStatus(restoredStatus);
   } catch (error: unknown) {
     renderError(error instanceof Error ? error.message : String(error));
   }
@@ -1133,6 +1154,66 @@ function parseMetadataEntries(input: string): Record<string, string> {
   }
 
   return metadataEntries;
+}
+
+async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promise<DesktopStatus> {
+  let status = await window.smithlyDesktop.getStatus();
+
+  if (savedUiState.selectedProjectId !== undefined) {
+    status = await window.smithlyDesktop.selectProject(savedUiState.selectedProjectId);
+  }
+
+  if (savedUiState.selectedBacklogItemId !== undefined) {
+    status = await window.smithlyDesktop.selectBacklogItem(savedUiState.selectedBacklogItemId);
+  }
+
+  isProjectWorkspaceOpen = savedUiState.isProjectWorkspaceOpen ?? false;
+  isOrchestrationVisible = savedUiState.isOrchestrationVisible ?? false;
+  openPlanningPaneKeys = [...(savedUiState.openPlanningPaneKeys ?? [])].filter(isSessionPaneKey);
+  activePlanningPaneKey = isSessionPaneKey(savedUiState.activePlanningPaneKey)
+    ? savedUiState.activePlanningPaneKey
+    : (openPlanningPaneKeys.at(-1) ?? null);
+
+  for (const paneKey of openPlanningPaneKeys) {
+    const scope = getPlanningScopeFromPaneKey(paneKey);
+
+    if (scope === undefined) {
+      continue;
+    }
+
+    const backlogItemId = getBacklogItemIdFromPaneKey(paneKey);
+
+    if (scope === "task" && backlogItemId !== undefined) {
+      status = await window.smithlyDesktop.selectBacklogItem(backlogItemId);
+    }
+
+    status = await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId);
+  }
+
+  return status;
+}
+
+async function persistUiState(status: DesktopStatus): Promise<void> {
+  await window.smithlyDesktop.saveUiState({
+    ...(activePlanningPaneKey !== null ? { activePlanningPaneKey } : {}),
+    isOrchestrationVisible,
+    isProjectWorkspaceOpen,
+    ...(openPlanningPaneKeys.length > 0 ? { openPlanningPaneKeys } : {}),
+    ...(status.selectedBacklogItemId !== undefined
+      ? { selectedBacklogItemId: status.selectedBacklogItemId }
+      : {}),
+    ...(status.selectedProjectId !== undefined
+      ? { selectedProjectId: status.selectedProjectId }
+      : {}),
+  });
+}
+
+async function persistCurrentUiState(): Promise<void> {
+  if (currentStatus === null) {
+    return;
+  }
+
+  await persistUiState(currentStatus);
 }
 
 function renderUpcomingWork(selectedProject?: DesktopStatus["selectedProject"]): void {
@@ -1227,6 +1308,7 @@ async function openPlanningPane(scope: PlanningScope, backlogItemId?: string): P
   }
 
   activePlanningPaneKey = paneKey;
+  void persistCurrentUiState();
   renderPlanningPending(scope);
   renderDesktopStatus(await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId));
   void pollStatus(4, 250);
@@ -1241,6 +1323,7 @@ function closePlanningPane(paneKey: SessionPaneKey, status: DesktopStatus): void
 
   currentTerminalSignature = "";
   renderPlanningPane(status);
+  void persistCurrentUiState();
 }
 
 function getPlanningPaneLabel(status: DesktopStatus | null, paneKey: SessionPaneKey): string {
@@ -1318,5 +1401,13 @@ function getBacklogItemIdFromPaneKey(paneKey: SessionPaneKey | null): string | u
   const [, backlogItemId] = paneKey.split(":", 2);
   return backlogItemId || undefined;
 }
+
+function isSessionPaneKey(value: string | undefined): value is SessionPaneKey {
+  return value !== undefined && (value.startsWith("project:") || value.startsWith("task:"));
+}
+
+window.addEventListener("beforeunload", () => {
+  void persistCurrentUiState();
+});
 
 void renderStatus();

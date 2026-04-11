@@ -21,6 +21,7 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
 }
 
 async function launchDesktop(options: {
+  readonly dataDirectory?: string;
   readonly seedInitialState?: boolean;
   readonly themePreference: "dark" | "light" | "system";
 }): Promise<{
@@ -28,7 +29,7 @@ async function launchDesktop(options: {
   readonly electronApp: Awaited<ReturnType<typeof electron.launch>>;
   readonly window: Awaited<ReturnType<Awaited<ReturnType<typeof electron.launch>>["firstWindow"]>>;
 }> {
-  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-ui-"));
+  const dataDirectory = options.dataDirectory ?? mkdtempSync(join(tmpdir(), "smithly-ui-"));
   const electronApp = await electron.launch({
     args: [resolve("dist/apps/desktop/src/main.js")],
     env: {
@@ -48,9 +49,15 @@ async function launchDesktop(options: {
 async function closeDesktop(
   electronApp: Awaited<ReturnType<typeof electron.launch>>,
   dataDirectory: string,
+  options: {
+    readonly cleanup?: boolean;
+  } = {},
 ): Promise<void> {
   await electronApp.close();
-  rmSync(dataDirectory, { force: true, recursive: true });
+
+  if (options.cleanup ?? true) {
+    rmSync(dataDirectory, { force: true, recursive: true });
+  }
 }
 
 test("desktop shell can register a local repo path as a managed project", async () => {
@@ -441,5 +448,61 @@ test("project workspace hides orchestration until requested", async () => {
     await expect(window.locator("#project-workspace")).toBeHidden();
   } finally {
     await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("desktop restores the project workspace and open Claude panes after restart", async () => {
+  const firstLaunch = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await firstLaunch.window
+      .locator("#project-list .project-card button[data-project-id]")
+      .first()
+      .click();
+    await firstLaunch.window.locator("#show-orchestration-button").click();
+    await firstLaunch.window.locator("#project-planning-button").click();
+    await expect(firstLaunch.window.locator("#planning-pane-tabs")).toContainText("Project Chat");
+    await firstLaunch.window
+      .locator("#backlog-list .list-card button:has-text('Open Task Chat')")
+      .first()
+      .click();
+    await expect(firstLaunch.window.locator("#planning-pane-tabs")).toContainText(
+      "Task: Bootstrap the desktop shell",
+    );
+    await firstLaunch.window
+      .locator("#planning-pane-tabs .session-tab:has-text('Project Chat')")
+      .click();
+    await expect(firstLaunch.window.locator("#planning-title")).toHaveText("Project planning");
+  } finally {
+    await closeDesktop(firstLaunch.electronApp, firstLaunch.dataDirectory, { cleanup: false });
+  }
+
+  const secondLaunch = await launchDesktop({
+    dataDirectory: firstLaunch.dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await expect(secondLaunch.window.locator("#project-workspace")).toBeVisible();
+    await expect(secondLaunch.window.locator("#orchestration-shell")).toBeVisible();
+    await expect(secondLaunch.window.locator("#project-workspace-title")).toHaveText(
+      "Project workspace: Smithly",
+    );
+    await expect(secondLaunch.window.locator("#planning-pane-tabs")).toContainText("Project Chat");
+    await expect(secondLaunch.window.locator("#planning-pane-tabs")).toContainText(
+      "Task: Bootstrap the desktop shell",
+    );
+    await expect(secondLaunch.window.locator("#planning-title")).toHaveText("Project planning");
+    await secondLaunch.window.locator("#terminal .xterm-screen").click();
+    await secondLaunch.window.keyboard.type("resume check");
+    await secondLaunch.window.keyboard.press("Enter");
+    await expect(secondLaunch.window.locator("#terminal .xterm-rows")).toContainText(
+      "claude ack: resume check",
+    );
+  } finally {
+    await closeDesktop(secondLaunch.electronApp, secondLaunch.dataDirectory);
   }
 });

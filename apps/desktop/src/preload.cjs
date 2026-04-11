@@ -4,8 +4,14 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   getStatus() {
     return ipcRenderer.invoke("smithly:desktop-status");
   },
+  getSavedUiState() {
+    return ipcRenderer.invoke("smithly:ui-state:get");
+  },
   registerProject(input) {
     return ipcRenderer.invoke("smithly:project-register", input);
+  },
+  saveUiState(state) {
+    return ipcRenderer.invoke("smithly:ui-state:save", state);
   },
   selectProject(projectId) {
     return ipcRenderer.invoke("smithly:project-select", projectId);

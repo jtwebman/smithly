@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,9 +8,13 @@ import { createConfig } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
+  listChatThreadsForProject,
   listProjects,
+  listWorkerSessionsForProject,
   registerLocalProject,
   seedInitialState,
+  upsertMemoryNote,
+  upsertWorkerSession,
   updateProjectMetadata,
   type IStorageContext,
 } from "@smithly/storage";
@@ -26,10 +31,21 @@ let planningSessionManager: PlanningSessionManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 
+export interface IDesktopUiStateSnapshot {
+  readonly activePlanningPaneKey?: string;
+  readonly isOrchestrationVisible?: boolean;
+  readonly isProjectWorkspaceOpen?: boolean;
+  readonly openPlanningPaneKeys?: readonly string[];
+  readonly selectedBacklogItemId?: string;
+  readonly selectedProjectId?: string;
+}
+
 export async function bootstrapDesktopApp(): Promise<void> {
   await app.whenReady();
 
   storageContext = createDesktopContext();
+  hydrateDesktopSelectionState(storageContext);
+  recoverOrphanedClaudeSessions(storageContext);
   planningSessionManager = createPlanningSessionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
@@ -257,6 +273,16 @@ function registerDesktopHandlers(context: IStorageContext): void {
       requirePlanningSessionManager().resizeSession(terminalKey, cols, rows);
     },
   );
+
+  ipcMain.removeHandler("smithly:ui-state:get");
+  ipcMain.handle("smithly:ui-state:get", (): IDesktopUiStateSnapshot => {
+    return readDesktopUiState(context.config.storage.dataDirectory);
+  });
+
+  ipcMain.removeHandler("smithly:ui-state:save");
+  ipcMain.handle("smithly:ui-state:save", (_event, state: IDesktopUiStateSnapshot): void => {
+    writeDesktopUiState(context.config.storage.dataDirectory, state);
+  });
 }
 
 function resolveDesktopDataDirectory(): string {
@@ -370,20 +396,134 @@ export function resolveDesktopMcpServerPath(): string {
   return join(dirname(), "../../../packages/mcp-server/src/main.js");
 }
 
+function resolveDesktopUiStatePath(dataDirectory: string): string {
+  return join(dataDirectory, "desktop-ui-state.json");
+}
+
+function hydrateDesktopSelectionState(context: IStorageContext): void {
+  const savedUiState = readDesktopUiState(context.config.storage.dataDirectory);
+
+  selectedProjectId = savedUiState.selectedProjectId;
+  selectedBacklogItemId = savedUiState.selectedBacklogItemId;
+}
+
+function readDesktopUiState(dataDirectory: string): IDesktopUiStateSnapshot {
+  const statePath = resolveDesktopUiStatePath(dataDirectory);
+
+  if (!existsSync(statePath)) {
+    return {};
+  }
+
+  try {
+    const parsedValue = JSON.parse(readFileSync(statePath, "utf8")) as unknown;
+
+    if (parsedValue === null || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+      return {};
+    }
+
+    const candidate = parsedValue as Record<string, unknown>;
+
+    return {
+      ...(typeof candidate.activePlanningPaneKey === "string"
+        ? { activePlanningPaneKey: candidate.activePlanningPaneKey }
+        : {}),
+      ...(typeof candidate.isOrchestrationVisible === "boolean"
+        ? { isOrchestrationVisible: candidate.isOrchestrationVisible }
+        : {}),
+      ...(typeof candidate.isProjectWorkspaceOpen === "boolean"
+        ? { isProjectWorkspaceOpen: candidate.isProjectWorkspaceOpen }
+        : {}),
+      ...(Array.isArray(candidate.openPlanningPaneKeys) &&
+      candidate.openPlanningPaneKeys.every((value) => typeof value === "string")
+        ? { openPlanningPaneKeys: [...candidate.openPlanningPaneKeys] }
+        : {}),
+      ...(typeof candidate.selectedBacklogItemId === "string"
+        ? { selectedBacklogItemId: candidate.selectedBacklogItemId }
+        : {}),
+      ...(typeof candidate.selectedProjectId === "string"
+        ? { selectedProjectId: candidate.selectedProjectId }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeDesktopUiState(dataDirectory: string, state: IDesktopUiStateSnapshot): void {
+  const statePath = resolveDesktopUiStatePath(dataDirectory);
+
+  mkdirSync(dataDirectory, { recursive: true });
+  writeFileSync(statePath, JSON.stringify(state, null, 2));
+}
+
+export function recoverOrphanedClaudeSessions(context: IStorageContext, now = new Date()): void {
+  const timestamp = now.toISOString();
+
+  for (const project of listProjects(context)) {
+    for (const session of listWorkerSessionsForProject(context, project.id)) {
+      if (
+        session.workerKind !== "claude" ||
+        !["starting", "running", "waiting", "blocked"].includes(session.status)
+      ) {
+        continue;
+      }
+
+      upsertWorkerSession(context, {
+        ...session,
+        endedAt: timestamp,
+        lastHeartbeatAt: timestamp,
+        status: "failed",
+        updatedAt: timestamp,
+      });
+
+      const sourceThreadId = parseThreadIdFromTranscriptRef(session.transcriptRef);
+      const thread = sourceThreadId
+        ? listChatThreadsForProject(context, project.id).find(
+            (candidate) => candidate.id === sourceThreadId,
+          )
+        : undefined;
+
+      upsertMemoryNote(context, {
+        bodyText:
+          "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+        createdAt: timestamp,
+        id: `memory-session-recovery-${session.id}`,
+        noteType: "note",
+        projectId: project.id,
+        title: "Recovered orphaned Claude session",
+        updatedAt: timestamp,
+        ...(sourceThreadId !== undefined ? { sourceThreadId } : {}),
+        ...(thread?.backlogItemId !== undefined ? { backlogItemId: thread.backlogItemId } : {}),
+      });
+    }
+  }
+}
+
+function parseThreadIdFromTranscriptRef(transcriptRef?: string): string | undefined {
+  if (transcriptRef === undefined || !transcriptRef.startsWith("chat-thread:")) {
+    return undefined;
+  }
+
+  const serializedThreadId = transcriptRef.slice("chat-thread:".length).split("|", 1)[0]?.trim();
+  return serializedThreadId && serializedThreadId.length > 0 ? serializedThreadId : undefined;
+}
+
 function dirname(): string {
   return fileURLToPath(new URL(".", import.meta.url));
 }
 
-app.on("window-all-closed", () => {
-  planningSessionManager?.dispose();
-  planningSessionManager = null;
-  storageContext?.db.close();
-  storageContext = null;
+if (typeof app?.on === "function") {
+  app.on("window-all-closed", () => {
+    planningSessionManager?.dispose();
+    planningSessionManager = null;
+    storageContext?.db.close();
+    storageContext = null;
 
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+}
 
 if (!process.env.VITEST) {
   void bootstrapDesktopApp();
