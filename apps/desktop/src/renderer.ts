@@ -4,7 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 
 type PlanningScope = "project" | "task";
-type SessionPaneKey = `project:${string}` | `task:${string}`;
+type PlanningPaneScope = PlanningScope | "bootstrap";
+type SessionPaneKey = "bootstrap" | `project:${string}` | `task:${string}`;
 
 interface DesktopProjectSummary {
   readonly approvalPolicy: {
@@ -40,6 +41,7 @@ interface DesktopProjectRegistrationInput {
 
 interface DesktopStatus {
   readonly appVersion: string;
+  readonly bootstrapSession?: DesktopBootstrapSession;
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: "dark" | "light";
@@ -122,6 +124,13 @@ interface DesktopPlanningSession {
   readonly status: string;
 }
 
+interface DesktopBootstrapSession {
+  readonly cwd: string;
+  readonly messages: readonly DesktopChatMessage[];
+  readonly status: string;
+  readonly terminalKey: string;
+}
+
 interface DesktopCodexSession {
   readonly backlogItemId: string;
   readonly backlogItemTitle: string;
@@ -164,6 +173,7 @@ interface SmithlyDesktopApi {
   setProjectStatus(projectId: string, status: "paused" | "archived"): Promise<DesktopStatus>;
   playProject(projectId: string): Promise<DesktopStatus>;
   pauseProject(projectId: string): Promise<DesktopStatus>;
+  ensureBootstrapSession(): Promise<DesktopStatus>;
   updateProject(
     input: DesktopProjectRegistrationInput & { projectId: string },
   ): Promise<DesktopStatus>;
@@ -230,6 +240,9 @@ const projectCreatorModalNode = document.getElementById("project-creator-modal")
 const projectCreatorTitleNode = document.getElementById("project-creator-title");
 const openProjectCreatorButton = document.getElementById(
   "open-project-creator-button",
+) as HTMLButtonElement | null;
+const openManualProjectCreatorButton = document.getElementById(
+  "open-manual-project-creator-button",
 ) as HTMLButtonElement | null;
 const closeProjectCreatorButton = document.getElementById(
   "close-project-creator-button",
@@ -465,6 +478,10 @@ function createSessionPaneKey(scope: PlanningScope, backlogItemId?: string): Ses
   }
 
   return `task:${backlogItemId ?? "missing"}`;
+}
+
+function createBootstrapPaneKey(): SessionPaneKey {
+  return "bootstrap";
 }
 
 function renderProjectRegistrationStatus(message: string): void {
@@ -771,7 +788,8 @@ function updateTerminalTheme(mode: "dark" | "light"): void {
 
 function renderWorkspaceVisibility(status: DesktopStatus): void {
   const hasSelectedProject = status.selectedProject !== undefined;
-  const showWorkspace = isProjectWorkspaceOpen && hasSelectedProject;
+  const hasBootstrapSession = status.bootstrapSession !== undefined;
+  const showWorkspace = isProjectWorkspaceOpen && (hasSelectedProject || hasBootstrapSession);
   const showOrchestration = showWorkspace && isOrchestrationVisible;
   const showCoding = showWorkspace && isCodingVisible;
 
@@ -785,11 +803,13 @@ function renderWorkspaceVisibility(status: DesktopStatus): void {
     )?.name;
     projectWorkspaceTitleNode.textContent = selectedProjectName
       ? `Project workspace: ${selectedProjectName}`
-      : "Project workspace";
+      : hasBootstrapSession
+        ? "Project bootstrap workspace"
+        : "Project workspace";
   }
 
   if (showOrchestrationButton !== null) {
-    showOrchestrationButton.disabled = !hasSelectedProject;
+    showOrchestrationButton.disabled = !(hasSelectedProject || hasBootstrapSession);
   }
 
   if (showCodingButton !== null) {
@@ -815,6 +835,7 @@ function renderPlanningPane(status: DesktopStatus): void {
   const activeScope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
   const selectedBacklogItem = status.selectedProject?.selectedBacklogItem;
   const hasSelectedProject = status.selectedProject !== undefined;
+  const hasBootstrapSession = status.bootstrapSession !== undefined;
   const selectedProjectSummary = status.projects.find(
     (project) => project.id === status.selectedProjectId,
   );
@@ -834,7 +855,9 @@ function renderPlanningPane(status: DesktopStatus): void {
   if (projectDetailTitleNode !== null) {
     projectDetailTitleNode.textContent = selectedProjectSummary
       ? `Project orchestration: ${selectedProjectSummary.name}`
-      : "Project orchestration";
+      : hasBootstrapSession
+        ? "Project bootstrap"
+        : "Project orchestration";
   }
 
   if (projectEditButton !== null) {
@@ -863,12 +886,18 @@ function renderPlanningPane(status: DesktopStatus): void {
   setNodeText(planningTitleNode, activeThread?.title ?? "No planning thread");
   setNodeText(
     planningStatusNode,
-    !hasSelectedProject
-      ? "Register a local project to enable planning."
+    !hasSelectedProject && !hasBootstrapSession
+      ? "Click Add Project to open a Claude bootstrap session, or use manual setup."
+      : activePlanningPaneKey === "bootstrap"
+        ? activeSession
+          ? `bootstrap session ${activeSession.status} in ${status.bootstrapSession?.cwd ?? "~"}`
+          : "bootstrap session idle"
       : activePlanningPaneKey === null
         ? selectedProjectSummary?.status === "active"
           ? "Project execution is running in the background. Attach a Claude pane to inspect it."
-          : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
+          : hasBootstrapSession
+            ? "Project bootstrap is available. Attach the Claude pane to continue shaping a new project."
+            : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
         : activeSession
           ? `${activeScope} planning session ${activeSession.status}`
           : `${activeScope} planning session idle`,
@@ -876,14 +905,20 @@ function renderPlanningPane(status: DesktopStatus): void {
   setNodeText(shellStatusNode, activeSession ? `${activeScope} TUI attached` : "Shell ready");
   setNodeText(
     terminalCaptionNode,
-    !hasSelectedProject
-      ? "Register a local git repository to attach a planning session."
+    !hasSelectedProject && !hasBootstrapSession
+      ? "Add Project opens Claude in your home directory so you can talk through the new project first."
+      : activePlanningPaneKey === "bootstrap"
+        ? "Use Claude to discuss the idea, choose a name, pick a folder, and shape the first plan."
       : activeThread
         ? "Type directly into the attached Claude TUI when you need to interact."
         : "Open a Claude pane to attach a planning session.",
   );
 
-  renderPlanningHistory(activeThread?.messages ?? []);
+  renderPlanningHistory(
+    activePlanningPaneKey === "bootstrap"
+      ? status.bootstrapSession?.messages ?? []
+      : activeThread?.messages ?? [],
+  );
   renderSelectedBacklog(selectedBacklogItem);
   syncTerminalPane(status);
 }
@@ -1245,13 +1280,12 @@ function syncTerminalPane(status: DesktopStatus): void {
   terminal.reset();
   terminal.focus();
 
-  if (status.selectedProject === undefined) {
-    terminal.writeln("[smithly] Register a local git repository to begin.");
-    return;
-  }
-
   if (activeSession === undefined) {
-    terminal.writeln("[smithly] Open a Claude pane to attach a planning session.");
+    terminal.writeln(
+      status.bootstrapSession === undefined && status.selectedProject === undefined
+        ? "[smithly] Click Add Project to open a Claude bootstrap session."
+        : "[smithly] Open a Claude pane to attach a planning session.",
+    );
     return;
   }
 
@@ -1420,7 +1454,7 @@ async function activatePlanningScope(scope: PlanningScope): Promise<void> {
   await openPlanningPane(scope, backlogItemId);
 }
 
-function renderPlanningPending(scope: PlanningScope): void {
+function renderPlanningPending(scope: PlanningPaneScope): void {
   setNodeText(shellStatusNode, `Connecting ${scope} planning session...`);
 }
 
@@ -1638,6 +1672,10 @@ taskPlanningButton?.addEventListener("click", () => {
 });
 
 openProjectCreatorButton?.addEventListener("click", () => {
+  void openBootstrapPane();
+});
+
+openManualProjectCreatorButton?.addEventListener("click", () => {
   openProjectCreatorModal("create");
 });
 
@@ -1828,9 +1866,19 @@ async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promis
   activeCodexTaskRunId = savedUiState.activeCodexTaskRunId ?? openCodexTaskRunIds.at(-1) ?? null;
 
   for (const paneKey of openPlanningPaneKeys) {
+    if (paneKey === "bootstrap") {
+      status = await window.smithlyDesktop.ensureBootstrapSession();
+      continue;
+    }
+
     const scope = getPlanningScopeFromPaneKey(paneKey);
 
     if (scope === undefined) {
+      continue;
+    }
+
+    if (scope === "bootstrap") {
+      status = await window.smithlyDesktop.ensureBootstrapSession();
       continue;
     }
 
@@ -1982,6 +2030,23 @@ async function openPlanningPane(scope: PlanningScope, backlogItemId?: string): P
   void pollStatus(4, 250);
 }
 
+async function openBootstrapPane(): Promise<void> {
+  const paneKey = createBootstrapPaneKey();
+
+  if (!openPlanningPaneKeys.includes(paneKey)) {
+    openPlanningPaneKeys = [...openPlanningPaneKeys, paneKey];
+  }
+
+  activePlanningPaneKey = paneKey;
+  isProjectWorkspaceOpen = true;
+  isOrchestrationVisible = true;
+  currentTerminalSignature = "";
+  void persistCurrentUiState();
+  renderPlanningPending("bootstrap");
+  renderDesktopStatus(await window.smithlyDesktop.ensureBootstrapSession());
+  void pollStatus(4, 250);
+}
+
 async function startCodexTask(backlogItemId: string): Promise<void> {
   const status = await window.smithlyDesktop.startCodexSession(
     backlogItemId,
@@ -2032,6 +2097,10 @@ function getPlanningPaneLabel(status: DesktopStatus | null, paneKey: SessionPane
   const target = getPlanningTarget(status, paneKey);
   const scope = getPlanningScopeFromPaneKey(paneKey);
 
+  if (scope === "bootstrap") {
+    return "Project Bootstrap";
+  }
+
   if (scope === "project") {
     return "Project Chat";
   }
@@ -2049,6 +2118,22 @@ function getPlanningTarget(
       readonly thread?: DesktopChatThread;
     }
   | undefined {
+  if (paneKey === "bootstrap" && status?.bootstrapSession !== undefined) {
+    return {
+      session: {
+        status: status.bootstrapSession.status,
+        terminalKey: status.bootstrapSession.terminalKey,
+        workerSessionId: status.bootstrapSession.terminalKey,
+      },
+      thread: {
+        kind: "bootstrap",
+        messages: status.bootstrapSession.messages,
+        threadId: "bootstrap",
+        title: "Project bootstrap",
+      },
+    };
+  }
+
   if (status?.selectedProject === undefined || paneKey === null) {
     return undefined;
   }
@@ -2087,16 +2172,22 @@ function getPlanningTarget(
   };
 }
 
-function getPlanningScopeFromPaneKey(paneKey: SessionPaneKey | null): PlanningScope | undefined {
+function getPlanningScopeFromPaneKey(
+  paneKey: SessionPaneKey | null,
+): PlanningPaneScope | undefined {
   if (paneKey === null) {
     return undefined;
+  }
+
+  if (paneKey === "bootstrap") {
+    return "bootstrap";
   }
 
   return paneKey.startsWith("project:") ? "project" : "task";
 }
 
 function getBacklogItemIdFromPaneKey(paneKey: SessionPaneKey | null): string | undefined {
-  if (paneKey === null || !paneKey.startsWith("task:")) {
+  if (paneKey === null || paneKey === "bootstrap" || !paneKey.startsWith("task:")) {
     return undefined;
   }
 
@@ -2105,7 +2196,10 @@ function getBacklogItemIdFromPaneKey(paneKey: SessionPaneKey | null): string | u
 }
 
 function isSessionPaneKey(value: string | undefined): value is SessionPaneKey {
-  return value !== undefined && (value.startsWith("project:") || value.startsWith("task:"));
+  return (
+    value !== undefined &&
+    (value === "bootstrap" || value.startsWith("project:") || value.startsWith("task:"))
+  );
 }
 
 window.addEventListener("beforeunload", () => {

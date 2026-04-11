@@ -27,6 +27,7 @@ import {
   resolveDesktopThemeMode,
   type IDesktopStatus,
 } from "./desktop-state.ts";
+import { BootstrapSessionManager } from "./bootstrap-session.ts";
 import { BlockerRoutingManager } from "./blocker-routing-manager.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
@@ -44,6 +45,7 @@ let reviewManager: ReviewManager | null = null;
 let projectExecutionManager: ProjectExecutionManager | null = null;
 let taskMergeManager: TaskMergeManager | null = null;
 let blockerRoutingManager: BlockerRoutingManager | null = null;
+let bootstrapSessionManager: BootstrapSessionManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 let isAppQuitting = false;
@@ -68,6 +70,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   recoverOrphanedClaudeSessions(storageContext);
   recoverProjectExecutionStates(storageContext);
   planningSessionManager = createPlanningSessionManager(storageContext);
+  bootstrapSessionManager = createBootstrapSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
   taskMergeManager = createTaskMergeManager(storageContext);
@@ -140,12 +143,7 @@ function createMainWindow(): BrowserWindow {
 function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.removeHandler("smithly:desktop-status");
   ipcMain.handle("smithly:desktop-status", (): IDesktopStatus => {
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:project-register");
@@ -168,12 +166,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
       registerLocalProject(context, input);
       selectedProjectId = listProjects(context).at(-1)?.id;
       selectedBacklogItemId = undefined;
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -181,23 +174,13 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.handle("smithly:project-select", (_event, projectId: string): IDesktopStatus => {
     selectedProjectId = projectId;
     selectedBacklogItemId = undefined;
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:backlog-select");
   ipcMain.handle("smithly:backlog-select", (_event, backlogItemId: string): IDesktopStatus => {
     selectedBacklogItemId = backlogItemId;
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:project-update");
@@ -220,12 +203,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
     ): IDesktopStatus => {
       updateProjectMetadata(context, input);
       selectedProjectId = input.projectId;
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -242,12 +220,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         selectedProjectId = projectId;
       }
 
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -270,12 +243,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
       }
     }, 0);
 
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:project-pause");
@@ -287,12 +255,15 @@ function registerDesktopHandlers(context: IStorageContext): void {
       });
     selectedProjectId = projectId;
 
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
+  });
+
+  ipcMain.removeHandler("smithly:bootstrap-session:ensure");
+  ipcMain.handle("smithly:bootstrap-session:ensure", (): IDesktopStatus => {
+    requireBootstrapSessionManager().ensureSession();
+    selectedProjectId = undefined;
+    selectedBacklogItemId = undefined;
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:planning-session:ensure");
@@ -304,12 +275,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         projectId: requireSelectedProjectId(context),
         scope,
       });
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -328,17 +294,16 @@ function registerDesktopHandlers(context: IStorageContext): void {
         projectId: requireSelectedProjectId(context),
         scope,
       });
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
   ipcMain.removeHandler("smithly:planning-session:write");
   ipcMain.handle("smithly:planning-session:write", (_event, terminalKey: string, data: string) => {
+    if (requireBootstrapSessionManager().writeToSession(terminalKey, data)) {
+      return;
+    }
+
     requirePlanningSessionManager().writeToSession(terminalKey, data);
   });
 
@@ -346,6 +311,10 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.handle(
     "smithly:planning-session:resize",
     (_event, terminalKey: string, cols: number, rows: number) => {
+      if (requireBootstrapSessionManager().resizeSession(terminalKey, cols, rows)) {
+        return;
+      }
+
       requirePlanningSessionManager().resizeSession(terminalKey, cols, rows);
     },
   );
@@ -360,24 +329,14 @@ function registerDesktopHandlers(context: IStorageContext): void {
         ...(summaryText !== undefined ? { summaryText } : {}),
       });
       selectedBacklogItemId = backlogItemId;
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
   ipcMain.removeHandler("smithly:codex-session:ensure");
   ipcMain.handle("smithly:codex-session:ensure", (_event, taskRunId: string): IDesktopStatus => {
     requireCodexSessionManager().ensureSession(taskRunId);
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:codex-session:write");
@@ -404,12 +363,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
     ): IDesktopStatus => {
       updateReviewRunDecision(context, reviewRunId, status, new Date().toISOString(), summaryText);
       reviewManager?.processQueuedRuns();
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -430,12 +384,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         title: "Review deferred",
         updatedAt: timestamp,
       });
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -456,12 +405,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         title: "Review comment",
         updatedAt: timestamp,
       });
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -469,12 +413,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.handle("smithly:task-merge", (_event, taskRunId: string): IDesktopStatus => {
     requireTaskMergeManager().mergeTaskRun(taskRunId);
     reviewManager?.processQueuedRuns();
-    return buildDesktopStatus(
-      context,
-      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-      selectedProjectId,
-      selectedBacklogItemId,
-    );
+    return buildCurrentDesktopStatus(context);
   });
 
   ipcMain.removeHandler("smithly:memory-note:create");
@@ -501,12 +440,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
         title: input.title.trim(),
         updatedAt: now,
       });
-      return buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      );
+      return buildCurrentDesktopStatus(context);
     },
   );
 
@@ -563,6 +497,22 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
     verificationManager?.processQueuedRuns();
     reviewManager?.processQueuedRuns();
   });
+}
+
+function createBootstrapSessionManager(context: IStorageContext): BootstrapSessionManager {
+  return new BootstrapSessionManager(
+    context,
+    (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send("smithly:planning-output", event);
+      }
+
+      broadcastDesktopStatus(context);
+    },
+    () => {
+      broadcastDesktopStatus(context);
+    },
+  );
 }
 
 function createCodexSessionManager(context: IStorageContext): CodexSessionManager {
@@ -624,15 +574,7 @@ function createBlockerRoutingManager(context: IStorageContext): BlockerRoutingMa
 
 function broadcastDesktopStatus(context: IStorageContext): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(
-      "smithly:desktop-status-updated",
-      buildDesktopStatus(
-        context,
-        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
-        selectedProjectId,
-        selectedBacklogItemId,
-      ),
-    );
+    window.webContents.send("smithly:desktop-status-updated", buildCurrentDesktopStatus(context));
   }
 }
 
@@ -652,6 +594,14 @@ function requireCodexSessionManager(): CodexSessionManager {
   return codexSessionManager;
 }
 
+function requireBootstrapSessionManager(): BootstrapSessionManager {
+  if (bootstrapSessionManager === null) {
+    throw new Error("Bootstrap session manager is not available.");
+  }
+
+  return bootstrapSessionManager;
+}
+
 function requireProjectExecutionManager(): ProjectExecutionManager {
   if (projectExecutionManager === null) {
     throw new Error("Project execution manager is not available.");
@@ -666,6 +616,16 @@ function requireTaskMergeManager(): TaskMergeManager {
   }
 
   return taskMergeManager;
+}
+
+function buildCurrentDesktopStatus(context: IStorageContext): IDesktopStatus {
+  return buildDesktopStatus(
+    context,
+    resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+    selectedProjectId,
+    selectedBacklogItemId,
+    requireBootstrapSessionManager().getSnapshot(),
+  );
 }
 
 function requireSelectedProjectId(context: IStorageContext): string {

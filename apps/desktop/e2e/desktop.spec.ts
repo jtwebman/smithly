@@ -85,6 +85,35 @@ async function closeDesktop(
   }
 }
 
+test("add project opens a bootstrap Claude session rooted at the operator home directory", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await expect(window.getByRole("heading", { name: "Projects" })).toBeVisible();
+
+    await window.locator("#open-project-creator-button").click();
+
+    await expect(window.locator("#project-workspace")).toBeVisible();
+    await expect(window.locator("#orchestration-shell")).toBeVisible();
+    await expect(window.locator("#project-workspace-title")).toHaveText("Project bootstrap workspace");
+    await expect(window.locator("#project-detail-title")).toHaveText("Project bootstrap");
+    await expect(window.locator("#planning-title")).toHaveText("Project bootstrap");
+    await expect(window.locator("#planning-status")).toContainText("bootstrap session running");
+    await expect(window.locator("#terminal-caption")).toContainText(
+      "Use Claude to discuss the idea, choose a name, pick a folder, and shape the first plan.",
+    );
+
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type("I want to build a new product planning tool.");
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude ack: I want to build a new product planning tool.",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("desktop shell can register a local repo path as a managed project", async () => {
   const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-"));
   mkdirSync(join(localRepoDirectory, ".git"));
@@ -92,11 +121,9 @@ test("desktop shell can register a local repo path as a managed project", async 
 
   try {
     await expect(window.getByRole("heading", { name: "Projects" })).toBeVisible();
-    await expect(window.locator("#planning-status")).toContainText(
-      "Register a local project to enable planning.",
-    );
+    await expect(window.locator("#open-manual-project-creator-button")).toBeVisible();
 
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await expect(window.locator("#project-creator-modal")).toBeVisible();
     await window.locator("#project-registration-path").fill(localRepoDirectory);
     await window.locator("#project-registration-name").fill("Local Fixture");
@@ -135,12 +162,12 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await window.locator("#project-registration-path").fill(firstRepoDirectory);
     await window.locator("#project-registration-name").fill("Project Alpha");
     await window.locator("#save-project-button").click();
 
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await window.locator("#project-registration-path").fill(secondRepoDirectory);
     await window.locator("#project-registration-name").fill("Project Beta");
     await window.locator("#save-project-button").click();
@@ -265,7 +292,7 @@ test("project play starts hidden orchestration and pause drains it safely", asyn
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await window.locator("#project-registration-path").fill(localRepoDirectory);
     await window.locator("#project-registration-name").fill("Execution Fixture");
     await window.locator("#save-project-button").click();
@@ -588,7 +615,7 @@ test("selected backlog detail shows verification and review history with human r
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await window.locator("#project-registration-path").fill(localRepoDirectory);
     await window.locator("#project-registration-name").fill("Review Fixture");
     await window
@@ -671,13 +698,13 @@ test("desktop shell resolves system theme preference to a concrete runtime theme
   }
 });
 
-test("project creator opens as a large chat-style modal", async () => {
+test("manual setup opens the fallback project registration modal", async () => {
   const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-modal-"));
   mkdirSync(join(localRepoDirectory, ".git"));
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
-    await window.locator("#open-project-creator-button").click();
+    await window.locator("#open-manual-project-creator-button").click();
     await expect(window.locator("#project-creator-modal")).toBeVisible();
     await expect(window.locator("#project-creator-chat")).toContainText(
       "Start with a project name and repo path if you already have one.",

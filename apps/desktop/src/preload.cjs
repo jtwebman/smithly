@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   pauseProject(projectId) {
     return ipcRenderer.invoke("smithly:project-pause", projectId);
   },
+  ensureBootstrapSession() {
+    return ipcRenderer.invoke("smithly:bootstrap-session:ensure");
+  },
   ensurePlanningSession(scope, backlogItemId) {
     return ipcRenderer.invoke("smithly:planning-session:ensure", scope, backlogItemId);
   },

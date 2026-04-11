@@ -15,6 +15,7 @@ import {
   type IStorageContext,
 } from "@smithly/storage";
 import packageJson from "../../../package.json" with { type: "json" };
+import type { IBootstrapSessionSnapshot } from "./bootstrap-session.ts";
 
 import { parseTaskGitState } from "./task-git-manager.ts";
 
@@ -40,6 +41,7 @@ export interface IDesktopProjectSummary {
 
 export interface IDesktopStatus {
   readonly appVersion: string;
+  readonly bootstrapSession?: IBootstrapSessionSnapshot;
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: ThemeMode;
@@ -138,6 +140,7 @@ export function buildDesktopStatus(
   resolvedThemeMode: ThemeMode,
   selectedProjectId?: string,
   selectedBacklogItemId?: string,
+  bootstrapSession?: IBootstrapSessionSnapshot,
 ): IDesktopStatus {
   const projects = listProjects(context).map((project) => {
     const metadata = parseProjectMetadata(project);
@@ -177,6 +180,7 @@ export function buildDesktopStatus(
 
   return {
     appVersion: packageJson.version,
+    ...(bootstrapSession !== undefined ? { bootstrapSession } : {}),
     dataDirectory: context.config.storage.dataDirectory,
     projectCount: projects.length,
     projects,

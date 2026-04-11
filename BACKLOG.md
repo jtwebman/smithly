@@ -152,7 +152,7 @@
 
 ## Phase 14: Multi-Project Operation
 
-75. `todo` Replace the `Add Project` modal-first flow with a chat-first Claude bootstrap session rooted at the operator home directory
+75. `done` Replace the `Add Project` modal-first flow with a chat-first Claude bootstrap session rooted at the operator home directory
 76. `todo` Add bootstrap-session MCP tools so Claude can create or adopt a project, choose a target folder, and persist the initial Smithly project record only after the operator confirms direction
 77. `todo` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
 78. `todo` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
