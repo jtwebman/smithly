@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   submitPlanningInput(scope, backlogItemId, bodyText) {
     return ipcRenderer.invoke("smithly:planning-session:submit", scope, backlogItemId, bodyText);
   },
+  writePlanningTerminal(terminalKey, data) {
+    return ipcRenderer.invoke("smithly:planning-session:write", terminalKey, data);
+  },
+  resizePlanningTerminal(terminalKey, cols, rows) {
+    return ipcRenderer.invoke("smithly:planning-session:resize", terminalKey, cols, rows);
+  },
   onPlanningOutput(listener) {
     const eventName = "smithly:planning-output";
     const wrappedListener = (_event, payload) => {

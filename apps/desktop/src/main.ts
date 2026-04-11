@@ -244,6 +244,19 @@ function registerDesktopHandlers(context: IStorageContext): void {
       );
     },
   );
+
+  ipcMain.removeHandler("smithly:planning-session:write");
+  ipcMain.handle("smithly:planning-session:write", (_event, terminalKey: string, data: string) => {
+    requirePlanningSessionManager().writeToSession(terminalKey, data);
+  });
+
+  ipcMain.removeHandler("smithly:planning-session:resize");
+  ipcMain.handle(
+    "smithly:planning-session:resize",
+    (_event, terminalKey: string, cols: number, rows: number) => {
+      requirePlanningSessionManager().resizeSession(terminalKey, cols, rows);
+    },
+  );
 }
 
 function resolveDesktopDataDirectory(): string {

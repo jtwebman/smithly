@@ -186,14 +186,14 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
       "Open a Claude pane to attach a planning session.",
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
-      "smithly-shell: idle planning transcript attached",
+      "Open a Claude pane to attach a planning session.",
     );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
 });
 
-test("operator can send a prompt into the project planning session", async () => {
+test("operator can interact with the project planning TUI through xterm", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,
     themePreference: "dark",
@@ -204,16 +204,9 @@ test("operator can send a prompt into the project planning session", async () =>
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "mock claude ready for project planning",
     );
-
-    await window.locator("#planning-input").fill("Summarize the next v1 planning slice.");
-    await window.locator("#planning-input-form button").click();
-
-    await expect(window.locator("#planning-history")).toContainText(
-      "Summarize the next v1 planning slice.",
-    );
-    await expect(window.locator("#planning-history")).toContainText(
-      "claude ack: Summarize the next v1 planning slice.",
-    );
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type("Summarize the next v1 planning slice.");
+    await window.keyboard.press("Enter");
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "claude ack: Summarize the next v1 planning slice.",
     );
@@ -231,21 +224,16 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
   try {
     await window.locator("#project-planning-button").click();
     await expect(window.locator("#backlog-list .list-card")).toHaveCount(2);
-
-    await window
-      .locator("#planning-input")
-      .fill(
-        "create draft: Add Smithly MCP write path | Create draft backlog items through planning MCP tools.",
-      );
-    await window.locator("#planning-input-form button").click();
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "create draft: Add Smithly MCP write path | Create draft backlog items through planning MCP tools.",
+    );
+    await window.keyboard.press("Enter");
 
     await expect(window.locator("#backlog-list .list-card")).toHaveCount(3);
     await expect(window.locator("#backlog-list")).toContainText("Add Smithly MCP write path");
     await expect(window.locator("#backlog-list")).toContainText(
       "Create draft backlog items through planning MCP tools.",
-    );
-    await expect(window.locator("#planning-history")).toContainText(
-      'Created draft backlog item "Add Smithly MCP write path"',
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "claude tool create_draft_backlog_item",
@@ -300,13 +288,11 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "mock claude ready for task planning",
     );
-
-    await window
-      .locator("#planning-input")
-      .fill(
-        "revise task: Use Smithly MCP-backed planning actions for backlog updates. | Claude can revise the task scope through MCP; Acceptance criteria are persisted in SQLite | Track the first revision path through the task planning thread. | approved | 95 | high | ai",
-      );
-    await window.locator("#planning-input-form button").click();
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "revise task: Use Smithly MCP-backed planning actions for backlog updates. | Claude can revise the task scope through MCP; Acceptance criteria are persisted in SQLite | Track the first revision path through the task planning thread. | approved | 95 | high | ai",
+    );
+    await window.keyboard.press("Enter");
 
     await expect(window.locator("#selected-backlog-scope")).toHaveText(
       "Use Smithly MCP-backed planning actions for backlog updates.",
@@ -320,12 +306,6 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
     );
     await expect(window.locator("#selected-backlog-criteria")).toContainText(
       "Acceptance criteria are persisted in SQLite",
-    );
-    await expect(window.locator("#planning-history")).toContainText(
-      'Updated backlog item "Bootstrap the desktop shell" with 2 acceptance criteria and status approved.',
-    );
-    await expect(window.locator("#planning-history")).toContainText(
-      "Track the first revision path through the task planning thread.",
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "claude tool revise_backlog_item",
@@ -389,7 +369,9 @@ test("desktop shell supports explicit light theme preference", async () => {
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(window.locator("#theme-mode")).toHaveText("light -> light");
     await window.locator("#project-planning-button").click();
-    await expect(window.locator("#terminal .xterm-rows")).toContainText("theme: light (light)");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "mock claude ready for project planning",
+    );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
@@ -403,9 +385,6 @@ test("desktop shell resolves system theme preference to a concrete runtime theme
 
   try {
     await expect(window.locator("#theme-mode")).toHaveText(/^system -> (dark|light)$/u);
-    await expect(window.locator("#terminal .xterm-rows")).toContainText(
-      /theme: (dark|light) \(system\)/u,
-    );
 
     const htmlTheme = await window.locator("html").getAttribute("data-theme");
 

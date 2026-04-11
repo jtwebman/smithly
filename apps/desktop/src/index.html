@@ -321,12 +321,13 @@
       }
 
       #terminal {
-        min-height: 320px;
+        height: min(56vh, 520px);
         margin-top: 16px;
         padding: 12px;
         border: 1px solid var(--border);
         border-radius: 18px;
         background: var(--panel-strong);
+        overflow: hidden;
       }
 
       .terminal-caption {
@@ -375,31 +376,6 @@
         color: var(--accent);
         text-transform: capitalize;
         font-size: 0.86rem;
-      }
-
-      .planning-form {
-        align-items: center;
-        margin-top: 16px;
-      }
-
-      .planning-form input {
-        width: 100%;
-        min-height: 44px;
-        padding: 10px 14px;
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        color: var(--ink);
-        background: var(--panel-strong);
-      }
-
-      .planning-form button {
-        min-height: 44px;
-        padding: 0 16px;
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        color: var(--ink);
-        background: var(--panel-strong);
-        cursor: pointer;
       }
 
       .empty-state {
@@ -560,16 +536,7 @@
             </div>
             <div id="planning-pane-tabs" class="stack"></div>
             <div id="terminal"></div>
-            <p id="terminal-caption" class="terminal-caption">Loading pane...</p>
-            <form id="planning-input-form" class="planning-form">
-              <input
-                id="planning-input"
-                name="planning-input"
-                type="text"
-                placeholder="Send a prompt to the active Claude planning session"
-              />
-              <button type="submit">Send</button>
-            </form>
+            <p id="terminal-caption" class="terminal-caption">Claude TUI attaches here.</p>
           </div>
         </section>
 

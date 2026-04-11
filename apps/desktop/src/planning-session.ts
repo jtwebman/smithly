@@ -136,6 +136,34 @@ export class PlanningSessionManager {
     session.pty.write(`${bodyText}\r`);
   }
 
+  public writeToSession(terminalKey: string, data: string): void {
+    if (data.length === 0) {
+      return;
+    }
+
+    const session = this.findSessionByTerminalKey(terminalKey);
+
+    if (session === undefined) {
+      throw new Error(`Planning session is unavailable for terminal ${terminalKey}`);
+    }
+
+    session.pty.write(data);
+  }
+
+  public resizeSession(terminalKey: string, cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) {
+      return;
+    }
+
+    const session = this.findSessionByTerminalKey(terminalKey);
+
+    if (session === undefined) {
+      return;
+    }
+
+    session.pty.resize(cols, rows);
+  }
+
   public dispose(): void {
     for (const session of this.sessions.values()) {
       session.pty.kill();
@@ -355,6 +383,10 @@ export class PlanningSessionManager {
     }
 
     return `planning:task:${input.backlogItemId}`;
+  }
+
+  private findSessionByTerminalKey(terminalKey: string): IPlanningRuntimeSession | undefined {
+    return [...this.sessions.values()].find((session) => session.terminalKey === terminalKey);
   }
 
   private buildMcpServerConfig(

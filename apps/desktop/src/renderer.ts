@@ -130,6 +130,8 @@ interface SmithlyDesktopApi {
     backlogItemId: string | undefined,
     bodyText: string,
   ): Promise<DesktopStatus>;
+  writePlanningTerminal(terminalKey: string, data: string): Promise<void>;
+  resizePlanningTerminal(terminalKey: string, cols: number, rows: number): Promise<void>;
   onPlanningOutput(listener: (payload: PlanningOutputEvent) => void): () => void;
   onStatusUpdate(listener: (status: DesktopStatus) => void): () => void;
 }
@@ -185,8 +187,6 @@ const planningPaneTabsNode = document.getElementById("planning-pane-tabs");
 const planningTitleNode = document.getElementById("planning-title");
 const planningStatusNode = document.getElementById("planning-status");
 const planningHistoryNode = document.getElementById("planning-history");
-const planningForm = document.getElementById("planning-input-form");
-const planningInputNode = document.getElementById("planning-input") as HTMLInputElement | null;
 const projectPlanningButton = document.getElementById(
   "project-planning-button",
 ) as HTMLButtonElement | null;
@@ -215,8 +215,15 @@ let currentTerminalSignature = "";
 let editingProjectId: string | null = null;
 let activePlanningPaneKey: SessionPaneKey | null = null;
 let openPlanningPaneKeys: SessionPaneKey[] = [];
+const terminalBuffers = new Map<string, string[]>();
+let terminalResizeObserver: ResizeObserver | null = null;
 
 window.smithlyDesktop.onPlanningOutput((payload) => {
+  const chunks = terminalBuffers.get(payload.terminalKey) ?? [];
+
+  chunks.push(payload.rawData);
+  terminalBuffers.set(payload.terminalKey, chunks.slice(-500));
+
   const activeSession = getActivePlanningSession(currentStatus, activePlanningPaneKey);
 
   if (activeSession?.terminalKey === payload.terminalKey) {
@@ -358,18 +365,40 @@ function initTerminal(): void {
   terminal = new Terminal({
     convertEol: true,
     cursorBlink: true,
-    disableStdin: true,
     fontFamily: '"Iosevka Custom", "JetBrains Mono", monospace',
     fontSize: 13,
+    scrollback: 100_000,
   });
   fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(terminalNode);
   fitAddon.fit();
 
-  window.addEventListener("resize", () => {
-    fitAddon?.fit();
+  terminal.onData((data) => {
+    const activeSession = getActivePlanningSession(currentStatus, activePlanningPaneKey);
+
+    if (activeSession === undefined) {
+      return;
+    }
+
+    void window.smithlyDesktop.writePlanningTerminal(activeSession.terminalKey, data);
   });
+
+  terminalResizeObserver = new ResizeObserver(() => {
+    fitAddon?.fit();
+    const activeSession = getActivePlanningSession(currentStatus, activePlanningPaneKey);
+
+    if (terminal === null || activeSession === undefined) {
+      return;
+    }
+
+    void window.smithlyDesktop.resizePlanningTerminal(
+      activeSession.terminalKey,
+      terminal.cols,
+      terminal.rows,
+    );
+  });
+  terminalResizeObserver.observe(terminalNode);
 }
 
 function updateTerminalTheme(mode: "dark" | "light"): void {
@@ -447,10 +476,6 @@ function renderPlanningPane(status: DesktopStatus): void {
     taskPlanningButton.disabled = selectedBacklogItem === undefined;
   }
 
-  if (planningInputNode !== null) {
-    planningInputNode.disabled = activePlanningPaneKey === null;
-  }
-
   if (projectDetailTitleNode !== null) {
     projectDetailTitleNode.textContent = selectedProjectSummary
       ? `Project detail: ${selectedProjectSummary.name}`
@@ -485,13 +510,13 @@ function renderPlanningPane(status: DesktopStatus): void {
     !hasSelectedProject
       ? "Register a local git repository to attach a planning session."
       : activeThread
-        ? "Claude planning transcript attached to the selected thread."
+        ? "Type directly into the attached Claude TUI when you need to interact."
         : "Open a Claude pane to attach a planning session.",
   );
 
   renderPlanningHistory(activeThread?.messages ?? []);
   renderSelectedBacklog(selectedBacklogItem);
-  syncTerminalTranscript(status);
+  syncTerminalPane(status);
 }
 
 function renderPlanningPaneTabs(status: DesktopStatus): void {
@@ -610,13 +635,12 @@ function renderSelectedBacklog(backlogItem?: DesktopBacklogDetail): void {
   }
 }
 
-function syncTerminalTranscript(status: DesktopStatus): void {
-  const activeThread = getActivePlanningThread(status, activePlanningPaneKey);
+function syncTerminalPane(status: DesktopStatus): void {
   const activeScope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
+  const activeSession = getActivePlanningSession(status, activePlanningPaneKey);
   const signature = [
     activePlanningPaneKey ?? "none",
-    activeThread?.threadId ?? "none",
-    activeThread?.messages.length ?? 0,
+    activeSession?.terminalKey ?? "none",
     status.resolvedThemeMode,
   ].join(":");
 
@@ -626,37 +650,34 @@ function syncTerminalTranscript(status: DesktopStatus): void {
 
   currentTerminalSignature = signature;
   terminal.reset();
-  terminal.writeln(`smithly-shell: ${activeScope ?? "idle"} planning transcript attached`);
-  terminal.writeln(`theme: ${status.resolvedThemeMode} (${status.themePreference})`);
+  terminal.focus();
 
   if (status.selectedProject === undefined) {
     terminal.writeln("[smithly] Register a local git repository to begin.");
     return;
   }
 
-  if (activeThread === undefined) {
-    terminal.writeln("[smithly] No planning thread is available.");
+  if (activeSession === undefined) {
+    terminal.writeln("[smithly] Open a Claude pane to attach a planning session.");
     return;
   }
 
-  terminal.writeln(`thread: ${activeThread.title}`);
+  const buffer = terminalBuffers.get(activeSession.terminalKey) ?? [];
 
-  for (const message of activeThread.messages) {
-    terminal.writeln(formatTranscriptLine(message));
+  if (buffer.length === 0) {
+    terminal.writeln(`[smithly] ${activeScope ?? "planning"} terminal attached.`);
+  } else {
+    for (const chunk of buffer) {
+      terminal.write(chunk);
+    }
   }
 
   fitAddon?.fit();
-}
-
-function formatTranscriptLine(message: DesktopChatMessage): string {
-  switch (message.role) {
-    case "human":
-      return `operator> ${message.bodyText}`;
-    case "system":
-      return `smithly> ${message.bodyText}`;
-    default:
-      return `claude> ${message.bodyText}`;
-  }
+  void window.smithlyDesktop.resizePlanningTerminal(
+    activeSession.terminalKey,
+    terminal.cols,
+    terminal.rows,
+  );
 }
 
 function applyTheme(mode: "dark" | "light"): void {
@@ -763,38 +784,6 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-
-planningForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  if (
-    planningInputNode === null ||
-    currentStatus?.selectedProject === undefined ||
-    activePlanningPaneKey === null
-  ) {
-    return;
-  }
-
-  const bodyText = planningInputNode.value.trim();
-
-  if (bodyText.length === 0) {
-    return;
-  }
-
-  const scope = getPlanningScopeFromPaneKey(activePlanningPaneKey);
-  const backlogItemId =
-    scope === "task" ? getBacklogItemIdFromPaneKey(activePlanningPaneKey) : undefined;
-
-  if (scope === undefined) {
-    return;
-  }
-
-  renderDesktopStatus(
-    await window.smithlyDesktop.submitPlanningInput(scope, backlogItemId, bodyText),
-  );
-  planningInputNode.value = "";
-  void pollStatus(8, 250);
-});
 
 projectRegistrationForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
