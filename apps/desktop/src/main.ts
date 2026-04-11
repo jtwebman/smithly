@@ -66,6 +66,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   storageContext = createDesktopContext();
   hydrateDesktopSelectionState(storageContext);
   recoverOrphanedClaudeSessions(storageContext);
+  recoverProjectExecutionStates(storageContext);
   planningSessionManager = createPlanningSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
@@ -75,7 +76,6 @@ export async function bootstrapDesktopApp(): Promise<void> {
   projectExecutionManager = createProjectExecutionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
-  projectExecutionManager.resumeActiveProjects();
   blockerRoutingManager.processOpenBlockers();
   verificationManager.processQueuedRuns();
   reviewManager.processQueuedRuns();
@@ -108,6 +108,7 @@ function createDesktopContext(): IStorageContext {
         metadataJson:
           '{"metadata":{"themePreference":"system"},"verificationCommands":["npm run check"],"approvalPolicy":{"requireApprovalForNewBacklogItems":true,"requireApprovalForScopeChanges":true,"requireApprovalForHighRiskTasks":true}}',
         repoPath: resolveSeedProjectRepoPath(),
+        status: "paused",
       },
     });
   }
@@ -838,6 +839,31 @@ export function recoverOrphanedClaudeSessions(context: IStorageContext, now = ne
         ...(thread?.backlogItemId !== undefined ? { backlogItemId: thread.backlogItemId } : {}),
       });
     }
+  }
+}
+
+export function recoverProjectExecutionStates(context: IStorageContext, now = new Date()): void {
+  const timestamp = now.toISOString();
+
+  for (const project of listProjects(context)) {
+    if (project.status !== "active") {
+      continue;
+    }
+
+    updateProjectMetadata(context, {
+      projectId: project.id,
+      status: "paused",
+    });
+    upsertMemoryNote(context, {
+      bodyText:
+        "Recovered project execution after app restart and reset the project to paused so work only resumes when the operator presses Play.",
+      createdAt: timestamp,
+      id: `memory-project-execution-recovery-${project.id}`,
+      noteType: "note",
+      projectId: project.id,
+      title: "Recovered paused project execution",
+      updatedAt: timestamp,
+    });
   }
 }
 

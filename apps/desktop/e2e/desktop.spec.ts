@@ -226,8 +226,9 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
     await expect(window.locator("#planning-history")).toContainText(
       "No planning transcript has been recorded yet.",
     );
+    await expect(window.locator("#project-list")).toContainText("paused");
     await expect(window.locator("#planning-status")).toContainText(
-      "Project execution is running in the background.",
+      "Project execution is paused. Click Play to start hidden orchestration",
     );
     await expect(window.locator("#terminal-caption")).toContainText(
       "Open a Claude pane to attach a planning session.",

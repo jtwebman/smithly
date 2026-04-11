@@ -18,7 +18,7 @@ import {
 } from "@smithly/storage";
 
 import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts";
-import { recoverOrphanedClaudeSessions } from "./main.ts";
+import { recoverOrphanedClaudeSessions, recoverProjectExecutionStates } from "./main.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -154,6 +154,7 @@ describe("desktop bootstrap", () => {
             "xterm.js pane is rendered",
             "state comes from SQLite",
           ],
+          actionableHumanReviewRunId: "review-bootstrap-ui",
           id: "backlog-bootstrap-ui",
           pendingHumanReviewRunId: "review-bootstrap-ui",
           priority: 90,
@@ -442,6 +443,51 @@ describe("desktop bootstrap", () => {
           noteType: "note",
           sourceThreadId: fixture.projectChatThread.id,
           title: "Recovered orphaned claude session",
+        }),
+      ]),
+    );
+
+    context.db.close();
+  });
+
+  it("resets active projects to paused on restart so execution only resumes on explicit play", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-project-recovery-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        status: "active",
+      },
+    });
+
+    recoverProjectExecutionStates(context, new Date("2026-04-10T09:00:00.000Z"));
+
+    expect(buildDesktopStatus(context, "dark").projects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: fixture.project.id,
+          status: "paused",
+        }),
+      ]),
+    );
+    expect(listMemoryNotesForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bodyText:
+            "Recovered project execution after app restart and reset the project to paused so work only resumes when the operator presses Play.",
+          id: `memory-project-execution-recovery-${fixture.project.id}`,
+          noteType: "note",
+          title: "Recovered paused project execution",
         }),
       ]),
     );
