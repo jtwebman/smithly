@@ -22,7 +22,10 @@ export interface IRegisterLocalProjectInput {
 export interface IUpdateProjectMetadataInput {
   readonly approvalPolicy?: Partial<IProjectApprovalPolicy>;
   readonly metadata?: Readonly<Record<string, string>>;
+  readonly name?: string;
   readonly projectId: string;
+  readonly repoPath?: string;
+  readonly status?: IProjectRecord["status"];
   readonly verificationCommands?: readonly string[];
 }
 
@@ -118,13 +121,33 @@ export function updateProjectMetadata(
     throw new ProjectRegistrationError(`Missing project ${input.projectId}`);
   }
 
+  const nextRepoPath =
+    input.repoPath !== undefined ? normalizeLocalRepoPath(input.repoPath) : project.repoPath;
+
+  if (
+    nextRepoPath !== project.repoPath &&
+    listProjects(context).some(
+      (existingProject) =>
+        existingProject.id !== project.id && existingProject.repoPath === nextRepoPath,
+    )
+  ) {
+    throw new ProjectRegistrationError(`Project is already registered for path: ${nextRepoPath}`);
+  }
+
   const updatedProject: IProjectRecord = {
     ...project,
+    ...(input.name !== undefined ? { name: input.name.trim() || project.name } : {}),
     metadataJson: serializeProjectMetadata({
-      approvalPolicy: normalizeApprovalPolicy(input.approvalPolicy),
-      metadata: normalizeMetadataEntries(input.metadata),
-      verificationCommands: normalizeVerificationCommands(input.verificationCommands),
+      approvalPolicy: normalizeApprovalPolicy(
+        input.approvalPolicy ?? parseProjectMetadata(project).approvalPolicy,
+      ),
+      metadata: normalizeMetadataEntries(input.metadata ?? parseProjectMetadata(project).metadata),
+      verificationCommands: normalizeVerificationCommands(
+        input.verificationCommands ?? parseProjectMetadata(project).verificationCommands,
+      ),
     }),
+    repoPath: nextRepoPath,
+    ...(input.status !== undefined ? { status: input.status } : {}),
     updatedAt: new Date().toISOString(),
   };
 

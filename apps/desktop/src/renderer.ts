@@ -6,12 +6,19 @@ import { Terminal } from "@xterm/xterm";
 type PlanningScope = "project" | "task";
 
 interface DesktopProjectSummary {
+  readonly approvalPolicy: {
+    readonly requireApprovalForHighRiskTasks: boolean;
+    readonly requireApprovalForNewBacklogItems: boolean;
+    readonly requireApprovalForScopeChanges: boolean;
+  };
   readonly approvalPolicySummary: string;
   readonly id: string;
+  readonly metadataEntries: Readonly<Record<string, string>>;
   readonly metadataSummary: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
+  readonly verificationCommands: readonly string[];
   readonly verificationSummary: string;
   readonly activeTaskCount: number;
   readonly activeSessionCount: number;
@@ -35,6 +42,7 @@ interface DesktopStatus {
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: "dark" | "light";
+  readonly selectedProjectId?: string;
   readonly themePreference: "dark" | "light" | "system";
   readonly projects: readonly DesktopProjectSummary[];
   readonly selectedProject?: {
@@ -104,6 +112,11 @@ interface PlanningOutputEvent {
 interface SmithlyDesktopApi {
   getStatus(): Promise<DesktopStatus>;
   registerProject(input: DesktopProjectRegistrationInput): Promise<DesktopStatus>;
+  selectProject(projectId: string): Promise<DesktopStatus>;
+  setProjectStatus(projectId: string, status: "active" | "archived"): Promise<DesktopStatus>;
+  updateProject(
+    input: DesktopProjectRegistrationInput & { projectId: string },
+  ): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
   submitPlanningInput(
     scope: PlanningScope,
@@ -160,6 +173,7 @@ const eventLogNode = document.getElementById("event-log");
 const terminalNode = document.getElementById("terminal");
 const terminalCaptionNode = document.getElementById("terminal-caption");
 const shellStatusNode = document.getElementById("shell-status");
+const projectDetailTitleNode = document.getElementById("project-detail-title");
 const planningTitleNode = document.getElementById("planning-title");
 const planningStatusNode = document.getElementById("planning-status");
 const planningHistoryNode = document.getElementById("planning-history");
@@ -167,6 +181,15 @@ const planningForm = document.getElementById("planning-input-form");
 const planningInputNode = document.getElementById("planning-input") as HTMLInputElement | null;
 const projectPlanningButton = document.getElementById(
   "project-planning-button",
+) as HTMLButtonElement | null;
+const projectEditButton = document.getElementById(
+  "project-edit-button",
+) as HTMLButtonElement | null;
+const projectArchiveButton = document.getElementById(
+  "project-archive-button",
+) as HTMLButtonElement | null;
+const projectReactivateButton = document.getElementById(
+  "project-reactivate-button",
 ) as HTMLButtonElement | null;
 const taskPlanningButton = document.getElementById(
   "task-planning-button",
@@ -181,6 +204,7 @@ let activePlanningScope: PlanningScope = "project";
 let terminal: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let currentTerminalSignature = "";
+let editingProjectId: string | null = null;
 
 window.smithlyDesktop.onPlanningOutput((payload) => {
   const activeSession = getActivePlanningSession(currentStatus, activePlanningScope);
@@ -214,6 +238,7 @@ function renderProjects(status: DesktopStatus): void {
   for (const project of status.projects) {
     const article = document.createElement("article");
     article.className = "project-card";
+    article.dataset.selected = String(status.selectedProjectId === project.id);
     article.innerHTML = `
       <header class="project-card__header">
         <div>
@@ -239,7 +264,13 @@ function renderProjects(status: DesktopStatus): void {
           <dd>${project.backlogCount}</dd>
         </div>
       </dl>
+      <div class="project-card__actions">
+        <button type="button" data-project-id="${escapeHtml(project.id)}">Open Project</button>
+      </div>
     `;
+    article.querySelector("button")?.addEventListener("click", async () => {
+      renderDesktopStatus(await window.smithlyDesktop.selectProject(project.id));
+    });
     projectListNode.append(article);
   }
 }
@@ -381,6 +412,9 @@ function renderPlanningPane(status: DesktopStatus): void {
   const activeSession = getActivePlanningSession(status, activePlanningScope);
   const selectedBacklogItem = status.selectedProject?.selectedBacklogItem;
   const hasSelectedProject = status.selectedProject !== undefined;
+  const selectedProjectSummary = status.projects.find(
+    (project) => project.id === status.selectedProjectId,
+  );
 
   if (projectPlanningButton !== null) {
     projectPlanningButton.dataset.active = String(activePlanningScope === "project");
@@ -394,6 +428,24 @@ function renderPlanningPane(status: DesktopStatus): void {
 
   if (planningInputNode !== null) {
     planningInputNode.disabled = !hasSelectedProject;
+  }
+
+  if (projectDetailTitleNode !== null) {
+    projectDetailTitleNode.textContent = selectedProjectSummary
+      ? `Project detail: ${selectedProjectSummary.name}`
+      : "Project detail";
+  }
+
+  if (projectEditButton !== null) {
+    projectEditButton.disabled = !hasSelectedProject;
+  }
+
+  if (projectArchiveButton !== null) {
+    projectArchiveButton.disabled = !hasSelectedProject;
+  }
+
+  if (projectReactivateButton !== null) {
+    projectReactivateButton.disabled = selectedProjectSummary?.status !== "archived";
   }
 
   setNodeText(planningTitleNode, activeThread?.title ?? "No planning thread");
@@ -680,11 +732,13 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
     return;
   }
 
-  renderProjectRegistrationStatus("Registering local project...");
+  renderProjectRegistrationStatus(
+    editingProjectId === null ? "Registering local project..." : "Updating project...",
+  );
 
   try {
     const previousStatus = currentStatus;
-    const status = await window.smithlyDesktop.registerProject({
+    const projectInput = {
       approvalPolicy: {
         requireApprovalForHighRiskTasks: projectRegistrationApprovalHighRiskNode?.checked ?? true,
         requireApprovalForNewBacklogItems:
@@ -695,12 +749,22 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
       ...(projectName.length > 0 ? { name: projectName } : {}),
       repoPath,
       verificationCommands,
-    });
+    } satisfies DesktopProjectRegistrationInput;
+    const status =
+      editingProjectId === null
+        ? await window.smithlyDesktop.registerProject(projectInput)
+        : await window.smithlyDesktop.updateProject({
+            ...projectInput,
+            projectId: editingProjectId,
+          });
 
     renderDesktopStatus(status);
     renderProjectRegistrationStatus(
-      `Registered ${status.projects[status.projects.length - 1]?.name ?? "project"}.`,
+      editingProjectId === null
+        ? `Registered ${status.projects[status.projects.length - 1]?.name ?? "project"}.`
+        : `Updated ${status.projects.find((project) => project.id === editingProjectId)?.name ?? "project"}.`,
     );
+    editingProjectId = null;
     projectRegistrationPathNode.value = "";
 
     if (projectRegistrationNameNode !== null) {
@@ -733,6 +797,71 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
   } catch (error: unknown) {
     renderProjectRegistrationStatus(error instanceof Error ? error.message : String(error));
   }
+});
+
+projectEditButton?.addEventListener("click", () => {
+  const selectedProjectId = currentStatus?.selectedProjectId;
+  const selectedProject =
+    selectedProjectId === undefined
+      ? undefined
+      : currentStatus?.projects.find((project) => project.id === selectedProjectId);
+
+  if (
+    selectedProject === undefined ||
+    projectRegistrationPathNode === null ||
+    projectRegistrationVerificationNode === null ||
+    projectRegistrationMetadataNode === null
+  ) {
+    return;
+  }
+
+  editingProjectId = selectedProject.id;
+  projectRegistrationPathNode.value = selectedProject.repoPath;
+
+  if (projectRegistrationNameNode !== null) {
+    projectRegistrationNameNode.value = selectedProject.name;
+  }
+
+  projectRegistrationVerificationNode.value = selectedProject.verificationCommands.join("\n");
+  projectRegistrationMetadataNode.value = Object.entries(selectedProject.metadataEntries)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+
+  if (projectRegistrationApprovalNewBacklogNode !== null) {
+    projectRegistrationApprovalNewBacklogNode.checked =
+      selectedProject.approvalPolicy.requireApprovalForNewBacklogItems;
+  }
+
+  if (projectRegistrationApprovalScopeNode !== null) {
+    projectRegistrationApprovalScopeNode.checked =
+      selectedProject.approvalPolicy.requireApprovalForScopeChanges;
+  }
+
+  if (projectRegistrationApprovalHighRiskNode !== null) {
+    projectRegistrationApprovalHighRiskNode.checked =
+      selectedProject.approvalPolicy.requireApprovalForHighRiskTasks;
+  }
+  renderProjectRegistrationStatus(`Editing ${selectedProject.name}. Submit the form to save.`);
+});
+
+projectArchiveButton?.addEventListener("click", async () => {
+  const projectId = currentStatus?.selectedProjectId;
+
+  if (projectId === undefined) {
+    return;
+  }
+
+  renderDesktopStatus(await window.smithlyDesktop.setProjectStatus(projectId, "archived"));
+});
+
+projectReactivateButton?.addEventListener("click", async () => {
+  const projectId = currentStatus?.selectedProjectId;
+
+  if (projectId === undefined) {
+    return;
+  }
+
+  renderDesktopStatus(await window.smithlyDesktop.setProjectStatus(projectId, "active"));
 });
 
 projectPlanningButton?.addEventListener("click", () => {

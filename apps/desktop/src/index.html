@@ -223,6 +223,19 @@
         min-height: 220px;
       }
 
+      .project-card[data-selected="true"] {
+        border-color: var(--accent-strong);
+        box-shadow: 0 20px 56px rgba(26, 94, 168, 0.18);
+      }
+
+      .project-card__actions,
+      .detail-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
       .project-status,
       .scope-toggle button {
         display: inline-flex;
@@ -489,8 +502,13 @@
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Operator Pane</h2>
+                <h2 id="project-detail-title">Project detail</h2>
                 <p>Session transcript view for the currently attached planning context.</p>
+              </div>
+              <div class="detail-actions">
+                <button id="project-edit-button" type="button">Edit Project</button>
+                <button id="project-archive-button" type="button">Archive</button>
+                <button id="project-reactivate-button" type="button">Reactivate</button>
               </div>
             </div>
             <div class="scope-toggle">

@@ -10,6 +10,7 @@ import {
   listProjects,
   registerLocalProject,
   seedInitialState,
+  updateProjectMetadata,
   type IStorageContext,
 } from "@smithly/storage";
 
@@ -22,6 +23,7 @@ import { PlanningSessionManager, type PlanningScope } from "./planning-session.t
 
 let storageContext: IStorageContext | null = null;
 let planningSessionManager: PlanningSessionManager | null = null;
+let selectedProjectId: string | undefined;
 
 export async function bootstrapDesktopApp(): Promise<void> {
   await app.whenReady();
@@ -91,6 +93,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
     return buildDesktopStatus(
       context,
       resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
     );
   });
 
@@ -112,9 +115,70 @@ function registerDesktopHandlers(context: IStorageContext): void {
       },
     ): IDesktopStatus => {
       registerLocalProject(context, input);
+      selectedProjectId = listProjects(context).at(-1)?.id;
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:project-select");
+  ipcMain.handle("smithly:project-select", (_event, projectId: string): IDesktopStatus => {
+    selectedProjectId = projectId;
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+    );
+  });
+
+  ipcMain.removeHandler("smithly:project-update");
+  ipcMain.handle(
+    "smithly:project-update",
+    (
+      _event,
+      input: {
+        readonly approvalPolicy?: {
+          readonly requireApprovalForHighRiskTasks?: boolean;
+          readonly requireApprovalForNewBacklogItems?: boolean;
+          readonly requireApprovalForScopeChanges?: boolean;
+        };
+        readonly metadata?: Readonly<Record<string, string>>;
+        readonly name?: string;
+        readonly projectId: string;
+        readonly repoPath: string;
+        readonly verificationCommands?: readonly string[];
+      },
+    ): IDesktopStatus => {
+      updateProjectMetadata(context, input);
+      selectedProjectId = input.projectId;
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:project-set-status");
+  ipcMain.handle(
+    "smithly:project-set-status",
+    (_event, projectId: string, status: "active" | "archived"): IDesktopStatus => {
+      updateProjectMetadata(context, {
+        projectId,
+        status,
+      });
+
+      if (status === "active") {
+        selectedProjectId = projectId;
+      }
+
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
       );
     },
   );
@@ -125,12 +189,13 @@ function registerDesktopHandlers(context: IStorageContext): void {
     (_event, scope: PlanningScope, backlogItemId?: string): IDesktopStatus => {
       requirePlanningSessionManager().ensureSession({
         ...(backlogItemId !== undefined ? { backlogItemId } : {}),
-        projectId: requirePrimaryProjectId(context),
+        projectId: requireSelectedProjectId(context),
         scope,
       });
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
       );
     },
   );
@@ -147,12 +212,13 @@ function registerDesktopHandlers(context: IStorageContext): void {
       requirePlanningSessionManager().submitInput({
         ...(backlogItemId !== undefined ? { backlogItemId } : {}),
         bodyText,
-        projectId: requirePrimaryProjectId(context),
+        projectId: requireSelectedProjectId(context),
         scope,
       });
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
       );
     },
   );
@@ -197,6 +263,7 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
             context.config.ui.themePreference,
             nativeTheme.shouldUseDarkColors,
           ),
+          selectedProjectId,
         ),
       );
     }
@@ -211,13 +278,17 @@ function requirePlanningSessionManager(): PlanningSessionManager {
   return planningSessionManager;
 }
 
-function requirePrimaryProjectId(context: IStorageContext): string {
-  const project = listProjects(context)[0];
+function requireSelectedProjectId(context: IStorageContext): string {
+  const project =
+    (selectedProjectId !== undefined
+      ? listProjects(context).find((candidate) => candidate.id === selectedProjectId)
+      : undefined) ?? listProjects(context).find((candidate) => candidate.status !== "archived");
 
   if (project === undefined) {
     throw new Error("No managed project is available.");
   }
 
+  selectedProjectId = project.id;
   return project.id;
 }
 

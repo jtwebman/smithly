@@ -93,6 +93,54 @@ test("desktop shell can register a local repo path as a managed project", async 
   }
 });
 
+test("project dashboard can open, edit, archive, and reactivate a project", async () => {
+  const firstRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-a-"));
+  const secondRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-b-"));
+  mkdirSync(join(firstRepoDirectory, ".git"));
+  mkdirSync(join(secondRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await window.locator("#project-registration-path").fill(firstRepoDirectory);
+    await window.locator("#project-registration-name").fill("Project Alpha");
+    await window.locator("#project-registration-form button").click();
+
+    await window.locator("#project-registration-path").fill(secondRepoDirectory);
+    await window.locator("#project-registration-name").fill("Project Beta");
+    await window.locator("#project-registration-form button").click();
+
+    await expect(window.locator("#project-list .project-card")).toHaveCount(2);
+
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#project-detail-title")).toHaveText(
+      "Project detail: Project Alpha",
+    );
+
+    await window.locator("#project-edit-button").click();
+    await expect(window.locator("#project-registration-status")).toContainText(
+      "Editing Project Alpha.",
+    );
+    await window.locator("#project-registration-name").fill("Project Alpha Prime");
+    await window.locator("#project-registration-form button").click();
+
+    await expect(window.locator("#project-list")).toContainText("Project Alpha Prime");
+    await expect(window.locator("#project-detail-title")).toHaveText(
+      "Project detail: Project Alpha Prime",
+    );
+
+    await window.locator("#project-archive-button").click();
+    await expect(window.locator("#project-list")).toContainText("archived");
+    await expect(window.locator("#project-reactivate-button")).toBeEnabled();
+
+    await window.locator("#project-reactivate-button").click();
+    await expect(window.locator("#project-list")).toContainText("active");
+  } finally {
+    rmSync(firstRepoDirectory, { force: true, recursive: true });
+    rmSync(secondRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("desktop shell shows the seeded dashboard and attaches a project planning session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,

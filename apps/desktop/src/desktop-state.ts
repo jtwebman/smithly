@@ -17,12 +17,19 @@ import {
 import packageJson from "../../../package.json" with { type: "json" };
 
 export interface IDesktopProjectSummary {
+  readonly approvalPolicy: {
+    readonly requireApprovalForHighRiskTasks: boolean;
+    readonly requireApprovalForNewBacklogItems: boolean;
+    readonly requireApprovalForScopeChanges: boolean;
+  };
   readonly approvalPolicySummary: string;
   readonly id: string;
+  readonly metadataEntries: Readonly<Record<string, string>>;
   readonly metadataSummary: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
+  readonly verificationCommands: readonly string[];
   readonly verificationSummary: string;
   readonly activeTaskCount: number;
   readonly activeSessionCount: number;
@@ -34,6 +41,7 @@ export interface IDesktopStatus {
   readonly dataDirectory: string;
   readonly projectCount: number;
   readonly resolvedThemeMode: ThemeMode;
+  readonly selectedProjectId?: string;
   readonly themePreference: ThemePreference;
   readonly projects: readonly IDesktopProjectSummary[];
   readonly selectedProject?: IDesktopSelectedProject;
@@ -99,6 +107,7 @@ export interface IDesktopPlanningSession {
 export function buildDesktopStatus(
   context: IStorageContext,
   resolvedThemeMode: ThemeMode,
+  selectedProjectId?: string,
 ): IDesktopStatus {
   const projects = listProjects(context).map((project) => {
     const metadata = parseProjectMetadata(project);
@@ -113,20 +122,28 @@ export function buildDesktopStatus(
     return {
       activeSessionCount,
       activeTaskCount,
+      approvalPolicy: metadata.approvalPolicy,
       approvalPolicySummary: formatApprovalPolicySummary(metadata.approvalPolicy),
       backlogCount,
       id: project.id,
+      metadataEntries: metadata.metadata,
       metadataSummary: formatMetadataSummary(metadata.metadata),
       name: project.name,
       repoPath: project.repoPath,
       status: project.status,
+      verificationCommands: metadata.verificationCommands,
       verificationSummary:
         metadata.verificationCommands.length > 0
           ? metadata.verificationCommands.join(" | ")
           : "No verification commands configured",
     };
   });
-  const selectedProject = projects.find((project) => project.status !== "archived") ?? projects[0];
+  const selectedProject =
+    (selectedProjectId !== undefined
+      ? projects.find((project) => project.id === selectedProjectId)
+      : undefined) ??
+    projects.find((project) => project.status !== "archived") ??
+    projects[0];
 
   return {
     appVersion: packageJson.version,
@@ -134,6 +151,7 @@ export function buildDesktopStatus(
     projectCount: projects.length,
     projects,
     resolvedThemeMode,
+    ...(selectedProject !== undefined ? { selectedProjectId: selectedProject.id } : {}),
     ...(selectedProject !== undefined
       ? { selectedProject: buildSelectedProject(context, selectedProject.id) }
       : {}),
