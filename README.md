@@ -54,6 +54,8 @@ npm run dev
 
 `npm run dev` builds the current workspace output and launches the desktop app.
 
+By default, Smithly stores its runtime state under `~/.smithly`. Set `SMITHLY_DATA_DIRECTORY` to point at a different directory when you want an isolated workspace, a seeded demo run, or test-specific state.
+
 ## Claude Code And Smithly MCP
 
 Smithly exposes a local MCP server at `packages/mcp-server/src/main.ts`. The desktop app wires this into Claude planning sessions automatically by passing:
