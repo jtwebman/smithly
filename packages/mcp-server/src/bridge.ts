@@ -9,6 +9,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const MANIFEST_FILE_NAME = "smithly-mcp.json";
 const RUNTIME_DIRECTORY_NAME = "runtime";
+const ATTACH_SCOPE_HEADER = "x-smithly-attach-scope";
 const PROJECT_ID_HEADER = "x-smithly-project-id";
 const THREAD_ID_HEADER = "x-smithly-thread-id";
 const BACKLOG_ITEM_ID_HEADER = "x-smithly-backlog-item-id";
@@ -20,10 +21,11 @@ interface ISmithlyMcpServiceManifest {
 
 export interface ISmithlyMcpBridgeConfig {
   readonly authToken: string;
+  readonly attachScope: "backlog_item" | "global" | "project";
   readonly backlogItemId?: string;
   readonly endpointUrl: string;
-  readonly projectId: string;
-  readonly threadId: string;
+  readonly projectId?: string;
+  readonly threadId?: string;
 }
 
 export interface ISmithlyMcpBridge {
@@ -44,21 +46,23 @@ export function resolveSmithlyMcpBridgeConfig(
   const projectId = environment.SMITHLY_PROJECT_ID?.trim();
   const threadId = environment.SMITHLY_THREAD_ID?.trim();
   const backlogItemId = environment.SMITHLY_BACKLOG_ITEM_ID?.trim();
+  const attachScope = resolveAttachScope(environment);
 
-  if (!projectId) {
-    throw new Error("SMITHLY_PROJECT_ID is required for the Smithly MCP bridge.");
+  if (attachScope === "project" && !projectId) {
+    throw new Error("SMITHLY_PROJECT_ID is required for project attach scope.");
   }
 
-  if (!threadId) {
-    throw new Error("SMITHLY_THREAD_ID is required for the Smithly MCP bridge.");
+  if (attachScope === "backlog_item" && (!projectId || !backlogItemId)) {
+    throw new Error("SMITHLY_PROJECT_ID and SMITHLY_BACKLOG_ITEM_ID are required for backlog attach scope.");
   }
 
   return {
     authToken: manifest.authToken,
+    attachScope,
     ...(backlogItemId ? { backlogItemId } : {}),
     endpointUrl: manifest.endpointUrl,
-    projectId,
-    threadId,
+    ...(projectId ? { projectId } : {}),
+    ...(threadId ? { threadId } : {}),
   };
 }
 
@@ -67,13 +71,22 @@ export function createSmithlyMcpBridgeHeaders(
 ): Record<string, string> {
   return {
     authorization: `Bearer ${config.authToken}`,
+    [ATTACH_SCOPE_HEADER]: config.attachScope,
     ...(config.backlogItemId !== undefined
       ? {
           [BACKLOG_ITEM_ID_HEADER]: config.backlogItemId,
         }
       : {}),
-    [PROJECT_ID_HEADER]: config.projectId,
-    [THREAD_ID_HEADER]: config.threadId,
+    ...(config.projectId !== undefined
+      ? {
+          [PROJECT_ID_HEADER]: config.projectId,
+        }
+      : {}),
+    ...(config.threadId !== undefined
+      ? {
+          [THREAD_ID_HEADER]: config.threadId,
+        }
+      : {}),
   };
 }
 
@@ -162,6 +175,19 @@ function parseServiceManifest(value: unknown): ISmithlyMcpServiceManifest {
     authToken: manifest.authToken,
     endpointUrl: manifest.endpointUrl,
   };
+}
+
+function resolveAttachScope(environment: NodeJS.ProcessEnv): ISmithlyMcpBridgeConfig["attachScope"] {
+  const attachScope = environment.SMITHLY_ATTACH_SCOPE?.trim();
+
+  switch (attachScope) {
+    case "global":
+    case "project":
+    case "backlog_item":
+      return attachScope;
+    default:
+      return environment.SMITHLY_BACKLOG_ITEM_ID?.trim() ? "backlog_item" : "project";
+  }
 }
 
 function syncProtocolVersion(transport: Transport, message: JSONRPCMessage): void {

@@ -16,6 +16,7 @@ import {
   createDraftBacklogItemFromPlanning,
   getBacklogItemById,
   getProjectById,
+  listProjects,
   listApprovalsForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
@@ -36,9 +37,10 @@ import {
 } from "@smithly/storage";
 
 export interface ISmithlyMcpEnvironment {
+  readonly attachScope: "backlog_item" | "global" | "project";
   readonly dataDirectory: string;
-  readonly projectId: string;
-  readonly threadId: string;
+  readonly projectId?: string;
+  readonly threadId?: string;
   readonly backlogItemId?: string;
 }
 
@@ -58,6 +60,23 @@ export function createSmithlyMcpServer(
     name: "smithly",
     version: "0.1.0",
   });
+
+  server.registerResource(
+    "current-attach-context",
+    "smithly://attach/current",
+    {
+      description: "Current Smithly MCP attach scope for this session.",
+      mimeType: "application/json",
+      title: "Current Attach Context",
+    },
+    async () =>
+      readJsonResource("smithly://attach/current", {
+        attachScope: environment.attachScope,
+        backlogItemId: environment.backlogItemId ?? null,
+        projectId: environment.projectId ?? null,
+        threadId: environment.threadId ?? null,
+      }),
+  );
 
   server.registerResource(
     "current-project",
@@ -84,6 +103,85 @@ export function createSmithlyMcpServer(
   );
 
   server.registerTool(
+    "list_projects",
+    {
+      description: "List Smithly projects available to this local control-plane service.",
+      outputSchema: {
+        projects: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            repoPath: z.string(),
+            status: z.string(),
+          }),
+        ),
+      },
+    },
+    async () => {
+      const projects = listProjects(context).map((project) => ({
+        id: project.id,
+        name: project.name,
+        repoPath: project.repoPath,
+        status: project.status,
+      }));
+      const structuredContent = {
+        projects,
+      };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_project_by_id",
+    {
+      description:
+        "Get one Smithly project by id. Defaults to the currently attached project when present.",
+      inputSchema: {
+        projectId: z.string().optional().describe("Project to fetch."),
+      },
+      outputSchema: {
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          repoPath: z.string(),
+          status: z.string(),
+        }),
+      },
+    },
+    async ({ projectId }) => {
+      const resolvedProjectId = projectId ?? requireProjectId(environment);
+      const project = requireProject(context, resolvedProjectId);
+      const structuredContent = {
+        project: {
+          id: project.id,
+          name: project.name,
+          repoPath: project.repoPath,
+          status: project.status,
+        },
+      };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "get_project_snapshot",
     {
       description:
@@ -97,10 +195,11 @@ export function createSmithlyMcpServer(
       },
     },
     async () => {
-      const project = requireProject(context, environment.projectId);
-      const backlogItems = listBacklogItemsForProject(context, environment.projectId);
-      const memoryNotes = listMemoryNotesForProject(context, environment.projectId);
-      const planningThreads = listChatThreadsForProject(context, environment.projectId).filter(
+      const projectId = requireProjectId(environment);
+      const project = requireProject(context, projectId);
+      const backlogItems = listBacklogItemsForProject(context, projectId);
+      const memoryNotes = listMemoryNotesForProject(context, projectId);
+      const planningThreads = listChatThreadsForProject(context, projectId).filter(
         (thread) => {
           return thread.kind === "project_planning" || thread.kind === "task_planning";
         },
@@ -151,12 +250,13 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ statuses }) => {
-      const backlogItems = listBacklogItemsForProject(context, environment.projectId)
+      const projectId = requireProjectId(environment);
+      const backlogItems = listBacklogItemsForProject(context, projectId)
         .filter((backlogItem) => statuses === undefined || statuses.includes(backlogItem.status))
         .map((backlogItem) => summarizeBacklogItem(backlogItem));
       const structuredContent = {
         backlogItems,
-        projectId: environment.projectId,
+        projectId,
       };
 
       return {
@@ -189,10 +289,12 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ scopeSummary, title }) => {
+      const projectId = requireProjectId(environment);
+      const threadId = requireThreadId(environment);
       const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
-        projectId: environment.projectId,
+        projectId,
         scopeSummary,
-        sourceThreadId: environment.threadId,
+        sourceThreadId: threadId,
         title,
       });
       const structuredContent = {
@@ -243,9 +345,10 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ assignedWorker, backlogItemId, status, summaryText }) => {
+      const projectId = requireProjectId(environment);
       const backlogItem = requireBacklogItem(
         context,
-        environment.projectId,
+        projectId,
         backlogItemId ?? environment.backlogItemId,
       );
       const now = new Date().toISOString();
@@ -262,7 +365,7 @@ export function createSmithlyMcpServer(
         backlogItemId: backlogItem.id,
         createdAt: now,
         id: taskRunId,
-        projectId: environment.projectId,
+        projectId,
         ...(summaryText !== undefined ? { summaryText } : {}),
         ...(taskRunStatus === "running" ? { startedAt: now } : {}),
         status: taskRunStatus,
@@ -309,13 +412,11 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ backlogItemId, summaryText }) => {
+      const projectId = requireProjectId(environment);
       const taskRun = startCodingTask(context, {
         assignedWorker: "codex",
-        backlogItemId: requireBacklogItem(
-          context,
-          environment.projectId,
-          backlogItemId ?? environment.backlogItemId,
-        ).id,
+        backlogItemId: requireBacklogItem(context, projectId, backlogItemId ?? environment.backlogItemId)
+          .id,
         ...(summaryText !== undefined ? { summaryText } : {}),
       });
       const structuredContent = {
@@ -375,8 +476,9 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ assignedWorker, statuses }) => {
-      const workerSessions = listWorkerSessionsForProject(context, environment.projectId);
-      const taskRuns = listTaskRunsForProject(context, environment.projectId)
+      const projectId = requireProjectId(environment);
+      const workerSessions = listWorkerSessionsForProject(context, projectId);
+      const taskRuns = listTaskRunsForProject(context, projectId)
         .filter(
           (taskRun) => assignedWorker === undefined || taskRun.assignedWorker === assignedWorker,
         )
@@ -454,6 +556,7 @@ export function createSmithlyMcpServer(
       status,
     }) => {
       const backlogItemId = environment.backlogItemId;
+      const threadId = requireThreadId(environment);
 
       if (backlogItemId === undefined) {
         throw new Error("No backlog item is focused for this planning session.");
@@ -467,7 +570,7 @@ export function createSmithlyMcpServer(
         ...(reviewMode !== undefined ? { reviewMode } : {}),
         ...(riskLevel !== undefined ? { riskLevel } : {}),
         scopeSummary,
-        sourceThreadId: environment.threadId,
+        sourceThreadId: threadId,
         ...(status !== undefined ? { status } : {}),
       });
       const structuredContent = {
@@ -508,7 +611,7 @@ export function createSmithlyMcpServer(
       },
     },
     async () => {
-      const approvals = listApprovalsForProject(context, environment.projectId)
+      const approvals = listApprovalsForProject(context, requireProjectId(environment))
         .filter((approval) => approval.status === "pending")
         .map((approval) => ({
           detail: approval.detail,
@@ -551,22 +654,23 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ backlogItemId, detail, requestedBy, taskRunId, title }) => {
+      const projectId = requireProjectId(environment);
       const now = new Date().toISOString();
       const approvalId = `approval-${randomUUID()}`;
 
       if (backlogItemId !== undefined) {
-        requireBacklogItem(context, environment.projectId, backlogItemId);
+        requireBacklogItem(context, projectId, backlogItemId);
       }
 
       if (taskRunId !== undefined) {
-        requireTaskRun(context, environment.projectId, taskRunId);
+        requireTaskRun(context, projectId, taskRunId);
       }
 
       upsertApproval(context, {
         createdAt: now,
         detail,
         id: approvalId,
-        projectId: environment.projectId,
+        projectId,
         ...(backlogItemId !== undefined ? { backlogItemId } : {}),
         ...(taskRunId !== undefined ? { taskRunId } : {}),
         requestedBy: (requestedBy ?? "claude") satisfies ApprovalRequester,
@@ -609,7 +713,7 @@ export function createSmithlyMcpServer(
       },
     },
     async () => {
-      const blockers = listBlockersForProject(context, environment.projectId)
+      const blockers = listBlockersForProject(context, requireProjectId(environment))
         .filter((blocker) => blocker.status === "open")
         .map((blocker) => ({
           blockerType: blocker.blockerType,
@@ -687,7 +791,7 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ blockerId, resolutionNote }) => {
-      const blocker = requireBlocker(context, environment.projectId, blockerId);
+      const blocker = requireBlocker(context, requireProjectId(environment), blockerId);
       const now = new Date().toISOString();
 
       upsertBlocker(context, {
@@ -783,7 +887,8 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ noteTypes }) => {
-      const memoryNotes = listMemoryNotesForProject(context, environment.projectId)
+      const projectId = requireProjectId(environment);
+      const memoryNotes = listMemoryNotesForProject(context, projectId)
         .filter((memoryNote) => noteTypes === undefined || noteTypes.includes(memoryNote.noteType))
         .map((memoryNote) => ({
           ...(memoryNote.backlogItemId !== undefined
@@ -801,13 +906,13 @@ export function createSmithlyMcpServer(
       return {
         content: [
           {
-            text: `Found ${memoryNotes.length} memory note(s) for ${environment.projectId}.`,
+            text: `Found ${memoryNotes.length} memory note(s) for ${projectId}.`,
             type: "text",
           },
         ],
         structuredContent: {
           memoryNotes,
-          projectId: environment.projectId,
+          projectId,
         },
       };
     },
@@ -834,15 +939,16 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ backlogItemId, bodyText, noteType, taskRunId, title }) => {
+      const projectId = requireProjectId(environment);
       const now = new Date().toISOString();
       const noteId = `memory-${randomUUID()}`;
 
       if (backlogItemId !== undefined) {
-        requireBacklogItem(context, environment.projectId, backlogItemId);
+        requireBacklogItem(context, projectId, backlogItemId);
       }
 
       if (taskRunId !== undefined) {
-        requireTaskRun(context, environment.projectId, taskRunId);
+        requireTaskRun(context, projectId, taskRunId);
       }
 
       upsertMemoryNote(context, {
@@ -850,10 +956,10 @@ export function createSmithlyMcpServer(
         createdAt: now,
         id: noteId,
         noteType: (noteType ?? "note") satisfies MemoryNoteType,
-        projectId: environment.projectId,
+        projectId,
         ...(backlogItemId !== undefined ? { backlogItemId } : {}),
         ...(taskRunId !== undefined ? { taskRunId } : {}),
-        sourceThreadId: environment.threadId,
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
         title,
         updatedAt: now,
       });
@@ -891,7 +997,8 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ commandText, summaryText, taskRunId }) => {
-      requireTaskRun(context, environment.projectId, taskRunId);
+      const projectId = requireProjectId(environment);
+      requireTaskRun(context, projectId, taskRunId);
 
       const now = new Date().toISOString();
       const verificationRunId = `verification-${randomUUID()}`;
@@ -900,7 +1007,7 @@ export function createSmithlyMcpServer(
         commandText,
         createdAt: now,
         id: verificationRunId,
-        projectId: environment.projectId,
+        projectId,
         ...(summaryText !== undefined ? { summaryText } : {}),
         status: "queued",
         taskRunId,
@@ -943,7 +1050,8 @@ export function createSmithlyMcpServer(
       },
     },
     async ({ reviewerKind, summaryText, taskRunId }) => {
-      requireTaskRun(context, environment.projectId, taskRunId);
+      const projectId = requireProjectId(environment);
+      requireTaskRun(context, projectId, taskRunId);
 
       const now = new Date().toISOString();
       const reviewRunId = `review-${randomUUID()}`;
@@ -951,7 +1059,7 @@ export function createSmithlyMcpServer(
       upsertReviewRun(context, {
         createdAt: now,
         id: reviewRunId,
-        projectId: environment.projectId,
+        projectId,
         reviewerKind,
         ...(summaryText !== undefined ? { summaryText } : {}),
         status: "queued",
@@ -982,6 +1090,7 @@ export function createSmithlyMcpServer(
 
 export function resolveSmithlyMcpEnvironment(environment = process.env): ISmithlyMcpEnvironment {
   const dataDirectory = environment.SMITHLY_DATA_DIRECTORY?.trim();
+  const attachScope = resolveAttachScope(environment);
   const projectId = environment.SMITHLY_PROJECT_ID?.trim();
   const threadId = environment.SMITHLY_THREAD_ID?.trim();
   const backlogItemId = environment.SMITHLY_BACKLOG_ITEM_ID?.trim();
@@ -990,19 +1099,20 @@ export function resolveSmithlyMcpEnvironment(environment = process.env): ISmithl
     throw new Error("SMITHLY_DATA_DIRECTORY is required.");
   }
 
-  if (!projectId) {
-    throw new Error("SMITHLY_PROJECT_ID is required.");
+  if (attachScope === "project" && !projectId) {
+    throw new Error("SMITHLY_PROJECT_ID is required for project MCP scope.");
   }
 
-  if (!threadId) {
-    throw new Error("SMITHLY_THREAD_ID is required.");
+  if (attachScope === "backlog_item" && (!projectId || !backlogItemId)) {
+    throw new Error("SMITHLY_PROJECT_ID and SMITHLY_BACKLOG_ITEM_ID are required for backlog scope.");
   }
 
   return {
+    attachScope,
     ...(backlogItemId ? { backlogItemId } : {}),
     dataDirectory,
-    projectId,
-    threadId,
+    ...(projectId ? { projectId } : {}),
+    ...(threadId ? { threadId } : {}),
   };
 }
 
@@ -1010,6 +1120,12 @@ function buildProjectSnapshot(
   context: IStorageContext,
   environment: ISmithlyMcpEnvironment,
 ): Record<string, unknown> {
+  if (environment.projectId === undefined) {
+    return {
+      project: null,
+    };
+  }
+
   const project = requireProject(context, environment.projectId);
   const backlogItems = listBacklogItemsForProject(context, environment.projectId);
   const approvals = listApprovalsForProject(context, environment.projectId);
@@ -1064,7 +1180,7 @@ function buildBacklogSnapshot(
   context: IStorageContext,
   environment: ISmithlyMcpEnvironment,
 ): Record<string, unknown> {
-  if (environment.backlogItemId === undefined) {
+  if (environment.projectId === undefined || environment.backlogItemId === undefined) {
     return {
       backlogItem: null,
     };
@@ -1084,6 +1200,37 @@ function buildBacklogSnapshot(
             title: backlogItem.title,
           },
   };
+}
+
+function resolveAttachScope(
+  environment: NodeJS.ProcessEnv,
+): ISmithlyMcpEnvironment["attachScope"] {
+  const attachScope = environment.SMITHLY_ATTACH_SCOPE?.trim();
+
+  switch (attachScope) {
+    case "global":
+    case "project":
+    case "backlog_item":
+      return attachScope;
+    default:
+      return environment.SMITHLY_BACKLOG_ITEM_ID?.trim() ? "backlog_item" : "project";
+  }
+}
+
+function requireProjectId(environment: ISmithlyMcpEnvironment): string {
+  if (environment.projectId === undefined) {
+    throw new Error(`This Smithly MCP session is attached with ${environment.attachScope} scope.`);
+  }
+
+  return environment.projectId;
+}
+
+function requireThreadId(environment: ISmithlyMcpEnvironment): string {
+  if (environment.threadId === undefined) {
+    throw new Error(`This Smithly MCP session has no planning thread for ${environment.attachScope} scope.`);
+  }
+
+  return environment.threadId;
 }
 
 function readJsonResource(uri: string, payload: Record<string, unknown>): ReadResourceResult {
@@ -1176,15 +1323,16 @@ function createBlocker(
   readonly status: "open";
   readonly title: string;
 } {
+  const projectId = requireProjectId(environment);
   const now = new Date().toISOString();
   const blockerId = `blocker-${randomUUID()}`;
 
   if (input.backlogItemId !== undefined) {
-    requireBacklogItem(context, environment.projectId, input.backlogItemId);
+    requireBacklogItem(context, projectId, input.backlogItemId);
   }
 
   if (input.taskRunId !== undefined) {
-    requireTaskRun(context, environment.projectId, input.taskRunId);
+    requireTaskRun(context, projectId, input.taskRunId);
   }
 
   upsertBlocker(context, {
@@ -1192,7 +1340,7 @@ function createBlocker(
     createdAt: now,
     detail: input.detail,
     id: blockerId,
-    projectId: environment.projectId,
+    projectId,
     ...(input.backlogItemId !== undefined ? { backlogItemId: input.backlogItemId } : {}),
     status: "open",
     ...(input.taskRunId !== undefined ? { taskRunId: input.taskRunId } : {}),

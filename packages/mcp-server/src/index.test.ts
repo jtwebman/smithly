@@ -48,6 +48,56 @@ async function connectClient(server: ReturnType<typeof createSmithlyMcpServer>) 
 }
 
 describe("smithly mcp server", () => {
+  it("lists projects and fetches one project from global scope", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "global",
+      dataDirectory,
+    });
+    const { client, close } = await connectClient(server);
+
+    const listResult = await client.callTool({
+      name: "list_projects",
+    });
+    const projectResult = await client.callTool({
+      arguments: {
+        projectId: fixture.project.id,
+      },
+      name: "get_project_by_id",
+    });
+
+    expect(listResult.structuredContent).toMatchObject({
+      projects: [
+        expect.objectContaining({
+          id: fixture.project.id,
+          name: fixture.project.name,
+          repoPath: fixture.project.repoPath,
+          status: fixture.project.status,
+        }),
+      ],
+    });
+    expect(projectResult.structuredContent).toMatchObject({
+      project: {
+        id: fixture.project.id,
+        name: fixture.project.name,
+        repoPath: fixture.project.repoPath,
+        status: fixture.project.status,
+      },
+    });
+
+    await close();
+    context.db.close();
+  });
+
   it("creates draft backlog items from the project planning thread", async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
 
@@ -60,6 +110,7 @@ describe("smithly mcp server", () => {
     });
     const fixture = seedInitialState(context);
     const server = createSmithlyMcpServer(context, {
+      attachScope: "project",
       dataDirectory,
       projectId: fixture.project.id,
       threadId: fixture.projectChatThread.id,
@@ -95,6 +146,7 @@ describe("smithly mcp server", () => {
     });
     const fixture = seedInitialState(context);
     const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
       backlogItemId: fixture.backlogItem.id,
       dataDirectory,
       projectId: fixture.project.id,
@@ -155,6 +207,7 @@ describe("smithly mcp server", () => {
     });
     const fixture = seedInitialState(context);
     const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
       backlogItemId: fixture.backlogItem.id,
       dataDirectory,
       projectId: fixture.project.id,
@@ -235,6 +288,7 @@ describe("smithly mcp server", () => {
       title: "Fresh MCP Codex task",
     });
     const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
       backlogItemId: createdBacklogItem.id,
       dataDirectory,
       projectId: fixture.project.id,
@@ -301,6 +355,7 @@ describe("smithly mcp server", () => {
     });
     const fixture = seedInitialState(context);
     const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
       backlogItemId: fixture.backlogItem.id,
       dataDirectory,
       projectId: fixture.project.id,

@@ -13,12 +13,14 @@ import {
   createSmithlyMcpServer,
   type ISmithlyMcpEnvironment,
 } from "@smithly/mcp-server";
+import { getBacklogItemById, listChatThreadsForProject, upsertChatThread } from "@smithly/storage";
 
 const MCP_ROUTE_PATH = "/mcp";
 const HEALTH_ROUTE_PATH = "/health";
 const RUNTIME_DIRECTORY_NAME = "runtime";
 const MANIFEST_FILE_NAME = "smithly-mcp.json";
 const AUTHORIZATION_SCHEME = "Bearer";
+const ATTACH_SCOPE_HEADER = "x-smithly-attach-scope";
 const PROJECT_ID_HEADER = "x-smithly-project-id";
 const THREAD_ID_HEADER = "x-smithly-thread-id";
 const BACKLOG_ITEM_ID_HEADER = "x-smithly-backlog-item-id";
@@ -260,24 +262,45 @@ export class SmithlyMcpService {
   }
 
   private readEnvironmentFromRequest(request: IncomingMessage): ISmithlyMcpEnvironment {
+    const attachScope = this.readAttachScope(request);
     const projectId = readSingleHeader(request, PROJECT_ID_HEADER);
     const threadId = readSingleHeader(request, THREAD_ID_HEADER);
     const backlogItemId = readSingleHeader(request, BACKLOG_ITEM_ID_HEADER);
+
+    if (attachScope === "global") {
+      return {
+        attachScope,
+        dataDirectory: this.dataDirectory,
+      };
+    }
 
     if (!projectId) {
       throw new Error(`Missing ${PROJECT_ID_HEADER} header.`);
     }
 
-    if (!threadId) {
-      throw new Error(`Missing ${THREAD_ID_HEADER} header.`);
-    }
+    const resolvedThreadId =
+      threadId ?? this.ensureAttachThread(attachScope, projectId, backlogItemId);
 
     return {
+      attachScope,
       ...(backlogItemId ? { backlogItemId } : {}),
       dataDirectory: this.dataDirectory,
       projectId,
-      threadId,
+      threadId: resolvedThreadId,
     };
+  }
+
+  private readAttachScope(request: IncomingMessage): ISmithlyMcpEnvironment["attachScope"] {
+    const attachScope = readSingleHeader(request, ATTACH_SCOPE_HEADER);
+
+    switch (attachScope) {
+      case "global":
+      case "project":
+      case "backlog_item":
+        return attachScope;
+      default:
+        return readSingleHeader(request, BACKLOG_ITEM_ID_HEADER) ? "backlog_item" : "project";
+    }
   }
 
   private readSessionId(request: IncomingMessage): string | undefined {
@@ -326,6 +349,78 @@ export class SmithlyMcpService {
     response.statusCode = statusCode;
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(payload));
+  }
+
+  private ensureAttachThread(
+    attachScope: Exclude<ISmithlyMcpEnvironment["attachScope"], "global">,
+    projectId: string,
+    backlogItemId?: string,
+  ): string {
+    const context = createSmithlyMcpContext({
+      attachScope,
+      ...(backlogItemId !== undefined ? { backlogItemId } : {}),
+      dataDirectory: this.dataDirectory,
+      projectId,
+    });
+
+    try {
+      const existingThread = listChatThreadsForProject(context, projectId).find((thread) => {
+        if (attachScope === "backlog_item") {
+          return thread.kind === "task_planning" && thread.backlogItemId === backlogItemId;
+        }
+
+        return thread.kind === "project_planning";
+      });
+
+      if (existingThread !== undefined) {
+        return existingThread.id;
+      }
+
+      const createdAt = new Date().toISOString();
+
+      if (attachScope === "project") {
+        const threadId = `thread-project-${randomUUID()}`;
+
+        upsertChatThread(context, {
+          createdAt,
+          id: threadId,
+          kind: "project_planning",
+          projectId,
+          status: "open",
+          title: "External MCP project attach",
+          updatedAt: createdAt,
+        });
+
+        return threadId;
+      }
+
+      if (backlogItemId === undefined) {
+        throw new Error(`Missing ${BACKLOG_ITEM_ID_HEADER} header.`);
+      }
+
+      const backlogItem = getBacklogItemById(context, backlogItemId);
+
+      if (backlogItem === null || backlogItem.projectId !== projectId) {
+        throw new Error(`Missing backlog item ${backlogItemId} on project ${projectId}.`);
+      }
+
+      const threadId = `thread-task-${randomUUID()}`;
+
+      upsertChatThread(context, {
+        backlogItemId,
+        createdAt,
+        id: threadId,
+        kind: "task_planning",
+        projectId,
+        status: "open",
+        title: `${backlogItem.title} external MCP attach`,
+        updatedAt: createdAt,
+      });
+
+      return threadId;
+    } finally {
+      context.db.close();
+    }
   }
 }
 
