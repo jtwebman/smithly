@@ -23,6 +23,7 @@ import {
   listMemoryNotesForProject,
   listTaskRunsForProject,
   reviseBacklogItemFromPlanning,
+  startCodingTask,
   upsertApproval,
   upsertBacklogItem,
   upsertBlocker,
@@ -277,6 +278,56 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: `Claimed backlog item ${backlogItem.title} as ${taskRunId} for ${assignedWorker}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "start_coding_task",
+    {
+      description: "Start or resume a Codex coding task for the current backlog item.",
+      inputSchema: {
+        backlogItemId: z
+          .string()
+          .optional()
+          .describe("Backlog item to code. Defaults to the task-planning context item."),
+        summaryText: z
+          .string()
+          .optional()
+          .describe("Optional task summary recorded on the Codex task run."),
+      },
+      outputSchema: {
+        assignedWorker: z.string(),
+        backlogItemId: z.string(),
+        status: z.string(),
+        taskRunId: z.string(),
+      },
+    },
+    async ({ backlogItemId, summaryText }) => {
+      const taskRun = startCodingTask(context, {
+        assignedWorker: "codex",
+        backlogItemId: requireBacklogItem(
+          context,
+          environment.projectId,
+          backlogItemId ?? environment.backlogItemId,
+        ).id,
+        ...(summaryText !== undefined ? { summaryText } : {}),
+      });
+      const structuredContent = {
+        assignedWorker: taskRun.assignedWorker,
+        backlogItemId: taskRun.backlogItemId,
+        status: taskRun.status,
+        taskRunId: taskRun.id,
+      };
+
+      return {
+        content: [
+          {
+            text: `Started Codex task ${taskRun.id} for backlog item ${taskRun.backlogItemId}.`,
             type: "text",
           },
         ],

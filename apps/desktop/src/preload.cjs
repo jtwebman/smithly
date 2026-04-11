@@ -31,6 +31,18 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   submitPlanningInput(scope, backlogItemId, bodyText) {
     return ipcRenderer.invoke("smithly:planning-session:submit", scope, backlogItemId, bodyText);
   },
+  ensureCodexSession(taskRunId) {
+    return ipcRenderer.invoke("smithly:codex-session:ensure", taskRunId);
+  },
+  startCodexSession(backlogItemId, summaryText) {
+    return ipcRenderer.invoke("smithly:codex-session:start", backlogItemId, summaryText);
+  },
+  writeCodexTerminal(terminalKey, data) {
+    return ipcRenderer.invoke("smithly:codex-session:write", terminalKey, data);
+  },
+  resizeCodexTerminal(terminalKey, cols, rows) {
+    return ipcRenderer.invoke("smithly:codex-session:resize", terminalKey, cols, rows);
+  },
   writePlanningTerminal(terminalKey, data) {
     return ipcRenderer.invoke("smithly:planning-session:write", terminalKey, data);
   },
@@ -39,6 +51,18 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   },
   onPlanningOutput(listener) {
     const eventName = "smithly:planning-output";
+    const wrappedListener = (_event, payload) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on(eventName, wrappedListener);
+
+    return () => {
+      ipcRenderer.removeListener(eventName, wrappedListener);
+    };
+  },
+  onCodexOutput(listener) {
+    const eventName = "smithly:codex-output";
     const wrappedListener = (_event, payload) => {
       listener(payload);
     };

@@ -5,16 +5,20 @@ import type {
   IChatMessageRecord,
   IChatThreadRecord,
   IContext,
+  ITaskRunRecord,
   ReviewMode,
   RiskLevel,
+  WorkerKind,
 } from "@smithly/core";
 
 import {
   getBacklogItemById,
   listChatThreadsForProject,
+  listTaskRunsForProject,
   upsertBacklogItem,
   upsertChatMessage,
   upsertChatThread,
+  upsertTaskRun,
 } from "./data.ts";
 
 export interface ICreateDraftBacklogItemInput {
@@ -34,6 +38,12 @@ export interface IReviseBacklogItemInput {
   readonly riskLevel?: RiskLevel;
   readonly sourceThreadId?: string;
   readonly status?: IBacklogItemRecord["status"];
+}
+
+export interface IStartCodingTaskInput {
+  readonly backlogItemId: string;
+  readonly assignedWorker?: WorkerKind;
+  readonly summaryText?: string;
 }
 
 export function createDraftBacklogItemFromPlanning(
@@ -149,6 +159,45 @@ export function reviseBacklogItemFromPlanning(
   }
 
   return revisedBacklogItem;
+}
+
+export function startCodingTask(context: IContext, input: IStartCodingTaskInput): ITaskRunRecord {
+  const backlogItem = requireBacklogItem(context, input.backlogItemId);
+  const assignedWorker = input.assignedWorker ?? "codex";
+  const existingTaskRun = listTaskRunsForProject(context, backlogItem.projectId).find((taskRun) => {
+    return (
+      taskRun.backlogItemId === backlogItem.id &&
+      taskRun.assignedWorker === assignedWorker &&
+      ["queued", "running", "blocked", "awaiting_review"].includes(taskRun.status)
+    );
+  });
+
+  if (existingTaskRun !== undefined) {
+    return existingTaskRun;
+  }
+
+  const timestamp = new Date().toISOString();
+  const taskRun: ITaskRunRecord = {
+    assignedWorker,
+    backlogItemId: backlogItem.id,
+    createdAt: timestamp,
+    id: `taskrun-${randomUUID()}`,
+    projectId: backlogItem.projectId,
+    ...(input.summaryText?.trim()
+      ? { summaryText: input.summaryText.trim() }
+      : { summaryText: `Start ${assignedWorker} work for ${backlogItem.title}.` }),
+    status: "queued",
+    updatedAt: timestamp,
+  };
+
+  upsertBacklogItem(context, {
+    ...backlogItem,
+    status: "in_progress",
+    updatedAt: timestamp,
+  });
+  upsertTaskRun(context, taskRun);
+
+  return taskRun;
 }
 
 function requireBacklogItem(context: IContext, backlogItemId: string): IBacklogItemRecord {

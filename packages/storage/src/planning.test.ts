@@ -12,8 +12,13 @@ import {
   listBacklogItemsForProject,
   listChatMessagesForThread,
   listChatThreadsForProject,
+  listTaskRunsForProject,
 } from "./data.ts";
-import { createDraftBacklogItemFromPlanning, reviseBacklogItemFromPlanning } from "./planning.ts";
+import {
+  createDraftBacklogItemFromPlanning,
+  reviseBacklogItemFromPlanning,
+  startCodingTask,
+} from "./planning.ts";
 import { seedInitialState } from "./seed.ts";
 
 const temporaryDirectories: string[] = [];
@@ -148,6 +153,50 @@ describe("planning mutations", () => {
         return message.bodyText === "Keep the first write path scoped to backlog metadata only.";
       }),
     ).toBe(true);
+
+    closeContext(context);
+  });
+
+  it("starts one active coding task per backlog item and worker", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Use a fresh backlog item for Codex task startup.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Fresh Codex task",
+    });
+
+    const firstTaskRun = startCodingTask(context, {
+      backlogItemId: createdBacklogItem.id,
+      summaryText: "Start Codex implementation for the selected backlog item.",
+    });
+    const secondTaskRun = startCodingTask(context, {
+      backlogItemId: createdBacklogItem.id,
+    });
+
+    expect(firstTaskRun.id).toBe(secondTaskRun.id);
+    expect(firstTaskRun.assignedWorker).toBe("codex");
+    expect(firstTaskRun.status).toBe("queued");
+    expect(firstTaskRun.summaryText).toBe(
+      "Start Codex implementation for the selected backlog item.",
+    );
+    expect(getBacklogItemById(context, createdBacklogItem.id)?.status).toBe("in_progress");
+    expect(
+      listTaskRunsForProject(context, fixture.project.id).filter((taskRun) => {
+        return (
+          taskRun.backlogItemId === createdBacklogItem.id && taskRun.assignedWorker === "codex"
+        );
+      }),
+    ).toHaveLength(1);
 
     closeContext(context);
   });

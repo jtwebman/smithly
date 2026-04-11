@@ -102,6 +102,7 @@ describe("desktop bootstrap", () => {
             title: "Need terminal integration decision",
           },
         ],
+        codexSessions: [],
         events: expect.arrayContaining([
           {
             detail: "codex session is running",
@@ -371,7 +372,7 @@ describe("desktop bootstrap", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "session-codex-bootstrap-ui",
-          status: "running",
+          status: "failed",
           workerKind: "codex",
         }),
         expect.objectContaining({
@@ -398,19 +399,19 @@ describe("desktop bootstrap", () => {
         expect.objectContaining({
           backlogItemId: fixture.backlogItem.id,
           bodyText:
-            "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+            "Recovered an orphaned claude session after app restart and marked it failed before respawn.",
           id: "memory-session-recovery-session-claude-task-recovery",
           noteType: "note",
           sourceThreadId: fixture.taskChatThread.id,
-          title: "Recovered orphaned Claude session",
+          title: "Recovered orphaned claude session",
         }),
         expect.objectContaining({
           bodyText:
-            "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+            "Recovered an orphaned claude session after app restart and marked it failed before respawn.",
           id: "memory-session-recovery-session-claude-project-recovery",
           noteType: "note",
           sourceThreadId: fixture.projectChatThread.id,
-          title: "Recovered orphaned Claude session",
+          title: "Recovered orphaned claude session",
         }),
       ]),
     );

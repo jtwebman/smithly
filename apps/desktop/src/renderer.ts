@@ -51,6 +51,7 @@ interface DesktopStatus {
     readonly projectId: string;
     readonly backlogItems: readonly DesktopListItem[];
     readonly taskRuns: readonly DesktopListItem[];
+    readonly codexSessions: readonly DesktopCodexSession[];
     readonly approvals: readonly DesktopListItem[];
     readonly blockers: readonly DesktopListItem[];
     readonly events: readonly DesktopEventItem[];
@@ -109,16 +110,33 @@ interface DesktopPlanningSession {
   readonly status: string;
 }
 
+interface DesktopCodexSession {
+  readonly backlogItemId: string;
+  readonly backlogItemTitle: string;
+  readonly status: string;
+  readonly taskRunId: string;
+  readonly terminalKey: string;
+  readonly workerSessionId: string;
+}
+
 interface PlanningOutputEvent {
   readonly terminalKey: string;
   readonly rawData: string;
   readonly entries: readonly DesktopChatMessage[];
 }
 
+interface CodexOutputEvent {
+  readonly terminalKey: string;
+  readonly rawData: string;
+}
+
 interface DesktopUiStateSnapshot {
   readonly activePlanningPaneKey?: string;
+  readonly activeCodexTaskRunId?: string;
+  readonly isCodingVisible?: boolean;
   readonly isOrchestrationVisible?: boolean;
   readonly isProjectWorkspaceOpen?: boolean;
+  readonly openCodexTaskRunIds?: readonly string[];
   readonly openPlanningPaneKeys?: readonly string[];
   readonly selectedBacklogItemId?: string;
   readonly selectedProjectId?: string;
@@ -136,14 +154,19 @@ interface SmithlyDesktopApi {
     input: DesktopProjectRegistrationInput & { projectId: string },
   ): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
+  ensureCodexSession(taskRunId: string): Promise<DesktopStatus>;
+  startCodexSession(backlogItemId: string, summaryText?: string): Promise<DesktopStatus>;
   submitPlanningInput(
     scope: PlanningScope,
     backlogItemId: string | undefined,
     bodyText: string,
   ): Promise<DesktopStatus>;
+  writeCodexTerminal(terminalKey: string, data: string): Promise<void>;
+  resizeCodexTerminal(terminalKey: string, cols: number, rows: number): Promise<void>;
   writePlanningTerminal(terminalKey: string, data: string): Promise<void>;
   resizePlanningTerminal(terminalKey: string, cols: number, rows: number): Promise<void>;
   onPlanningOutput(listener: (payload: PlanningOutputEvent) => void): () => void;
+  onCodexOutput(listener: (payload: CodexOutputEvent) => void): () => void;
   onStatusUpdate(listener: (status: DesktopStatus) => void): () => void;
 }
 
@@ -168,10 +191,13 @@ const closeProjectWorkspaceButton = document.getElementById(
 const showOrchestrationButton = document.getElementById(
   "show-orchestration-button",
 ) as HTMLButtonElement | null;
+const showCodingButton = document.getElementById("show-coding-button") as HTMLButtonElement | null;
 const orchestrationShellNode = document.getElementById("orchestration-shell");
+const codingShellNode = document.getElementById("coding-shell");
 const hideOrchestrationButton = document.getElementById(
   "hide-orchestration-button",
 ) as HTMLButtonElement | null;
+const hideCodingButton = document.getElementById("hide-coding-button") as HTMLButtonElement | null;
 const projectCreatorModalNode = document.getElementById("project-creator-modal");
 const projectCreatorTitleNode = document.getElementById("project-creator-title");
 const openProjectCreatorButton = document.getElementById(
@@ -215,9 +241,12 @@ const terminalCaptionNode = document.getElementById("terminal-caption");
 const shellStatusNode = document.getElementById("shell-status");
 const projectDetailTitleNode = document.getElementById("project-detail-title");
 const planningPaneTabsNode = document.getElementById("planning-pane-tabs");
+const codingPaneTabsNode = document.getElementById("coding-pane-tabs");
 const planningTitleNode = document.getElementById("planning-title");
 const planningStatusNode = document.getElementById("planning-status");
 const planningHistoryNode = document.getElementById("planning-history");
+const codingStatusNode = document.getElementById("coding-status");
+const codingCaptionNode = document.getElementById("coding-caption");
 const projectPlanningButton = document.getElementById(
   "project-planning-button",
 ) as HTMLButtonElement | null;
@@ -238,18 +267,27 @@ const selectedBacklogStatusNode = document.getElementById("selected-backlog-stat
 const selectedBacklogMetaNode = document.getElementById("selected-backlog-meta");
 const selectedBacklogScopeNode = document.getElementById("selected-backlog-scope");
 const selectedBacklogCriteriaNode = document.getElementById("selected-backlog-criteria");
+const codexTerminalNode = document.getElementById("codex-terminal");
 
 let currentStatus: DesktopStatus | null = null;
 let terminal: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let currentTerminalSignature = "";
+let codexTerminal: Terminal | null = null;
+let codexFitAddon: FitAddon | null = null;
+let currentCodexTerminalSignature = "";
 let editingProjectId: string | null = null;
 let activePlanningPaneKey: SessionPaneKey | null = null;
 let openPlanningPaneKeys: SessionPaneKey[] = [];
+let activeCodexTaskRunId: string | null = null;
+let openCodexTaskRunIds: string[] = [];
 let isProjectWorkspaceOpen = false;
 let isOrchestrationVisible = false;
+let isCodingVisible = false;
 const terminalBuffers = new Map<string, string[]>();
+const codexTerminalBuffers = new Map<string, string[]>();
 let terminalResizeObserver: ResizeObserver | null = null;
+let codexTerminalResizeObserver: ResizeObserver | null = null;
 
 window.smithlyDesktop.onPlanningOutput((payload) => {
   const chunks = terminalBuffers.get(payload.terminalKey) ?? [];
@@ -261,6 +299,21 @@ window.smithlyDesktop.onPlanningOutput((payload) => {
 
   if (activeSession?.terminalKey === payload.terminalKey) {
     terminal?.write(payload.rawData);
+  }
+
+  void pollStatus(6, 250);
+});
+
+window.smithlyDesktop.onCodexOutput((payload) => {
+  const chunks = codexTerminalBuffers.get(payload.terminalKey) ?? [];
+
+  chunks.push(payload.rawData);
+  codexTerminalBuffers.set(payload.terminalKey, chunks.slice(-500));
+
+  const activeSession = getActiveCodexSession(currentStatus, activeCodexTaskRunId);
+
+  if (activeSession?.terminalKey === payload.terminalKey) {
+    codexTerminal?.write(payload.rawData);
   }
 
   void pollStatus(6, 250);
@@ -485,12 +538,52 @@ function initTerminal(): void {
   terminalResizeObserver.observe(terminalNode);
 }
 
-function updateTerminalTheme(mode: "dark" | "light"): void {
-  if (terminal === null) {
+function initCodexTerminal(): void {
+  if (codexTerminalNode === null || codexTerminal !== null) {
     return;
   }
 
-  terminal.options.theme =
+  codexTerminal = new Terminal({
+    convertEol: true,
+    cursorBlink: true,
+    fontFamily: '"Iosevka Custom", "JetBrains Mono", monospace',
+    fontSize: 13,
+    scrollback: 100_000,
+  });
+  codexFitAddon = new FitAddon();
+  codexTerminal.loadAddon(codexFitAddon);
+  codexTerminal.open(codexTerminalNode);
+  codexFitAddon.fit();
+
+  codexTerminal.onData((data) => {
+    const activeSession = getActiveCodexSession(currentStatus, activeCodexTaskRunId);
+
+    if (activeSession === undefined) {
+      return;
+    }
+
+    void window.smithlyDesktop.writeCodexTerminal(activeSession.terminalKey, data);
+  });
+
+  codexTerminalResizeObserver = new ResizeObserver(() => {
+    codexFitAddon?.fit();
+    const activeSession = getActiveCodexSession(currentStatus, activeCodexTaskRunId);
+
+    if (codexTerminal === null || activeSession === undefined) {
+      return;
+    }
+
+    void window.smithlyDesktop.resizeCodexTerminal(
+      activeSession.terminalKey,
+      codexTerminal.cols,
+      codexTerminal.rows,
+    );
+  });
+  codexTerminalResizeObserver.observe(codexTerminalNode);
+}
+
+function updateTerminalTheme(mode: "dark" | "light"): void {
+  const theme =
     mode === "dark"
       ? {
           background: "#0f1724",
@@ -536,15 +629,25 @@ function updateTerminalTheme(mode: "dark" | "light"): void {
           white: "#f7f9fb",
           yellow: "#8a620d",
         };
+
+  if (terminal !== null) {
+    terminal.options.theme = theme;
+  }
+
+  if (codexTerminal !== null) {
+    codexTerminal.options.theme = theme;
+  }
 }
 
 function renderWorkspaceVisibility(status: DesktopStatus): void {
   const hasSelectedProject = status.selectedProject !== undefined;
   const showWorkspace = isProjectWorkspaceOpen && hasSelectedProject;
   const showOrchestration = showWorkspace && isOrchestrationVisible;
+  const showCoding = showWorkspace && isCodingVisible;
 
   projectWorkspaceNode?.toggleAttribute("hidden", !showWorkspace);
   orchestrationShellNode?.toggleAttribute("hidden", !showOrchestration);
+  codingShellNode?.toggleAttribute("hidden", !showCoding);
 
   if (projectWorkspaceTitleNode !== null) {
     const selectedProjectName = status.projects.find(
@@ -559,9 +662,19 @@ function renderWorkspaceVisibility(status: DesktopStatus): void {
     showOrchestrationButton.disabled = !hasSelectedProject;
   }
 
+  if (showCodingButton !== null) {
+    showCodingButton.disabled = !hasSelectedProject;
+  }
+
   if (showOrchestration) {
     window.requestAnimationFrame(() => {
       refitVisibleTerminal(status);
+    });
+  }
+
+  if (showCoding) {
+    window.requestAnimationFrame(() => {
+      refitVisibleCodexTerminal(status);
     });
   }
 }
@@ -630,6 +743,85 @@ function renderPlanningPane(status: DesktopStatus): void {
   renderPlanningHistory(activeThread?.messages ?? []);
   renderSelectedBacklog(selectedBacklogItem);
   syncTerminalPane(status);
+}
+
+function renderCodexPane(status: DesktopStatus): void {
+  const selectedProject = status.selectedProject;
+  const activeSession =
+    activeCodexTaskRunId === null
+      ? undefined
+      : selectedProject?.codexSessions.find(
+          (session) => session.taskRunId === activeCodexTaskRunId,
+        );
+
+  renderCodexPaneTabs(status);
+
+  setNodeText(
+    codingStatusNode,
+    selectedProject === undefined
+      ? "Select a project to attach Codex."
+      : activeSession === undefined
+        ? "Start a coding task to attach a Codex session."
+        : `Codex task session ${activeSession.status}`,
+  );
+  setNodeText(
+    codingCaptionNode,
+    selectedProject === undefined
+      ? "Select a project to enable Codex tasks."
+      : activeSession === undefined
+        ? "Start or reopen a Codex task session from Upcoming Work."
+        : `Codex attached to ${activeSession.backlogItemTitle}.`,
+  );
+  syncCodexTerminalPane(status);
+}
+
+function renderCodexPaneTabs(status: DesktopStatus): void {
+  if (codingPaneTabsNode === null) {
+    return;
+  }
+
+  codingPaneTabsNode.innerHTML = "";
+
+  if (openCodexTaskRunIds.length === 0) {
+    const emptyNode = document.createElement("p");
+    emptyNode.className = "empty-state";
+    emptyNode.textContent = "No Codex task panes are open.";
+    codingPaneTabsNode.append(emptyNode);
+    return;
+  }
+
+  for (const taskRunId of openCodexTaskRunIds) {
+    const session = status.selectedProject?.codexSessions.find(
+      (candidate) => candidate.taskRunId === taskRunId,
+    );
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "session-tab";
+    button.dataset.active = String(activeCodexTaskRunId === taskRunId);
+    button.innerHTML = `
+      <span>${escapeHtml(session?.backlogItemTitle ?? taskRunId)}</span>
+      <span>${escapeHtml(session?.status ?? "idle")}</span>
+    `;
+    button.addEventListener("click", () => {
+      activeCodexTaskRunId = taskRunId;
+      renderCodexPane(currentStatus ?? status);
+      void persistCurrentUiState();
+    });
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "session-tab-close";
+    closeButton.textContent = "Close";
+    closeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeCodexPane(taskRunId, status);
+    });
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "session-tab-row";
+    wrapper.append(button, closeButton);
+    codingPaneTabsNode.append(wrapper);
+  }
 }
 
 function renderPlanningPaneTabs(status: DesktopStatus): void {
@@ -794,6 +986,50 @@ function syncTerminalPane(status: DesktopStatus): void {
   );
 }
 
+function syncCodexTerminalPane(status: DesktopStatus): void {
+  const activeSession = getActiveCodexSession(status, activeCodexTaskRunId);
+  const signature = [
+    activeCodexTaskRunId ?? "none",
+    activeSession?.terminalKey ?? "none",
+    status.resolvedThemeMode,
+  ].join(":");
+
+  if (codexTerminal === null || signature === currentCodexTerminalSignature || !isCodingVisible) {
+    return;
+  }
+
+  currentCodexTerminalSignature = signature;
+  codexTerminal.reset();
+  codexTerminal.focus();
+
+  if (status.selectedProject === undefined) {
+    codexTerminal.writeln("[smithly] Select a project to start Codex work.");
+    return;
+  }
+
+  if (activeSession === undefined) {
+    codexTerminal.writeln("[smithly] Start or reopen a Codex task session.");
+    return;
+  }
+
+  const buffer = codexTerminalBuffers.get(activeSession.terminalKey) ?? [];
+
+  if (buffer.length === 0) {
+    codexTerminal.writeln(`[smithly] codex terminal attached for ${activeSession.taskRunId}.`);
+  } else {
+    for (const chunk of buffer) {
+      codexTerminal.write(chunk);
+    }
+  }
+
+  codexFitAddon?.fit();
+  void window.smithlyDesktop.resizeCodexTerminal(
+    activeSession.terminalKey,
+    codexTerminal.cols,
+    codexTerminal.rows,
+  );
+}
+
 function refitVisibleTerminal(status: DesktopStatus): void {
   if (terminal === null || !isOrchestrationVisible) {
     return;
@@ -811,6 +1047,26 @@ function refitVisibleTerminal(status: DesktopStatus): void {
     activeSession.terminalKey,
     terminal.cols,
     terminal.rows,
+  );
+}
+
+function refitVisibleCodexTerminal(status: DesktopStatus): void {
+  if (codexTerminal === null || !isCodingVisible) {
+    return;
+  }
+
+  codexFitAddon?.fit();
+
+  const activeSession = getActiveCodexSession(status, activeCodexTaskRunId);
+
+  if (activeSession === undefined) {
+    return;
+  }
+
+  void window.smithlyDesktop.resizeCodexTerminal(
+    activeSession.terminalKey,
+    codexTerminal.cols,
+    codexTerminal.rows,
   );
 }
 
@@ -839,6 +1095,7 @@ function renderSelectedProject(status: DesktopStatus): void {
   renderList(blockersListNode, selectedProject?.blockers ?? [], "No blockers are open right now.");
   renderEvents(eventLogNode, selectedProject?.events ?? []);
   renderPlanningPane(status);
+  renderCodexPane(status);
 }
 
 function renderError(message: string): void {
@@ -910,6 +1167,17 @@ function getActivePlanningSession(
   }
 
   return target.session;
+}
+
+function getActiveCodexSession(
+  status: DesktopStatus | null,
+  taskRunId: string | null,
+): DesktopCodexSession | undefined {
+  if (status?.selectedProject === undefined || taskRunId === null) {
+    return undefined;
+  }
+
+  return status.selectedProject.codexSessions.find((session) => session.taskRunId === taskRunId);
 }
 
 function escapeHtml(value: string): string {
@@ -1089,8 +1357,30 @@ showOrchestrationButton?.addEventListener("click", () => {
   void persistCurrentUiState();
 });
 
+showCodingButton?.addEventListener("click", () => {
+  isCodingVisible = true;
+  currentCodexTerminalSignature = "";
+
+  if (currentStatus !== null) {
+    renderWorkspaceVisibility(currentStatus);
+    renderCodexPane(currentStatus);
+  }
+
+  void persistCurrentUiState();
+});
+
 hideOrchestrationButton?.addEventListener("click", () => {
   isOrchestrationVisible = false;
+
+  if (currentStatus !== null) {
+    renderWorkspaceVisibility(currentStatus);
+  }
+
+  void persistCurrentUiState();
+});
+
+hideCodingButton?.addEventListener("click", () => {
+  isCodingVisible = false;
 
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
@@ -1102,6 +1392,7 @@ hideOrchestrationButton?.addEventListener("click", () => {
 closeProjectWorkspaceButton?.addEventListener("click", () => {
   isProjectWorkspaceOpen = false;
   isOrchestrationVisible = false;
+  isCodingVisible = false;
 
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
@@ -1113,6 +1404,7 @@ closeProjectWorkspaceButton?.addEventListener("click", () => {
 async function renderStatus(): Promise<void> {
   try {
     initTerminal();
+    initCodexTerminal();
     const savedUiState = await window.smithlyDesktop.getSavedUiState();
     const restoredStatus = await restoreSavedUiState(savedUiState);
 
@@ -1169,10 +1461,15 @@ async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promis
 
   isProjectWorkspaceOpen = savedUiState.isProjectWorkspaceOpen ?? false;
   isOrchestrationVisible = savedUiState.isOrchestrationVisible ?? false;
+  isCodingVisible = savedUiState.isCodingVisible ?? false;
   openPlanningPaneKeys = [...(savedUiState.openPlanningPaneKeys ?? [])].filter(isSessionPaneKey);
+  openCodexTaskRunIds = [...(savedUiState.openCodexTaskRunIds ?? [])].filter((value) => {
+    return value.trim().length > 0;
+  });
   activePlanningPaneKey = isSessionPaneKey(savedUiState.activePlanningPaneKey)
     ? savedUiState.activePlanningPaneKey
     : (openPlanningPaneKeys.at(-1) ?? null);
+  activeCodexTaskRunId = savedUiState.activeCodexTaskRunId ?? openCodexTaskRunIds.at(-1) ?? null;
 
   for (const paneKey of openPlanningPaneKeys) {
     const scope = getPlanningScopeFromPaneKey(paneKey);
@@ -1190,14 +1487,21 @@ async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promis
     status = await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId);
   }
 
+  for (const taskRunId of openCodexTaskRunIds) {
+    status = await window.smithlyDesktop.ensureCodexSession(taskRunId);
+  }
+
   return status;
 }
 
 async function persistUiState(status: DesktopStatus): Promise<void> {
   await window.smithlyDesktop.saveUiState({
     ...(activePlanningPaneKey !== null ? { activePlanningPaneKey } : {}),
+    ...(activeCodexTaskRunId !== null ? { activeCodexTaskRunId } : {}),
+    isCodingVisible,
     isOrchestrationVisible,
     isProjectWorkspaceOpen,
+    ...(openCodexTaskRunIds.length > 0 ? { openCodexTaskRunIds } : {}),
     ...(openPlanningPaneKeys.length > 0 ? { openPlanningPaneKeys } : {}),
     ...(status.selectedBacklogItemId !== undefined
       ? { selectedBacklogItemId: status.selectedBacklogItemId }
@@ -1268,7 +1572,15 @@ function renderUpcomingWork(selectedProject?: DesktopStatus["selectedProject"]):
       await openPlanningPane("task", backlogItem.id);
     });
 
-    actions.append(focusButton, taskChatButton);
+    const startCodingButton = document.createElement("button");
+    startCodingButton.type = "button";
+    startCodingButton.textContent = "Start Coding Task";
+    startCodingButton.addEventListener("click", async () => {
+      await focusBacklogItem(backlogItem.id);
+      await startCodexTask(backlogItem.id);
+    });
+
+    actions.append(focusButton, taskChatButton, startCodingButton);
     element.append(actions);
     backlogListNode.append(element);
   }
@@ -1314,6 +1626,28 @@ async function openPlanningPane(scope: PlanningScope, backlogItemId?: string): P
   void pollStatus(4, 250);
 }
 
+async function startCodexTask(backlogItemId: string): Promise<void> {
+  const status = await window.smithlyDesktop.startCodexSession(
+    backlogItemId,
+    "Start Codex work from the selected backlog item.",
+  );
+  const newestSession = status.selectedProject?.codexSessions.at(-1);
+
+  if (newestSession === undefined) {
+    renderDesktopStatus(status);
+    return;
+  }
+
+  isCodingVisible = true;
+  if (!openCodexTaskRunIds.includes(newestSession.taskRunId)) {
+    openCodexTaskRunIds = [...openCodexTaskRunIds, newestSession.taskRunId];
+  }
+  activeCodexTaskRunId = newestSession.taskRunId;
+  currentCodexTerminalSignature = "";
+  renderDesktopStatus(status);
+  void pollStatus(4, 250);
+}
+
 function closePlanningPane(paneKey: SessionPaneKey, status: DesktopStatus): void {
   openPlanningPaneKeys = openPlanningPaneKeys.filter((candidate) => candidate !== paneKey);
 
@@ -1323,6 +1657,18 @@ function closePlanningPane(paneKey: SessionPaneKey, status: DesktopStatus): void
 
   currentTerminalSignature = "";
   renderPlanningPane(status);
+  void persistCurrentUiState();
+}
+
+function closeCodexPane(taskRunId: string, status: DesktopStatus): void {
+  openCodexTaskRunIds = openCodexTaskRunIds.filter((candidate) => candidate !== taskRunId);
+
+  if (activeCodexTaskRunId === taskRunId) {
+    activeCodexTaskRunId = openCodexTaskRunIds.at(-1) ?? null;
+  }
+
+  currentCodexTerminalSignature = "";
+  renderCodexPane(status);
   void persistCurrentUiState();
 }
 

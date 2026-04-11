@@ -14,6 +14,8 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
     ),
     SMITHLY_CLAUDE_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-claude.mjs")]),
     SMITHLY_CLAUDE_COMMAND: process.execPath,
+    SMITHLY_CODEX_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-codex.mjs")]),
+    SMITHLY_CODEX_COMMAND: process.execPath,
     SMITHLY_DATA_DIRECTORY: dataDirectory,
     SMITHLY_NODE_COMMAND: process.execPath,
     ...(themePreference !== undefined ? { SMITHLY_THEME_PREFERENCE: themePreference } : {}),
@@ -372,6 +374,41 @@ test("operator can keep multiple Claude panes open and switch between them", asy
     await expect(window.locator("#planning-pane-tabs")).not.toContainText(
       "Task: Bootstrap the desktop shell",
     );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("operator can start a Codex task session and attach to its terminal pane", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#coding-shell")).toBeHidden();
+
+    await window
+      .locator("#backlog-list .list-card button:has-text('Start Coding Task')")
+      .first()
+      .click();
+
+    await expect(window.locator("#coding-shell")).toBeVisible();
+    await expect(window.locator("#coding-pane-tabs")).toContainText("Bootstrap the desktop shell");
+    await window.locator("#codex-terminal .xterm-screen").click();
+    await window.keyboard.type("Implement the next desktop slice.");
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#codex-terminal .xterm-rows")).toContainText(
+      "codex ack: Implement the next desktop slice.",
+    );
+
+    await window.keyboard.type("complete task: Finished the requested desktop slice.");
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#task-list")).toContainText(
+      "Finished the requested desktop slice.",
+    );
+    await expect(window.locator("#event-log")).toContainText("Codex task completed");
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }

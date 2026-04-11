@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createConfig } from "@smithly/core";
 import {
+  createDraftBacklogItemFromPlanning,
   createContext,
   listApprovalsForProject,
   listBacklogItemsForProject,
@@ -208,6 +209,59 @@ describe("smithly mcp server", () => {
           backlogItemId: fixture.backlogItem.id,
           status: "queued",
           summaryText: "Claim the next approved task for execution.",
+        }),
+      ]),
+    );
+
+    await close();
+    context.db.close();
+  });
+
+  it("starts a codex coding task from the focused backlog item", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Create a fresh Codex task from MCP.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Fresh MCP Codex task",
+    });
+    const server = createSmithlyMcpServer(context, {
+      backlogItemId: createdBacklogItem.id,
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.taskChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const result = await client.callTool({
+      arguments: {
+        summaryText: "Start Codex implementation for the selected backlog item.",
+      },
+      name: "start_coding_task",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      assignedWorker: "codex",
+      backlogItemId: createdBacklogItem.id,
+      status: "queued",
+      taskRunId: expect.any(String),
+    });
+    expect(listTaskRunsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assignedWorker: "codex",
+          backlogItemId: createdBacklogItem.id,
+          status: "queued",
+          summaryText: "Start Codex implementation for the selected backlog item.",
         }),
       ]),
     );

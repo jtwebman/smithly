@@ -52,6 +52,7 @@ export interface IDesktopSelectedProject {
   readonly projectId: string;
   readonly backlogItems: readonly IDesktopListItem[];
   readonly taskRuns: readonly IDesktopListItem[];
+  readonly codexSessions: readonly IDesktopCodexSession[];
   readonly approvals: readonly IDesktopListItem[];
   readonly blockers: readonly IDesktopListItem[];
   readonly events: readonly IDesktopEventItem[];
@@ -107,6 +108,15 @@ export interface IDesktopPlanningSession {
   readonly workerSessionId: string;
   readonly terminalKey: string;
   readonly status: string;
+}
+
+export interface IDesktopCodexSession {
+  readonly backlogItemId: string;
+  readonly backlogItemTitle: string;
+  readonly status: string;
+  readonly taskRunId: string;
+  readonly terminalKey: string;
+  readonly workerSessionId: string;
 }
 
 export function buildDesktopStatus(
@@ -209,6 +219,27 @@ function buildSelectedProject(
   const taskPlanningSession = taskPlanningThread
     ? findPlanningSession(workerSessions, taskPlanningThread.id)
     : undefined;
+  const codexSessions = taskRuns.flatMap((taskRun) => {
+    const codexSession = findCodexSession(workerSessions, taskRun.id);
+    const codexBacklogItem = backlogItems.find(
+      (candidate) => candidate.id === taskRun.backlogItemId,
+    );
+
+    if (codexSession === undefined || codexBacklogItem === undefined) {
+      return [];
+    }
+
+    return [
+      {
+        backlogItemId: codexBacklogItem.id,
+        backlogItemTitle: codexBacklogItem.title,
+        status: codexSession.status,
+        taskRunId: taskRun.id,
+        terminalKey: codexSession.terminalKey ?? `codex:${taskRun.id}`,
+        workerSessionId: codexSession.id,
+      } satisfies IDesktopCodexSession,
+    ];
+  });
 
   return {
     approvals: approvals.map((approval) => ({
@@ -232,6 +263,7 @@ function buildSelectedProject(
       timestamp: blocker.updatedAt,
       title: blocker.title,
     })),
+    codexSessions,
     events: [
       ...workerSessions.map((session) => ({
         detail: `${session.workerKind} session is ${session.status}`,
@@ -371,6 +403,19 @@ function findPlanningSession(
       return (
         session.workerKind === "claude" &&
         session.transcriptRef?.startsWith(`chat-thread:${threadId}`)
+      );
+    })
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function findCodexSession(
+  workerSessions: ReturnType<typeof listWorkerSessionsForProject>,
+  taskRunId: string,
+) {
+  return [...workerSessions]
+    .filter((session) => {
+      return (
+        session.workerKind === "codex" && session.transcriptRef?.startsWith(`task-run:${taskRunId}`)
       );
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];

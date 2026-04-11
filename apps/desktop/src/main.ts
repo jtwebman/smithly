@@ -24,17 +24,22 @@ import {
   resolveDesktopThemeMode,
   type IDesktopStatus,
 } from "./desktop-state.ts";
+import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 
 let storageContext: IStorageContext | null = null;
 let planningSessionManager: PlanningSessionManager | null = null;
+let codexSessionManager: CodexSessionManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 
 export interface IDesktopUiStateSnapshot {
   readonly activePlanningPaneKey?: string;
+  readonly activeCodexTaskRunId?: string;
+  readonly isCodingVisible?: boolean;
   readonly isOrchestrationVisible?: boolean;
   readonly isProjectWorkspaceOpen?: boolean;
+  readonly openCodexTaskRunIds?: readonly string[];
   readonly openPlanningPaneKeys?: readonly string[];
   readonly selectedBacklogItemId?: string;
   readonly selectedProjectId?: string;
@@ -47,6 +52,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   hydrateDesktopSelectionState(storageContext);
   recoverOrphanedClaudeSessions(storageContext);
   planningSessionManager = createPlanningSessionManager(storageContext);
+  codexSessionManager = createCodexSessionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
 
@@ -63,6 +69,7 @@ function createDesktopContext(): IStorageContext {
     themePreference: resolveDesktopThemePreference(),
     workers: {
       claude: resolveClaudeWorkerCommand(),
+      codex: resolveCodexWorkerCommand(),
     },
   });
   const context = createContext({ config });
@@ -274,6 +281,49 @@ function registerDesktopHandlers(context: IStorageContext): void {
     },
   );
 
+  ipcMain.removeHandler("smithly:codex-session:start");
+  ipcMain.handle(
+    "smithly:codex-session:start",
+    (_event, backlogItemId: string, summaryText?: string): IDesktopStatus => {
+      requireCodexSessionManager().startSession({
+        backlogItemId,
+        projectId: requireSelectedProjectId(context),
+        ...(summaryText !== undefined ? { summaryText } : {}),
+      });
+      selectedBacklogItemId = backlogItemId;
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:codex-session:ensure");
+  ipcMain.handle("smithly:codex-session:ensure", (_event, taskRunId: string): IDesktopStatus => {
+    requireCodexSessionManager().ensureSession(taskRunId);
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+      selectedBacklogItemId,
+    );
+  });
+
+  ipcMain.removeHandler("smithly:codex-session:write");
+  ipcMain.handle("smithly:codex-session:write", (_event, terminalKey: string, data: string) => {
+    requireCodexSessionManager().writeToSession(terminalKey, data);
+  });
+
+  ipcMain.removeHandler("smithly:codex-session:resize");
+  ipcMain.handle(
+    "smithly:codex-session:resize",
+    (_event, terminalKey: string, cols: number, rows: number) => {
+      requireCodexSessionManager().resizeSession(terminalKey, cols, rows);
+    },
+  );
+
   ipcMain.removeHandler("smithly:ui-state:get");
   ipcMain.handle("smithly:ui-state:get", (): IDesktopUiStateSnapshot => {
     return readDesktopUiState(context.config.storage.dataDirectory);
@@ -336,12 +386,40 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
   });
 }
 
+function createCodexSessionManager(context: IStorageContext): CodexSessionManager {
+  return new CodexSessionManager(context, (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send("smithly:codex-output", event);
+      window.webContents.send(
+        "smithly:desktop-status-updated",
+        buildDesktopStatus(
+          context,
+          resolveDesktopThemeMode(
+            context.config.ui.themePreference,
+            nativeTheme.shouldUseDarkColors,
+          ),
+          selectedProjectId,
+          selectedBacklogItemId,
+        ),
+      );
+    }
+  });
+}
+
 function requirePlanningSessionManager(): PlanningSessionManager {
   if (planningSessionManager === null) {
     throw new Error("Planning session manager is not available.");
   }
 
   return planningSessionManager;
+}
+
+function requireCodexSessionManager(): CodexSessionManager {
+  if (codexSessionManager === null) {
+    throw new Error("Codex session manager is not available.");
+  }
+
+  return codexSessionManager;
 }
 
 function requireSelectedProjectId(context: IStorageContext): string {
@@ -381,6 +459,16 @@ function resolveClaudeWorkerCommand(): {
   return {
     args: parseWorkerCommandArgs("SMITHLY_CLAUDE_ARGS_JSON") ?? [],
     command: process.env.SMITHLY_CLAUDE_COMMAND?.trim() || "claude",
+  };
+}
+
+function resolveCodexWorkerCommand(): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  return {
+    args: parseWorkerCommandArgs("SMITHLY_CODEX_ARGS_JSON") ?? [],
+    command: process.env.SMITHLY_CODEX_COMMAND?.trim() || "codex",
   };
 }
 
@@ -424,8 +512,14 @@ function readDesktopUiState(dataDirectory: string): IDesktopUiStateSnapshot {
     const candidate = parsedValue as Record<string, unknown>;
 
     return {
+      ...(typeof candidate.activeCodexTaskRunId === "string"
+        ? { activeCodexTaskRunId: candidate.activeCodexTaskRunId }
+        : {}),
       ...(typeof candidate.activePlanningPaneKey === "string"
         ? { activePlanningPaneKey: candidate.activePlanningPaneKey }
+        : {}),
+      ...(typeof candidate.isCodingVisible === "boolean"
+        ? { isCodingVisible: candidate.isCodingVisible }
         : {}),
       ...(typeof candidate.isOrchestrationVisible === "boolean"
         ? { isOrchestrationVisible: candidate.isOrchestrationVisible }
@@ -436,6 +530,10 @@ function readDesktopUiState(dataDirectory: string): IDesktopUiStateSnapshot {
       ...(Array.isArray(candidate.openPlanningPaneKeys) &&
       candidate.openPlanningPaneKeys.every((value) => typeof value === "string")
         ? { openPlanningPaneKeys: [...candidate.openPlanningPaneKeys] }
+        : {}),
+      ...(Array.isArray(candidate.openCodexTaskRunIds) &&
+      candidate.openCodexTaskRunIds.every((value) => typeof value === "string")
+        ? { openCodexTaskRunIds: [...candidate.openCodexTaskRunIds] }
         : {}),
       ...(typeof candidate.selectedBacklogItemId === "string"
         ? { selectedBacklogItemId: candidate.selectedBacklogItemId }
@@ -462,7 +560,7 @@ export function recoverOrphanedClaudeSessions(context: IStorageContext, now = ne
   for (const project of listProjects(context)) {
     for (const session of listWorkerSessionsForProject(context, project.id)) {
       if (
-        session.workerKind !== "claude" ||
+        !["claude", "codex"].includes(session.workerKind) ||
         !["starting", "running", "waiting", "blocked"].includes(session.status)
       ) {
         continue;
@@ -484,13 +582,12 @@ export function recoverOrphanedClaudeSessions(context: IStorageContext, now = ne
         : undefined;
 
       upsertMemoryNote(context, {
-        bodyText:
-          "Recovered an orphaned Claude session after app restart and marked it failed before respawn.",
+        bodyText: `Recovered an orphaned ${session.workerKind} session after app restart and marked it failed before respawn.`,
         createdAt: timestamp,
         id: `memory-session-recovery-${session.id}`,
         noteType: "note",
         projectId: project.id,
-        title: "Recovered orphaned Claude session",
+        title: `Recovered orphaned ${session.workerKind} session`,
         updatedAt: timestamp,
         ...(sourceThreadId !== undefined ? { sourceThreadId } : {}),
         ...(thread?.backlogItemId !== undefined ? { backlogItemId: thread.backlogItemId } : {}),
@@ -516,6 +613,8 @@ if (typeof app?.on === "function") {
   app.on("window-all-closed", () => {
     planningSessionManager?.dispose();
     planningSessionManager = null;
+    codexSessionManager?.dispose();
+    codexSessionManager = null;
     storageContext?.db.close();
     storageContext = null;
 
