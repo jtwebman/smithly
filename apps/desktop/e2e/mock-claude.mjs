@@ -104,6 +104,84 @@ reader.on("line", async (line) => {
     return;
   }
 
+  if (prompt.startsWith("hook approval:")) {
+    const [title, detail, status = "pending"] = prompt
+      .slice("hook approval:".length)
+      .split("|")
+      .map((part) => part.trim());
+
+    console.log(
+      `smithly-hook: ${JSON.stringify({
+        payload: {
+          detail,
+          requestedBy: "claude",
+          status,
+          title,
+        },
+        type: "approval_request",
+      })}`,
+    );
+    return;
+  }
+
+  if (prompt.startsWith("hook blocker:")) {
+    const [title, detail, blockerType = "human", status = "open"] = prompt
+      .slice("hook blocker:".length)
+      .split("|")
+      .map((part) => part.trim());
+
+    console.log(
+      `smithly-hook: ${JSON.stringify({
+        payload: {
+          blockerType,
+          detail,
+          status,
+          title,
+        },
+        type: "blocker",
+      })}`,
+    );
+    return;
+  }
+
+  if (prompt.startsWith("hook note:")) {
+    const [title, bodyText, noteType = "note"] = prompt
+      .slice("hook note:".length)
+      .split("|")
+      .map((part) => part.trim());
+
+    console.log(
+      `smithly-hook: ${JSON.stringify({
+        payload: {
+          bodyText,
+          noteType,
+          title,
+        },
+        type: "memory_note",
+      })}`,
+    );
+    return;
+  }
+
+  if (prompt.startsWith("hook task:")) {
+    const [id, status, summaryText] = prompt
+      .slice("hook task:".length)
+      .split("|")
+      .map((part) => part.trim());
+
+    console.log(
+      `smithly-hook: ${JSON.stringify({
+        payload: {
+          id,
+          status,
+          summaryText,
+        },
+        type: "task_outcome",
+      })}`,
+    );
+    return;
+  }
+
   console.log(`claude ack: ${prompt}`);
 });
 

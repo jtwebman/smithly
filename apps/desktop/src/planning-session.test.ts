@@ -9,8 +9,12 @@ import { createConfig } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
+  listApprovalsForProject,
+  listBlockersForProject,
+  listChatMessagesForThread,
   listChatThreadsForProject,
   listMemoryNotesForProject,
+  listTaskRunsForProject,
   listWorkerSessionsForProject,
   seedInitialState,
 } from "@smithly/storage";
@@ -113,6 +117,112 @@ describe("PlanningSessionManager", () => {
     );
     expect(readFileSync(logFilePath ?? "", "utf8")).toContain(
       "claude ack: Summarize the latest planning state.",
+    );
+
+    manager.dispose();
+    context.db.close();
+  });
+
+  it("ingests structured Claude hook events without storing them as chat messages", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-hooks-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-planning-hook-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        repoPath,
+      },
+    });
+
+    const fakePty = createFakePty();
+    const manager = new PlanningSessionManager(context, () => undefined, {
+      now: () => new Date("2026-04-10T09:00:00.000Z"),
+      spawnPty: () => fakePty,
+    });
+
+    manager.ensureSession({
+      backlogItemId: fixture.backlogItem.id,
+      projectId: fixture.project.id,
+      scope: "task",
+    });
+
+    const taskThread = listChatThreadsForProject(context, fixture.project.id).find((thread) => {
+      return thread.kind === "task_planning" && thread.backlogItemId === fixture.backlogItem.id;
+    });
+
+    expect(taskThread).toBeDefined();
+    const chatMessageCountBefore = taskThread
+      ? listChatMessagesForThread(context, taskThread.id).length
+      : 0;
+
+    fakePty.emitData(
+      'smithly-hook: {"type":"approval_request","payload":{"id":"approval-hook-review","title":"Need review approval","detail":"Approve the next narrow change.","requestedBy":"claude","status":"pending"}}\n',
+    );
+    fakePty.emitData(
+      'smithly-hook: {"type":"blocker","payload":{"id":"blocker-hook-policy","title":"Need policy answer","detail":"Clarify whether review is required.","blockerType":"policy","status":"open"}}\n',
+    );
+    fakePty.emitData(
+      'smithly-hook: {"type":"memory_note","payload":{"id":"memory-hook-fact","title":"Review policy fact","bodyText":"High-risk work needs review.","noteType":"fact"}}\n',
+    );
+    fakePty.emitData(
+      'smithly-hook: {"type":"task_outcome","payload":{"id":"taskrun-hook-claude","status":"awaiting_review","summaryText":"Prepared the change and waiting for review."}}\n',
+    );
+
+    expect(listApprovalsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          detail: "Approve the next narrow change.",
+          id: "approval-hook-review",
+          status: "pending",
+          title: "Need review approval",
+        }),
+      ]),
+    );
+    expect(listBlockersForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockerType: "policy",
+          detail: "Clarify whether review is required.",
+          id: "blocker-hook-policy",
+          status: "open",
+          title: "Need policy answer",
+        }),
+      ]),
+    );
+    expect(listTaskRunsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assignedWorker: "claude",
+          backlogItemId: fixture.backlogItem.id,
+          id: "taskrun-hook-claude",
+          status: "awaiting_review",
+          summaryText: "Prepared the change and waiting for review.",
+        }),
+      ]),
+    );
+    expect(listMemoryNotesForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bodyText: "High-risk work needs review.",
+          id: "memory-hook-fact",
+          noteType: "fact",
+          title: "Review policy fact",
+        }),
+      ]),
+    );
+    expect(taskThread ? listChatMessagesForThread(context, taskThread.id).length : 0).toBe(
+      chatMessageCountBefore,
     );
 
     manager.dispose();

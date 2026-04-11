@@ -6,20 +6,32 @@ import { fileURLToPath } from "node:url";
 import { spawn, type IPty } from "node-pty";
 
 import type {
+  ApprovalStatus,
+  ApprovalRequester,
+  BlockerStatus,
+  BlockerType,
   ChatMessageRole,
   IChatMessageRecord,
   IChatThreadRecord,
   IMemoryNoteRecord,
   IWorkerSessionRecord,
+  MemoryNoteType,
+  TaskRunStatus,
 } from "@smithly/core";
 import {
   getBacklogItemById,
   getProjectById,
+  listApprovalsForProject,
+  listBlockersForProject,
   listChatMessagesForThread,
   listChatThreadsForProject,
+  listTaskRunsForProject,
+  upsertApproval,
+  upsertBlocker,
   upsertChatMessage,
   upsertChatThread,
   upsertMemoryNote,
+  upsertTaskRun,
   upsertWorkerSession,
   type IStorageContext,
 } from "@smithly/storage";
@@ -67,6 +79,11 @@ interface IMcpServerConfig {
       readonly env: Record<string, string>;
     };
   };
+}
+
+interface IHookEnvelope {
+  readonly type: "approval_request" | "blocker" | "memory_note" | "task_outcome";
+  readonly payload: Record<string, unknown>;
 }
 
 interface IPlanningSessionManagerOptions {
@@ -457,7 +474,10 @@ export class PlanningSessionManager {
   }
 
   private persistOutput(
-    session: Pick<IPlanningRuntimeSession, "lineBuffer" | "threadId" | "workerSessionId">,
+    session: Pick<
+      IPlanningRuntimeSession,
+      "backlogItemId" | "lineBuffer" | "projectId" | "threadId" | "workerSessionId"
+    >,
     rawData: string,
     role: ChatMessageRole = "claude",
   ): IPlanningOutputEntry[] {
@@ -469,9 +489,13 @@ export class PlanningSessionManager {
 
     session.lineBuffer = completeLines.pop() ?? "";
 
-    return completeLines.flatMap((line) =>
-      this.persistStaticMessage(session.threadId, session.workerSessionId, line, role),
-    );
+    return completeLines.flatMap((line) => {
+      if (this.applyHookLine(session, line)) {
+        return [];
+      }
+
+      return this.persistStaticMessage(session.threadId, session.workerSessionId, line, role);
+    });
   }
 
   private persistStaticMessage(
@@ -508,6 +532,201 @@ export class PlanningSessionManager {
         role: message.role,
       },
     ];
+  }
+
+  private applyHookLine(
+    session: Pick<
+      IPlanningRuntimeSession,
+      "backlogItemId" | "projectId" | "threadId" | "workerSessionId"
+    >,
+    bodyText: string,
+  ): boolean {
+    const envelope = parseHookEnvelope(bodyText);
+
+    if (envelope === null) {
+      return false;
+    }
+
+    switch (envelope.type) {
+      case "approval_request":
+        this.ingestApprovalRequest(session, envelope.payload);
+        return true;
+      case "blocker":
+        this.ingestBlocker(session, envelope.payload);
+        return true;
+      case "memory_note":
+        this.ingestMemoryNote(session, envelope.payload);
+        return true;
+      case "task_outcome":
+        this.ingestTaskOutcome(session, envelope.payload);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private ingestApprovalRequest(
+    session: Pick<IPlanningRuntimeSession, "backlogItemId" | "projectId" | "threadId">,
+    payload: Record<string, unknown>,
+  ): void {
+    const timestamp = this.now().toISOString();
+    const approvalId = readOptionalString(payload.id) ?? `approval-hook-${randomUUID()}`;
+    const decisionBy = readOptionalString(payload.decisionBy);
+    const decidedAt = readOptionalString(payload.decidedAt);
+    const existingApproval = listApprovalsForProject(this.context, session.projectId).find(
+      (approval) => approval.id === approvalId,
+    );
+
+    upsertApproval(this.context, {
+      ...(session.backlogItemId !== undefined ? { backlogItemId: session.backlogItemId } : {}),
+      createdAt: existingApproval?.createdAt ?? timestamp,
+      detail: readRequiredString(payload.detail, "approval_request.detail"),
+      id: approvalId,
+      projectId: session.projectId,
+      requestedBy: readEnum<ApprovalRequester>(
+        payload.requestedBy,
+        ["system", "claude", "codex", "human"],
+        "approval_request.requestedBy",
+      ),
+      status: readEnum<ApprovalStatus>(
+        payload.status,
+        ["pending", "approved", "rejected", "deferred"],
+        "approval_request.status",
+      ),
+      title: readRequiredString(payload.title, "approval_request.title"),
+      updatedAt: timestamp,
+      ...(existingApproval?.taskRunId !== undefined
+        ? { taskRunId: existingApproval.taskRunId }
+        : {}),
+      ...(decisionBy !== undefined ? { decisionBy } : {}),
+      ...(decidedAt !== undefined ? { decidedAt } : {}),
+    });
+    this.ingestHookMemoryNote(
+      session,
+      "Approval request",
+      `${approvalId} updated from Claude hook.`,
+    );
+  }
+
+  private ingestBlocker(
+    session: Pick<IPlanningRuntimeSession, "backlogItemId" | "projectId" | "threadId">,
+    payload: Record<string, unknown>,
+  ): void {
+    const timestamp = this.now().toISOString();
+    const blockerId = readOptionalString(payload.id) ?? `blocker-hook-${randomUUID()}`;
+    const resolutionNote = readOptionalString(payload.resolutionNote);
+    const resolvedAt = readOptionalString(payload.resolvedAt);
+    const existingBlocker = listBlockersForProject(this.context, session.projectId).find(
+      (blocker) => blocker.id === blockerId,
+    );
+
+    upsertBlocker(this.context, {
+      ...(session.backlogItemId !== undefined ? { backlogItemId: session.backlogItemId } : {}),
+      blockerType: readEnum<BlockerType>(
+        payload.blockerType,
+        ["policy", "helper_model", "human", "system"],
+        "blocker.blockerType",
+      ),
+      createdAt: existingBlocker?.createdAt ?? timestamp,
+      detail: readRequiredString(payload.detail, "blocker.detail"),
+      id: blockerId,
+      projectId: session.projectId,
+      status: readEnum<BlockerStatus>(payload.status, ["open", "resolved"], "blocker.status"),
+      title: readRequiredString(payload.title, "blocker.title"),
+      updatedAt: timestamp,
+      ...(existingBlocker?.taskRunId !== undefined ? { taskRunId: existingBlocker.taskRunId } : {}),
+      ...(resolutionNote !== undefined ? { resolutionNote } : {}),
+      ...(resolvedAt !== undefined ? { resolvedAt } : {}),
+    });
+    this.ingestHookMemoryNote(session, "Blocker update", `${blockerId} updated from Claude hook.`);
+  }
+
+  private ingestMemoryNote(
+    session: Pick<IPlanningRuntimeSession, "backlogItemId" | "projectId" | "threadId">,
+    payload: Record<string, unknown>,
+  ): void {
+    const timestamp = this.now().toISOString();
+    const noteId = readOptionalString(payload.id) ?? `memory-hook-${randomUUID()}`;
+
+    upsertMemoryNote(this.context, {
+      ...(session.backlogItemId !== undefined ? { backlogItemId: session.backlogItemId } : {}),
+      bodyText: readRequiredString(payload.bodyText, "memory_note.bodyText"),
+      createdAt: timestamp,
+      id: noteId,
+      noteType: readEnum<MemoryNoteType>(
+        payload.noteType,
+        ["fact", "decision", "note", "session_summary"],
+        "memory_note.noteType",
+      ),
+      projectId: session.projectId,
+      sourceThreadId: session.threadId,
+      title: readRequiredString(payload.title, "memory_note.title"),
+      updatedAt: timestamp,
+    });
+  }
+
+  private ingestTaskOutcome(
+    session: Pick<
+      IPlanningRuntimeSession,
+      "backlogItemId" | "projectId" | "threadId" | "workerSessionId"
+    >,
+    payload: Record<string, unknown>,
+  ): void {
+    if (session.backlogItemId === undefined) {
+      throw new Error("task_outcome hooks require a task-scoped planning session.");
+    }
+
+    const timestamp = this.now().toISOString();
+    const taskRunId = readOptionalString(payload.id) ?? `taskrun-hook-${randomUUID()}`;
+    const existingTaskRun = listTaskRunsForProject(this.context, session.projectId).find(
+      (taskRun) => taskRun.id === taskRunId,
+    );
+    const status = readEnum<TaskRunStatus>(
+      payload.status,
+      ["queued", "running", "blocked", "awaiting_review", "done", "failed", "cancelled"],
+      "task_outcome.status",
+    );
+
+    upsertTaskRun(this.context, {
+      assignedWorker: "claude",
+      backlogItemId: session.backlogItemId,
+      createdAt: existingTaskRun?.createdAt ?? timestamp,
+      id: taskRunId,
+      projectId: session.projectId,
+      status,
+      summaryText: readRequiredString(payload.summaryText, "task_outcome.summaryText"),
+      updatedAt: timestamp,
+      workerSessionId: session.workerSessionId,
+      ...(existingTaskRun?.startedAt !== undefined
+        ? { startedAt: existingTaskRun.startedAt }
+        : status !== "queued"
+          ? { startedAt: timestamp }
+          : {}),
+      ...(status === "done" || status === "failed" || status === "cancelled"
+        ? { completedAt: timestamp }
+        : {}),
+    });
+    this.ingestHookMemoryNote(session, "Task outcome", `${taskRunId} updated from Claude hook.`);
+  }
+
+  private ingestHookMemoryNote(
+    session: Pick<IPlanningRuntimeSession, "backlogItemId" | "projectId" | "threadId">,
+    title: string,
+    bodyText: string,
+  ): void {
+    const timestamp = this.now().toISOString();
+
+    upsertMemoryNote(this.context, {
+      ...(session.backlogItemId !== undefined ? { backlogItemId: session.backlogItemId } : {}),
+      bodyText,
+      createdAt: timestamp,
+      id: `memory-hook-${randomUUID()}`,
+      noteType: "note",
+      projectId: session.projectId,
+      sourceThreadId: session.threadId,
+      title,
+      updatedAt: timestamp,
+    });
   }
 
   private createTranscriptRef(threadId: string, logFilePath: string): string {
@@ -627,4 +846,66 @@ function stripAnsi(value: string): string {
   }
 
   return output;
+}
+
+function parseHookEnvelope(bodyText: string): IHookEnvelope | null {
+  const normalizedBodyText = bodyText.trim();
+
+  if (!normalizedBodyText.startsWith("smithly-hook:")) {
+    return null;
+  }
+
+  const serializedPayload = normalizedBodyText.slice("smithly-hook:".length).trim();
+
+  if (serializedPayload.length === 0) {
+    throw new Error("smithly-hook payload is empty.");
+  }
+
+  const parsedPayload = JSON.parse(serializedPayload) as unknown;
+
+  if (!isObjectRecord(parsedPayload)) {
+    throw new Error("smithly-hook payload must be an object.");
+  }
+
+  return {
+    payload: isObjectRecord(parsedPayload.payload) ? parsedPayload.payload : {},
+    type: readEnum(
+      parsedPayload.type,
+      ["approval_request", "blocker", "memory_note", "task_outcome"],
+      "smithly-hook.type",
+    ),
+  };
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function readRequiredString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${fieldName} must be a non-empty string.`);
+  }
+
+  return value.trim();
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : undefined;
+}
+
+function readEnum<TValue extends string>(
+  value: unknown,
+  candidates: readonly TValue[],
+  fieldName: string,
+): TValue {
+  if (typeof value !== "string" || !candidates.includes(value as TValue)) {
+    throw new Error(`${fieldName} must be one of: ${candidates.join(", ")}.`);
+  }
+
+  return value as TValue;
 }
