@@ -76,12 +76,12 @@
 
 ## Phase 6: Smithly MCP
 
-37. `todo` Build Smithly MCP server for project/task/approval/memory tools
-38. `todo` Add MCP tools for backlog retrieval, draft creation, and task claiming
-39. `todo` Add MCP tools for blockers, approvals, and user questions
-40. `todo` Add MCP tools for memory notes, review requests, and verification requests
-41. `todo` Document Claude Code setup against the Smithly MCP server
-42. `todo` Add tests for MCP tool behavior and persistence
+37. `done` Build Smithly MCP server for project/task/approval/memory tools
+38. `done` Add MCP tools for backlog retrieval, draft creation, and task claiming
+39. `done` Add MCP tools for blockers, approvals, and user questions
+40. `done` Add MCP tools for memory notes, review requests, and verification requests
+41. `done` Document Claude Code setup against the Smithly MCP server
+42. `done` Add tests for MCP tool behavior and persistence
 
 ## Phase 7: Codex Delegation
 

@@ -54,6 +54,32 @@ npm run dev
 
 `npm run dev` builds the current workspace output and launches the desktop app.
 
+## Claude Code And Smithly MCP
+
+Smithly exposes a local MCP server at `packages/mcp-server/src/main.ts`. The desktop app wires this into Claude planning sessions automatically by passing:
+
+- `SMITHLY_DATA_DIRECTORY`
+- `SMITHLY_PROJECT_ID`
+- `SMITHLY_THREAD_ID`
+- `SMITHLY_BACKLOG_ITEM_ID` for task-scoped sessions
+
+The current MCP surface is aimed at planning and orchestration work:
+
+- backlog retrieval and draft creation
+- backlog revision and task claiming
+- approval requests and blocker management
+- human-question escalation
+- memory note writes
+- verification and review requests
+
+If you want to run the MCP server manually against an existing Smithly project state, set the environment variables above and launch:
+
+```bash
+node dist/packages/mcp-server/src/main.js
+```
+
+Claude Code should be pointed at that stdio MCP server. In normal Smithly usage you should prefer the desktop-managed planning session path so the MCP environment stays aligned with the selected project and task context.
+
 Current workspace tooling uses:
 
 - `vite-plus` for repo-level formatting and lint tooling
