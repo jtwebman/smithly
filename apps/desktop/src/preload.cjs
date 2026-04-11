@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   updateReviewRun(reviewRunId, status, summaryText) {
     return ipcRenderer.invoke("smithly:review-run:update", reviewRunId, status, summaryText);
   },
+  createMemoryNote(input) {
+    return ipcRenderer.invoke("smithly:memory-note:create", input);
+  },
   writeCodexTerminal(terminalKey, data) {
     return ipcRenderer.invoke("smithly:codex-session:write", terminalKey, data);
   },

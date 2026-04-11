@@ -348,6 +348,12 @@ describe("smithly mcp server", () => {
       },
       name: "write_memory_note",
     });
+    const memoryListResult = await client.callTool({
+      arguments: {
+        noteTypes: ["decision"],
+      },
+      name: "list_memory_notes",
+    });
     const verificationResult = await client.callTool({
       arguments: {
         commandText: "npm run check",
@@ -395,6 +401,15 @@ describe("smithly mcp server", () => {
       noteId: expect.any(String),
       noteType: "decision",
       title: "Review preference",
+    });
+    expect(memoryListResult.structuredContent).toMatchObject({
+      memoryNotes: expect.arrayContaining([
+        expect.objectContaining({
+          noteType: "decision",
+          title: "Review preference",
+        }),
+      ]),
+      projectId: fixture.project.id,
     });
     expect(verificationResult.structuredContent).toMatchObject({
       status: "queued",

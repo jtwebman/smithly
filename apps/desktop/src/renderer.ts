@@ -55,6 +55,7 @@ interface DesktopStatus {
     readonly approvals: readonly DesktopListItem[];
     readonly blockers: readonly DesktopListItem[];
     readonly events: readonly DesktopEventItem[];
+    readonly memoryNotes: readonly DesktopMemoryNoteItem[];
     readonly projectPlanningChat?: DesktopChatThread;
     readonly projectPlanningSession?: DesktopPlanningSession;
     readonly taskPlanningChat?: DesktopChatThread;
@@ -77,6 +78,10 @@ interface DesktopEventItem {
   readonly title: string;
   readonly detail: string;
   readonly timestamp: string;
+}
+
+interface DesktopMemoryNoteItem extends DesktopListItem {
+  readonly noteType: string;
 }
 
 interface DesktopChatThread {
@@ -161,6 +166,12 @@ interface SmithlyDesktopApi {
     status: "approved" | "changes_requested",
     summaryText?: string,
   ): Promise<DesktopStatus>;
+  createMemoryNote(input: {
+    noteType: "fact" | "decision" | "note" | "session_summary";
+    title: string;
+    bodyText: string;
+    backlogItemId?: string;
+  }): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
   ensureCodexSession(taskRunId: string): Promise<DesktopStatus>;
   startCodexSession(backlogItemId: string, summaryText?: string): Promise<DesktopStatus>;
@@ -239,6 +250,27 @@ const projectRegistrationApprovalHighRiskNode = document.getElementById(
   "project-registration-approval-high-risk",
 ) as HTMLInputElement | null;
 const projectRegistrationStatusNode = document.getElementById("project-registration-status");
+const memoryPanelNode = document.getElementById("memory-list");
+const memoryComposerModalNode = document.getElementById("memory-composer-modal");
+const openMemoryComposerButton = document.getElementById(
+  "open-memory-composer-button",
+) as HTMLButtonElement | null;
+const closeMemoryComposerButton = document.getElementById(
+  "close-memory-composer-button",
+) as HTMLButtonElement | null;
+const memoryComposerForm = document.getElementById(
+  "memory-composer-form",
+) as HTMLFormElement | null;
+const memoryComposerTypeNode = document.getElementById(
+  "memory-composer-type",
+) as HTMLSelectElement | null;
+const memoryComposerTitleNode = document.getElementById(
+  "memory-composer-title",
+) as HTMLInputElement | null;
+const memoryComposerBodyNode = document.getElementById(
+  "memory-composer-body",
+) as HTMLTextAreaElement | null;
+const memoryComposerStatusNode = document.getElementById("memory-composer-status");
 const backlogListNode = document.getElementById("backlog-list");
 const taskListNode = document.getElementById("task-list");
 const approvalsListNode = document.getElementById("approvals-list");
@@ -408,6 +440,10 @@ function setProjectCreatorModalOpen(isOpen: boolean): void {
   projectCreatorModalNode?.toggleAttribute("hidden", !isOpen);
 }
 
+function setMemoryComposerModalOpen(isOpen: boolean): void {
+  memoryComposerModalNode?.toggleAttribute("hidden", !isOpen);
+}
+
 function resetProjectRegistrationForm(): void {
   editingProjectId = null;
 
@@ -443,6 +479,22 @@ function resetProjectRegistrationForm(): void {
   renderProjectRegistrationStatus("");
 }
 
+function resetMemoryComposerForm(): void {
+  if (memoryComposerTypeNode !== null) {
+    memoryComposerTypeNode.value = "note";
+  }
+
+  if (memoryComposerTitleNode !== null) {
+    memoryComposerTitleNode.value = "";
+  }
+
+  if (memoryComposerBodyNode !== null) {
+    memoryComposerBodyNode.value = "";
+  }
+
+  setNodeText(memoryComposerStatusNode, "");
+}
+
 function openProjectCreatorModal(mode: "create" | "edit"): void {
   if (mode === "create") {
     resetProjectRegistrationForm();
@@ -452,6 +504,36 @@ function openProjectCreatorModal(mode: "create" | "edit"): void {
 
   setProjectCreatorModalOpen(true);
   projectRegistrationPathNode?.focus();
+}
+
+function renderMemoryNotes(memoryNotes: readonly DesktopMemoryNoteItem[]): void {
+  if (memoryPanelNode === null) {
+    return;
+  }
+
+  memoryPanelNode.innerHTML = "";
+
+  if (memoryNotes.length === 0) {
+    const emptyNode = document.createElement("p");
+    emptyNode.className = "empty-state";
+    emptyNode.textContent = "No project memory has been recorded yet.";
+    memoryPanelNode.append(emptyNode);
+    return;
+  }
+
+  for (const note of memoryNotes) {
+    const article = document.createElement("article");
+    article.className = "list-card";
+    article.innerHTML = `
+      <div class="list-card__row">
+        <strong>${escapeHtml(note.title)}</strong>
+        <span class="list-status">${escapeHtml(note.noteType)}</span>
+      </div>
+      <p>${escapeHtml(note.subtitle)}</p>
+      <time>${escapeHtml(note.timestamp)}</time>
+    `;
+    memoryPanelNode.append(article);
+  }
 }
 
 function renderList(
@@ -1191,6 +1273,7 @@ function renderSelectedProject(status: DesktopStatus): void {
     "No approvals are waiting right now.",
   );
   renderList(blockersListNode, selectedProject?.blockers ?? [], "No blockers are open right now.");
+  renderMemoryNotes(selectedProject?.memoryNotes ?? []);
   renderEvents(eventLogNode, selectedProject?.events ?? []);
   renderPlanningPane(status);
   renderCodexPane(status);
@@ -1436,11 +1519,59 @@ closeProjectCreatorButton?.addEventListener("click", () => {
   resetProjectRegistrationForm();
 });
 
+openMemoryComposerButton?.addEventListener("click", () => {
+  resetMemoryComposerForm();
+  setMemoryComposerModalOpen(true);
+  memoryComposerTitleNode?.focus();
+});
+
+closeMemoryComposerButton?.addEventListener("click", () => {
+  setMemoryComposerModalOpen(false);
+  resetMemoryComposerForm();
+});
+
 projectCreatorModalNode?.addEventListener("click", (event) => {
   if (event.target === projectCreatorModalNode) {
     setProjectCreatorModalOpen(false);
     resetProjectRegistrationForm();
   }
+});
+
+memoryComposerModalNode?.addEventListener("click", (event) => {
+  if (event.target === memoryComposerModalNode) {
+    setMemoryComposerModalOpen(false);
+    resetMemoryComposerForm();
+  }
+});
+
+memoryComposerForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const title = memoryComposerTitleNode?.value.trim() ?? "";
+  const bodyText = memoryComposerBodyNode?.value.trim() ?? "";
+
+  if (title.length === 0 || bodyText.length === 0) {
+    setNodeText(memoryComposerStatusNode, "Title and memory text are required.");
+    return;
+  }
+
+  const noteType = (memoryComposerTypeNode?.value ?? "note") as
+    | "decision"
+    | "fact"
+    | "note"
+    | "session_summary";
+  const selectedBacklogItemId = currentStatus?.selectedProject?.selectedBacklogItem?.id;
+  const status = await window.smithlyDesktop.createMemoryNote({
+    bodyText,
+    ...(selectedBacklogItemId !== undefined ? { backlogItemId: selectedBacklogItemId } : {}),
+    noteType,
+    title,
+  });
+
+  renderDesktopStatus(status);
+  setNodeText(memoryComposerStatusNode, `Stored ${noteType} note.`);
+  setMemoryComposerModalOpen(false);
+  resetMemoryComposerForm();
 });
 
 showOrchestrationButton?.addEventListener("click", () => {

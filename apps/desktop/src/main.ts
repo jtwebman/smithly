@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -344,6 +345,39 @@ function registerDesktopHandlers(context: IStorageContext): void {
     ): IDesktopStatus => {
       updateReviewRunDecision(context, reviewRunId, status, new Date().toISOString(), summaryText);
       reviewManager?.processQueuedRuns();
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:memory-note:create");
+  ipcMain.handle(
+    "smithly:memory-note:create",
+    (
+      _event,
+      input: {
+        readonly backlogItemId?: string;
+        readonly bodyText: string;
+        readonly noteType: "fact" | "decision" | "note" | "session_summary";
+        readonly title: string;
+      },
+    ): IDesktopStatus => {
+      const now = new Date().toISOString();
+
+      upsertMemoryNote(context, {
+        bodyText: input.bodyText.trim(),
+        createdAt: now,
+        id: `memory-desktop-${randomUUID()}`,
+        noteType: input.noteType,
+        projectId: requireSelectedProjectId(context),
+        ...(input.backlogItemId !== undefined ? { backlogItemId: input.backlogItemId } : {}),
+        title: input.title.trim(),
+        updatedAt: now,
+      });
       return buildDesktopStatus(
         context,
         resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),

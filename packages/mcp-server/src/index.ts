@@ -757,6 +757,63 @@ export function createSmithlyMcpServer(
   );
 
   server.registerTool(
+    "list_memory_notes",
+    {
+      description: "List stored project memory notes for the current project.",
+      inputSchema: {
+        noteTypes: z
+          .array(z.enum(["fact", "decision", "note", "session_summary"]))
+          .optional()
+          .describe("Optional note-type filter."),
+      },
+      outputSchema: {
+        memoryNotes: z.array(
+          z.object({
+            backlogItemId: z.string().optional(),
+            bodyText: z.string(),
+            createdAt: z.string(),
+            id: z.string(),
+            noteType: z.string(),
+            taskRunId: z.string().optional(),
+            title: z.string(),
+            updatedAt: z.string(),
+          }),
+        ),
+        projectId: z.string(),
+      },
+    },
+    async ({ noteTypes }) => {
+      const memoryNotes = listMemoryNotesForProject(context, environment.projectId)
+        .filter((memoryNote) => noteTypes === undefined || noteTypes.includes(memoryNote.noteType))
+        .map((memoryNote) => ({
+          ...(memoryNote.backlogItemId !== undefined
+            ? { backlogItemId: memoryNote.backlogItemId }
+            : {}),
+          bodyText: memoryNote.bodyText,
+          createdAt: memoryNote.createdAt,
+          id: memoryNote.id,
+          noteType: memoryNote.noteType,
+          ...(memoryNote.taskRunId !== undefined ? { taskRunId: memoryNote.taskRunId } : {}),
+          title: memoryNote.title,
+          updatedAt: memoryNote.updatedAt,
+        }));
+
+      return {
+        content: [
+          {
+            text: `Found ${memoryNotes.length} memory note(s) for ${environment.projectId}.`,
+            type: "text",
+          },
+        ],
+        structuredContent: {
+          memoryNotes,
+          projectId: environment.projectId,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
     "write_memory_note",
     {
       description: "Write a project memory note tied to the current planning thread.",

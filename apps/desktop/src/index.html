@@ -63,11 +63,13 @@
 
       button,
       input,
+      select,
       textarea {
         font: inherit;
       }
 
       input,
+      select,
       textarea {
         width: 100%;
         padding: 12px 14px;
@@ -606,6 +608,19 @@
             <div class="stack" id="blockers-list"></div>
           </section>
 
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Project Memory</h2>
+                <p>Facts, decisions, notes, and session summaries that should survive the chat.</p>
+              </div>
+              <div class="detail-actions">
+                <button id="open-memory-composer-button" type="button">Add Memory</button>
+              </div>
+            </div>
+            <div class="stack" id="memory-list"></div>
+          </section>
+
           <section class="workspace-tertiary">
             <section class="panel">
               <div class="panel-header">
@@ -768,6 +783,68 @@
               <button id="save-project-button" class="primary-button" type="submit">
                 Save Project
               </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
+    <div id="memory-composer-modal" class="modal-overlay" hidden>
+      <section class="modal-card">
+        <div class="project-creator-chat">
+          <div class="panel-header">
+            <div>
+              <h2>Write Project Memory</h2>
+              <p>Capture durable context instead of leaving it buried in a terminal transcript.</p>
+            </div>
+          </div>
+          <div class="stack chat-monitor">
+            <article class="chat-message">
+              <div class="chat-message__row">
+                <strong>smithly</strong>
+                <time>memory</time>
+              </div>
+              <p>
+                Use facts for stable truths, decisions for explicit choices, and notes for loose
+                context.
+              </p>
+            </article>
+            <article class="chat-message">
+              <div class="chat-message__row">
+                <strong>smithly</strong>
+                <time>scope</time>
+              </div>
+              <p>
+                If a backlog item is selected, Smithly links the memory note to that work
+                automatically.
+              </p>
+            </article>
+          </div>
+        </div>
+        <form id="memory-composer-form" class="project-creator-form">
+          <label>
+            Memory type
+            <select id="memory-composer-type" name="memory-composer-type">
+              <option value="note">Note</option>
+              <option value="fact">Fact</option>
+              <option value="decision">Decision</option>
+              <option value="session_summary">Session Summary</option>
+            </select>
+          </label>
+          <label>
+            Title
+            <input id="memory-composer-title" name="memory-composer-title" type="text" />
+          </label>
+          <label>
+            Memory text
+            <textarea id="memory-composer-body" name="memory-composer-body" rows="8"></textarea>
+          </label>
+          <p id="memory-composer-status" class="project-registration__status"></p>
+          <div class="project-creator-form__actions">
+            <button id="close-memory-composer-button" class="secondary-button" type="button">
+              Cancel
+            </button>
+            <div>
+              <button class="primary-button" type="submit">Save Memory</button>
             </div>
           </div>
         </form>

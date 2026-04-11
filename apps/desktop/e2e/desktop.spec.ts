@@ -529,6 +529,35 @@ test("project creator opens as a large chat-style modal", async () => {
   }
 });
 
+test("project workspace can write durable project memory notes", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#memory-list")).toContainText("Desktop shell stays local-first");
+
+    await window.locator("#open-memory-composer-button").click();
+    await expect(window.locator("#memory-composer-modal")).toBeVisible();
+    await window.locator("#memory-composer-type").selectOption("fact");
+    await window.locator("#memory-composer-title").fill("Linux and macOS first");
+    await window
+      .locator("#memory-composer-body")
+      .fill(
+        "v1 only targets Linux and macOS, but the architecture should not block Windows later.",
+      );
+    await window.locator("#memory-composer-form button:has-text('Save Memory')").click();
+
+    await expect(window.locator("#memory-composer-modal")).toBeHidden();
+    await expect(window.locator("#memory-list")).toContainText("Linux and macOS first");
+    await expect(window.locator("#memory-list")).toContainText("fact");
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("project workspace hides orchestration until requested", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,

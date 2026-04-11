@@ -56,6 +56,7 @@ export interface IDesktopSelectedProject {
   readonly approvals: readonly IDesktopListItem[];
   readonly blockers: readonly IDesktopListItem[];
   readonly events: readonly IDesktopEventItem[];
+  readonly memoryNotes: readonly IDesktopMemoryNoteItem[];
   readonly projectPlanningChat?: IDesktopChatThread;
   readonly projectPlanningSession?: IDesktopPlanningSession;
   readonly taskPlanningChat?: IDesktopChatThread;
@@ -77,6 +78,10 @@ export interface IDesktopEventItem {
   readonly title: string;
   readonly detail: string;
   readonly timestamp: string;
+}
+
+export interface IDesktopMemoryNoteItem extends IDesktopListItem {
+  readonly noteType: string;
 }
 
 export interface IDesktopChatThread {
@@ -325,6 +330,16 @@ function buildSelectedProject(
         })),
       ),
     ].sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    memoryNotes: memoryNotes
+      .map((note) => ({
+        id: note.id,
+        noteType: note.noteType,
+        status: note.noteType,
+        subtitle: note.bodyText,
+        timestamp: note.updatedAt,
+        title: note.title,
+      }))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
     projectId,
     ...(selectedBacklogItem !== undefined ? { selectedBacklogItemId: selectedBacklogItem.id } : {}),
     ...(projectPlanningThread !== undefined

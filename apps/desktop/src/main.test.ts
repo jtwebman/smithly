@@ -117,6 +117,17 @@ describe("desktop bootstrap", () => {
             title: "Verification queued",
           },
         ]),
+        memoryNotes: [
+          {
+            id: "memory-local-first-shell",
+            noteType: "decision",
+            status: "decision",
+            subtitle:
+              "Keep v1 local-first and avoid coupling xterm pane management to future multi-machine ideas.",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Desktop shell stays local-first",
+          },
+        ],
         projectId: "project-smithly",
         projectPlanningChat: {
           kind: "project_planning",

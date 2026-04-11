@@ -105,8 +105,8 @@
 
 ## Phase 9: Memory And Blockers
 
-57. `todo` Implement pragmatic memory types: facts, decisions, notes, session summaries
-58. `todo` Add UI and MCP support for writing and reading project memory
+57. `done` Implement pragmatic memory types: facts, decisions, notes, session summaries
+58. `done` Add UI and MCP support for writing and reading project memory
 59. `todo` Implement blocker classification: policy-answerable, helper-model-answerable, human-required
 60. `todo` Add helper-model routing for low-risk auto-answerable questions
 61. `todo` Add tests for blocker classification and memory writes
