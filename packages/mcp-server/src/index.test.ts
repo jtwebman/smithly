@@ -248,6 +248,12 @@ describe("smithly mcp server", () => {
       },
       name: "start_coding_task",
     });
+    const taskStatusResult = await client.callTool({
+      arguments: {
+        assignedWorker: "codex",
+      },
+      name: "list_task_runs",
+    });
 
     expect(result.structuredContent).toMatchObject({
       assignedWorker: "codex",
@@ -265,6 +271,19 @@ describe("smithly mcp server", () => {
         }),
       ]),
     );
+    expect(taskStatusResult.structuredContent).toMatchObject({
+      taskRuns: expect.arrayContaining([
+        expect.objectContaining({
+          assignedWorker: "codex",
+          backlogItemId: createdBacklogItem.id,
+          status: "queued",
+          summaryText: "Start Codex implementation for the selected backlog item.",
+          taskRunId: expect.any(String),
+          workerSessionId: null,
+          workerSessionStatus: null,
+        }),
+      ]),
+    });
 
     await close();
     context.db.close();

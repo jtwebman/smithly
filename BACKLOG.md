@@ -89,8 +89,8 @@
 44. `done` Attach Codex sessions to dedicated terminal panes
 45. `done` Implement `start_coding_task` and task status tracking
 46. `done` Add structured result reporting and transcript references from Codex sessions back into Smithly
-47. `todo` Allow Claude to inspect Codex task status through MCP
-48. `todo` Add tests for delegation, completion, failure, and cancellation flows
+47. `done` Allow Claude to inspect Codex task status through MCP
+48. `done` Add tests for delegation, completion, failure, and cancellation flows
 
 ## Phase 8: Verification And Review
 

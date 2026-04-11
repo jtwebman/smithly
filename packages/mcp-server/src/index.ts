@@ -22,6 +22,7 @@ import {
   listChatThreadsForProject,
   listMemoryNotesForProject,
   listTaskRunsForProject,
+  listWorkerSessionsForProject,
   reviseBacklogItemFromPlanning,
   startCodingTask,
   upsertApproval,
@@ -328,6 +329,80 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: `Started Codex task ${taskRun.id} for backlog item ${taskRun.backlogItemId}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "list_task_runs",
+    {
+      description:
+        "List task runs for the current project, including Codex task status when present.",
+      inputSchema: {
+        assignedWorker: z.enum(["claude", "codex"]).optional().describe("Optional worker filter."),
+        statuses: z
+          .array(
+            z.enum([
+              "queued",
+              "running",
+              "blocked",
+              "awaiting_review",
+              "done",
+              "failed",
+              "cancelled",
+            ]),
+          )
+          .optional()
+          .describe("Optional task-run status filter."),
+      },
+      outputSchema: {
+        taskRuns: z.array(
+          z.object({
+            assignedWorker: z.string(),
+            backlogItemId: z.string(),
+            status: z.string(),
+            summaryText: z.string(),
+            taskRunId: z.string(),
+            transcriptRef: z.string().nullable(),
+            workerSessionId: z.string().nullable(),
+            workerSessionStatus: z.string().nullable(),
+          }),
+        ),
+      },
+    },
+    async ({ assignedWorker, statuses }) => {
+      const workerSessions = listWorkerSessionsForProject(context, environment.projectId);
+      const taskRuns = listTaskRunsForProject(context, environment.projectId)
+        .filter(
+          (taskRun) => assignedWorker === undefined || taskRun.assignedWorker === assignedWorker,
+        )
+        .filter((taskRun) => statuses === undefined || statuses.includes(taskRun.status))
+        .map((taskRun) => {
+          const workerSession = taskRun.workerSessionId
+            ? workerSessions.find((session) => session.id === taskRun.workerSessionId)
+            : undefined;
+
+          return {
+            assignedWorker: taskRun.assignedWorker,
+            backlogItemId: taskRun.backlogItemId,
+            status: taskRun.status,
+            summaryText: taskRun.summaryText ?? "",
+            taskRunId: taskRun.id,
+            transcriptRef: workerSession?.transcriptRef ?? null,
+            workerSessionId: taskRun.workerSessionId ?? null,
+            workerSessionStatus: workerSession?.status ?? null,
+          };
+        });
+      const structuredContent = { taskRuns };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
             type: "text",
           },
         ],

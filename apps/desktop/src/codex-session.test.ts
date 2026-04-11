@@ -115,6 +115,126 @@ describe("CodexSessionManager", () => {
     manager.dispose();
     context.db.close();
   });
+
+  it("marks codex task runs failed when the worker exits non-zero", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-codex-session-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-codex-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        repoPath,
+      },
+    });
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Exercise the Codex failure path.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Failing Codex session task",
+    });
+
+    const fakePty = createFakePty();
+    const manager = new CodexSessionManager(context, () => undefined, {
+      now: () => new Date("2026-04-10T10:30:00.000Z"),
+      spawnPty: () => fakePty,
+    });
+
+    const taskRun = manager.startSession({
+      backlogItemId: createdBacklogItem.id,
+      projectId: fixture.project.id,
+    });
+
+    fakePty.emitExit(1);
+
+    expect(
+      listTaskRunsForProject(context, fixture.project.id).find(
+        (candidate) => candidate.id === taskRun.id,
+      )?.status,
+    ).toBe("failed");
+    expect(
+      listWorkerSessionsForProject(context, fixture.project.id).find((session) => {
+        return session.transcriptRef?.startsWith(`task-run:${taskRun.id}`);
+      })?.status,
+    ).toBe("failed");
+
+    manager.dispose();
+    context.db.close();
+  });
+
+  it("preserves cancelled codex task outcomes when the session later exits cleanly", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-codex-session-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-codex-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        repoPath,
+      },
+    });
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Exercise the Codex cancellation path.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Cancelled Codex session task",
+    });
+
+    const fakePty = createFakePty();
+    const manager = new CodexSessionManager(context, () => undefined, {
+      now: () => new Date("2026-04-10T11:00:00.000Z"),
+      spawnPty: () => fakePty,
+    });
+
+    const taskRun = manager.startSession({
+      backlogItemId: createdBacklogItem.id,
+      projectId: fixture.project.id,
+    });
+
+    fakePty.emitData(
+      `smithly-hook: ${JSON.stringify({
+        payload: {
+          id: taskRun.id,
+          status: "cancelled",
+          summaryText: "Cancelled after operator reprioritized the task.",
+        },
+        type: "task_outcome",
+      })}\n`,
+    );
+    fakePty.emitExit(0);
+
+    const cancelledTaskRun = listTaskRunsForProject(context, fixture.project.id).find(
+      (candidate) => {
+        return candidate.id === taskRun.id;
+      },
+    );
+
+    expect(cancelledTaskRun?.status).toBe("cancelled");
+    expect(cancelledTaskRun?.summaryText).toBe("Cancelled after operator reprioritized the task.");
+
+    manager.dispose();
+    context.db.close();
+  });
 });
 
 function createFakePty(): IFakePty {
