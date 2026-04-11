@@ -26,10 +26,12 @@ import {
 } from "./desktop-state.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
+import { VerificationManager } from "./verification-manager.ts";
 
 let storageContext: IStorageContext | null = null;
 let planningSessionManager: PlanningSessionManager | null = null;
 let codexSessionManager: CodexSessionManager | null = null;
+let verificationManager: VerificationManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 
@@ -53,8 +55,10 @@ export async function bootstrapDesktopApp(): Promise<void> {
   recoverOrphanedClaudeSessions(storageContext);
   planningSessionManager = createPlanningSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
+  verificationManager = createVerificationManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
+  verificationManager.processQueuedRuns();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -383,6 +387,8 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
         ),
       );
     }
+
+    verificationManager?.processQueuedRuns();
   });
 }
 
@@ -403,7 +409,13 @@ function createCodexSessionManager(context: IStorageContext): CodexSessionManage
         ),
       );
     }
+
+    verificationManager?.processQueuedRuns();
   });
+}
+
+function createVerificationManager(context: IStorageContext): VerificationManager {
+  return new VerificationManager(context);
 }
 
 function requirePlanningSessionManager(): PlanningSessionManager {
@@ -615,6 +627,7 @@ if (typeof app?.on === "function") {
     planningSessionManager = null;
     codexSessionManager?.dispose();
     codexSessionManager = null;
+    verificationManager = null;
     storageContext?.db.close();
     storageContext = null;
 

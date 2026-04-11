@@ -94,8 +94,8 @@
 
 ## Phase 8: Verification And Review
 
-49. `todo` Implement per-project verification pipelines
-50. `todo` Record verification runs and artifacts in storage
+49. `done` Implement per-project verification pipelines
+50. `done` Record verification runs and artifacts in storage
 51. `todo` Define per-task review mode: human review or AI peer review
 52. `todo` Add AI peer review flow where Claude reviews Codex work and Codex reviews Claude work
 53. `todo` Add human review hold state for tasks marked as requiring operator review

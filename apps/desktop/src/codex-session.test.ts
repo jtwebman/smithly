@@ -13,6 +13,7 @@ import {
   getBacklogItemById,
   listMemoryNotesForProject,
   listTaskRunsForProject,
+  listVerificationRunsForTask,
   listWorkerSessionsForProject,
   seedInitialState,
 } from "@smithly/storage";
@@ -110,6 +111,14 @@ describe("CodexSessionManager", () => {
     expect(summaryNote?.bodyText).toContain("worker: codex");
     expect(summaryNote?.bodyText).toContain(`taskRunId: ${taskRun.id}`);
     expect(completionNote?.title).toBe("Codex task completed");
+    expect(listVerificationRunsForTask(context, taskRun.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          commandText: "npm run check",
+          status: "queued",
+        }),
+      ]),
+    );
     expect(readFileSync(logFilePath ?? "", "utf8")).toContain('status":"done"');
 
     manager.dispose();
