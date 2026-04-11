@@ -17,9 +17,14 @@
 - Operator-visible live session UI is still useful, but long-term persistence should favor session summaries and references over full transcript duplication.
 - Keep the desktop UI focused on operator workflow, not permanent app chrome; app name/version should live in the window title bar or splash, not consume main workspace space.
 - The default app surface should be a project dashboard with title-card style project summaries, status/counts, and a clear add-project action.
-- Project creation may begin before a repo path is chosen, but project registration, archive, and other destructive actions remain human-driven in the desktop UI.
+- `Add Project` should open a Claude Code bootstrap session rooted at the operator home directory so project creation starts as chat, not a form.
+- The bootstrap chat should help the operator explore an idea, choose a name, pick a target folder, create or adopt a repo, draft an MVP plan, and turn that plan into backlog items before execution begins.
+- Smithly should only create the managed project record once Claude has enough concrete information to create or adopt the project folder and persist the initial planning state.
+- Manual project setup should be a fallback path, not the primary product flow.
 - Never delete projects from normal product flows; archive and reactivate instead.
 - Project detail pages should show upcoming and completed work, with task-level and project-level Claude session entry points.
+- Project detail should include a `Plan / Approve More` entry point that opens a Claude planning session with project context, active work context, and compact backlog summaries.
+- Operators should also be able to open a backlog-item-scoped planning chat from any draft or approved item and use that chat to refine, split, add, remove, and reprioritize related work.
 - Operator-opened Claude chats should live in resumable right-side panels/tabs and restore after app restart when possible.
 - Background orchestration sessions should continue without occupying the main UI; expose them as attachable buttons/panels the operator can open temporarily.
 
@@ -138,23 +143,33 @@
 
 ## Phase 14: Multi-Project Operation
 
-75. `todo` Implement project scheduling and runnable-work selection across running projects
-76. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
-77. `todo` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
-78. `todo` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
-79. `todo` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
-80. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
-81. `todo` Add quota and credit pause-resume handling
-82. `todo` Add dashboard summaries across all projects
-83. `todo` Add tests for multi-project scheduling behavior and backlog-generation loops
+75. `todo` Replace the `Add Project` modal-first flow with a chat-first Claude bootstrap session rooted at the operator home directory
+76. `todo` Add bootstrap-session MCP tools so Claude can create or adopt a project, choose a target folder, and persist the initial Smithly project record only after the operator confirms direction
+77. `todo` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
+78. `todo` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
+79. `todo` Add a `Plan / Approve More` project action that opens a Claude planning session with project context, active task context, and compact backlog/approved-work summaries
+80. `todo` Add backlog-item-scoped planning chats that start from a selected draft or approved item but can also revise, split, add, remove, and reorder related tasks
+81. `todo` Add Playwright coverage for project bootstrap, project-level planning continuation, and backlog-item-scoped planning flows
 
-## Phase 15: Smithly Builds Smithly
+## Phase 15: Multi-Project Operation
 
-84. `todo` Register Smithly as a managed project inside Smithly
-85. `todo` Create initial approved backlog items for Smithly inside Smithly
-86. `todo` Use Claude plus Codex through Smithly to complete a small Smithly task
-87. `todo` Record the first end-to-end self-hosted task run and lessons learned
-88. `todo` Tighten the design based on actual operator usage
+82. `todo` Implement project scheduling and runnable-work selection across running projects
+83. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
+84. `todo` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
+85. `todo` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
+86. `todo` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
+87. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
+88. `todo` Add quota and credit pause-resume handling
+89. `todo` Add dashboard summaries across all projects
+90. `todo` Add tests for multi-project scheduling behavior and backlog-generation loops
+
+## Phase 16: Smithly Builds Smithly
+
+91. `todo` Register Smithly as a managed project inside Smithly
+92. `todo` Create initial approved backlog items for Smithly inside Smithly
+93. `todo` Use Claude plus Codex through Smithly to complete a small Smithly task
+94. `todo` Record the first end-to-end self-hosted task run and lessons learned
+95. `todo` Tighten the design based on actual operator usage
 
 ## Near-Term Suggested Start Order
 
