@@ -10,6 +10,7 @@ Core model:
 
 - Smithly manages multiple local repositories
 - Smithly stays running as the control surface for those projects
+- Smithly runs a persistent MCP control-plane service while the app is open
 - the operator is the project manager and engineering reviewer
 - Claude Code acts primarily as the planning partner and review gate
 - Codex acts as the coding executor
@@ -24,6 +25,7 @@ Smithly should make it easy to:
 
 - create a new project through chat before any manual project setup exists
 - keep work moving across several local repos
+- attach external Claude Code or Codex CLI sessions from the operator's own terminal to the live Smithly control plane
 - chat with a project or a task without stopping background work
 - distinguish between tasks that are `ready` and tasks that are `approved`, and only start tasks when both are true
 - delegate scoped coding tasks to Codex
@@ -99,7 +101,8 @@ Smithly owns:
 - SQLite database
 - Claude session processes
 - Codex session processes
-- MCP server
+- always-on MCP control-plane service
+- stdio MCP bridge entrypoint for external Claude/Codex clients
 - hook event ingestion
 - verification runners
 - review orchestration
@@ -253,6 +256,11 @@ Primary chat surfaces in v1:
 - project review and approval chat
 - backlog-item-scoped planning chat
 
+External operator-driven terminal sessions should also be able to connect through Smithly MCP so the operator can choose between:
+
+- desktop-managed Claude or Codex panes
+- Claude Code or Codex sessions launched manually in a separate terminal
+
 These planning surfaces should also support backlog hygiene work such as:
 
 - splitting oversized tasks
@@ -263,9 +271,19 @@ These planning surfaces should also support backlog hygiene work such as:
 
 ## MCP Design
 
+Smithly MCP should be treated as the always-on control plane for the app, not just a per-session helper process.
+
+The app should:
+
+- start a persistent local Smithly MCP service while the desktop app is running
+- route desktop-managed Claude/Codex sessions through that service
+- expose a stdio bridge command so external Claude Code or Codex CLI sessions can attach to the same live Smithly state
+- support scoped context for external sessions such as global, project-scoped, or backlog-item-scoped access
+
 Smithly should expose MCP tools to Claude such as:
 
 - `list_projects`
+- `get_project_by_id`
 - `get_project_state`
 - `create_project_from_bootstrap`
 - `adopt_project_from_bootstrap`
