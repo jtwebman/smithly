@@ -36,6 +36,9 @@ import {
   type IStorageContext,
 } from "@smithly/storage";
 
+import { queueRequiredReviewRun, reconcileTaskReviewState } from "./task-review-policy.ts";
+import { queueProjectVerificationRuns } from "./verification-manager.ts";
+
 export type PlanningScope = "project" | "task";
 
 export interface IPlanningOutputEntry {
@@ -265,8 +268,9 @@ export class PlanningSessionManager {
       pty.onData((rawData) => {
         this.appendSessionLog(runtimeSession.logFilePath, rawData);
         this.touchWorkerSession(runtimeSession, "running");
+        const entries = this.persistOutput(runtimeSession, rawData);
         this.emitOutput({
-          entries: this.persistOutput(runtimeSession, rawData),
+          entries,
           rawData,
           terminalKey,
         });
@@ -706,6 +710,19 @@ export class PlanningSessionManager {
         ? { completedAt: timestamp }
         : {}),
     });
+
+    if (status === "done") {
+      const completedTaskRun = listTaskRunsForProject(this.context, session.projectId).find(
+        (taskRun) => taskRun.id === taskRunId,
+      );
+
+      if (completedTaskRun !== undefined) {
+        queueProjectVerificationRuns(this.context, completedTaskRun, timestamp);
+        queueRequiredReviewRun(this.context, completedTaskRun, timestamp);
+        reconcileTaskReviewState(this.context, completedTaskRun.id, timestamp);
+      }
+    }
+
     this.ingestHookMemoryNote(session, "Task outcome", `${taskRunId} updated from Claude hook.`);
   }
 

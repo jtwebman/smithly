@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   startCodexSession(backlogItemId, summaryText) {
     return ipcRenderer.invoke("smithly:codex-session:start", backlogItemId, summaryText);
   },
+  updateReviewRun(reviewRunId, status, summaryText) {
+    return ipcRenderer.invoke("smithly:review-run:update", reviewRunId, status, summaryText);
+  },
   writeCodexTerminal(terminalKey, data) {
     return ipcRenderer.invoke("smithly:codex-session:write", terminalKey, data);
   },

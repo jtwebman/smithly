@@ -1,9 +1,13 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+
+import type { ITaskRunRecord } from "@smithly/core";
 
 import {
   getProjectById,
+  parseProjectMetadata,
   listProjects,
   listTaskRunsForProject,
   listVerificationRunsForTask,
@@ -11,14 +15,18 @@ import {
   type IStorageContext,
 } from "@smithly/storage";
 
+import { reconcileTaskReviewState } from "./task-review-policy.ts";
+
 export interface IVerificationManagerOptions {
   readonly now?: () => Date;
+  readonly onUpdated?: () => void;
   readonly spawnProcess?: typeof spawn;
 }
 
 export class VerificationManager {
   private readonly activeVerificationRunIds = new Set<string>();
   private readonly now: () => Date;
+  private readonly onUpdated: () => void;
   private readonly spawnProcess: typeof spawn;
 
   public constructor(
@@ -26,6 +34,7 @@ export class VerificationManager {
     options: IVerificationManagerOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());
+    this.onUpdated = options.onUpdated ?? (() => undefined);
     this.spawnProcess = options.spawnProcess ?? spawn;
   }
 
@@ -74,6 +83,7 @@ export class VerificationManager {
       updatedAt: timestamp,
     });
     this.activeVerificationRunIds.add(verificationRun.id);
+    this.onUpdated();
 
     const shell = process.env.SHELL?.trim() || "/bin/sh";
     const childProcess = this.spawnProcess(shell, ["-lc", verificationRun.commandText], {
@@ -104,6 +114,43 @@ export class VerificationManager {
             : `Verification failed (${exitCode ?? "unknown"}).`,
         updatedAt: completedAt,
       });
+      reconcileTaskReviewState(this.context, taskRunId, completedAt);
+      this.onUpdated();
+    });
+  }
+}
+
+export function queueProjectVerificationRuns(
+  context: IStorageContext,
+  taskRun: ITaskRunRecord,
+  timestamp: string,
+): void {
+  const project = getProjectById(context, taskRun.projectId);
+
+  if (project === null) {
+    return;
+  }
+
+  const verificationCommands = parseProjectMetadata(project).verificationCommands;
+  const existingCommandSet = new Set(
+    listVerificationRunsForTask(context, taskRun.id).map((verificationRun) => {
+      return verificationRun.commandText;
+    }),
+  );
+
+  for (const commandText of verificationCommands) {
+    if (existingCommandSet.has(commandText)) {
+      continue;
+    }
+
+    upsertVerificationRun(context, {
+      commandText,
+      createdAt: timestamp,
+      id: `verification-${randomUUID()}`,
+      projectId: taskRun.projectId,
+      status: "queued",
+      taskRunId: taskRun.id,
+      updatedAt: timestamp,
     });
   }
 }

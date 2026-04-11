@@ -12,6 +12,7 @@ import {
   createInitialSeedFixture,
   getBacklogItemById,
   listMemoryNotesForProject,
+  listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
   listWorkerSessionsForProject,
@@ -106,11 +107,20 @@ describe("CodexSessionManager", () => {
     });
     const logFilePath = codexSession?.transcriptRef?.split("|log-file:")[1];
 
-    expect(completedTaskRun?.status).toBe("done");
+    expect(completedTaskRun?.status).toBe("awaiting_review");
     expect(completedTaskRun?.summaryText).toBe("Implemented the requested task.");
+    expect(getBacklogItemById(context, createdBacklogItem.id)?.status).toBe("in_progress");
     expect(summaryNote?.bodyText).toContain("worker: codex");
     expect(summaryNote?.bodyText).toContain(`taskRunId: ${taskRun.id}`);
     expect(completionNote?.title).toBe("Codex task completed");
+    expect(listReviewRunsForTask(context, taskRun.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reviewerKind: "human",
+          status: "queued",
+        }),
+      ]),
+    );
     expect(listVerificationRunsForTask(context, taskRun.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

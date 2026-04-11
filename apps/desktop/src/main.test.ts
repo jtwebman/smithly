@@ -144,12 +144,31 @@ describe("desktop bootstrap", () => {
             "state comes from SQLite",
           ],
           id: "backlog-bootstrap-ui",
+          pendingHumanReviewRunId: "review-bootstrap-ui",
           priority: 90,
+          reviewHistory: [
+            {
+              id: "review-bootstrap-ui",
+              status: "queued",
+              subtitle: "human review",
+              timestamp: "2026-04-10T07:05:00.000Z",
+              title: "human review",
+            },
+          ],
           reviewMode: "human",
           riskLevel: "medium",
           scopeSummary: "Create the first desktop shell and show one managed project.",
           status: "approved",
           title: "Bootstrap the desktop shell",
+          verificationHistory: [
+            {
+              id: "verification-bootstrap-ui",
+              status: "queued",
+              subtitle: "npm run check",
+              timestamp: "2026-04-10T07:05:00.000Z",
+              title: "npm run check",
+            },
+          ],
         },
         selectedBacklogItemId: "backlog-bootstrap-ui",
         taskRuns: [

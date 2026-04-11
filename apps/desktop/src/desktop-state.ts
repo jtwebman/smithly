@@ -95,13 +95,16 @@ export interface IDesktopChatMessage {
 
 export interface IDesktopBacklogDetail {
   readonly id: string;
+  readonly pendingHumanReviewRunId?: string;
   readonly title: string;
   readonly priority: number;
+  readonly reviewHistory: readonly IDesktopListItem[];
   readonly reviewMode: string;
   readonly riskLevel: string;
   readonly status: string;
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
+  readonly verificationHistory: readonly IDesktopListItem[];
 }
 
 export interface IDesktopPlanningSession {
@@ -219,6 +222,10 @@ function buildSelectedProject(
   const taskPlanningSession = taskPlanningThread
     ? findPlanningSession(workerSessions, taskPlanningThread.id)
     : undefined;
+  const pendingHumanReviewRunId =
+    selectedBacklogItem !== undefined
+      ? findPendingHumanReviewRunId(context, projectId, selectedBacklogItem.id)
+      : undefined;
   const codexSessions = taskRuns.flatMap((taskRun) => {
     const codexSession = findCodexSession(workerSessions, taskRun.id);
     const codexBacklogItem = backlogItems.find(
@@ -352,11 +359,18 @@ function buildSelectedProject(
             acceptanceCriteria: parseAcceptanceCriteria(selectedBacklogItem.acceptanceCriteriaJson),
             id: selectedBacklogItem.id,
             priority: selectedBacklogItem.priority,
+            reviewHistory: buildReviewHistory(context, projectId, selectedBacklogItem.id),
             reviewMode: selectedBacklogItem.reviewMode,
             riskLevel: selectedBacklogItem.riskLevel,
             scopeSummary: selectedBacklogItem.scopeSummary ?? "",
             status: selectedBacklogItem.status,
             title: selectedBacklogItem.title,
+            verificationHistory: buildVerificationHistory(
+              context,
+              projectId,
+              selectedBacklogItem.id,
+            ),
+            ...(pendingHumanReviewRunId !== undefined ? { pendingHumanReviewRunId } : {}),
           },
         }
       : {}),
@@ -392,6 +406,57 @@ function buildSelectedProject(
         }
       : {}),
   };
+}
+
+function buildVerificationHistory(
+  context: IStorageContext,
+  projectId: string,
+  backlogItemId: string,
+): readonly IDesktopListItem[] {
+  return listTaskRunsForProject(context, projectId)
+    .filter((taskRun) => taskRun.backlogItemId === backlogItemId)
+    .flatMap((taskRun) =>
+      listVerificationRunsForTask(context, taskRun.id).map((verificationRun) => ({
+        id: verificationRun.id,
+        status: verificationRun.status,
+        subtitle: verificationRun.summaryText ?? verificationRun.commandText,
+        timestamp: verificationRun.updatedAt,
+        title: verificationRun.commandText,
+      })),
+    )
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+function buildReviewHistory(
+  context: IStorageContext,
+  projectId: string,
+  backlogItemId: string,
+): readonly IDesktopListItem[] {
+  return listTaskRunsForProject(context, projectId)
+    .filter((taskRun) => taskRun.backlogItemId === backlogItemId)
+    .flatMap((taskRun) =>
+      listReviewRunsForTask(context, taskRun.id).map((reviewRun) => ({
+        id: reviewRun.id,
+        status: reviewRun.status,
+        subtitle: reviewRun.summaryText ?? `${reviewRun.reviewerKind} review`,
+        timestamp: reviewRun.updatedAt,
+        title: `${reviewRun.reviewerKind} review`,
+      })),
+    )
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+function findPendingHumanReviewRunId(
+  context: IStorageContext,
+  projectId: string,
+  backlogItemId: string,
+): string | undefined {
+  return listTaskRunsForProject(context, projectId)
+    .filter((taskRun) => taskRun.backlogItemId === backlogItemId)
+    .flatMap((taskRun) => listReviewRunsForTask(context, taskRun.id))
+    .find((reviewRun) => {
+      return reviewRun.reviewerKind === "human" && ["queued", "running"].includes(reviewRun.status);
+    })?.id;
 }
 
 function findPlanningSession(

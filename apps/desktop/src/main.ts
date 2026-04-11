@@ -26,12 +26,15 @@ import {
 } from "./desktop-state.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
+import { ReviewManager } from "./review-manager.ts";
+import { updateReviewRunDecision } from "./task-review-policy.ts";
 import { VerificationManager } from "./verification-manager.ts";
 
 let storageContext: IStorageContext | null = null;
 let planningSessionManager: PlanningSessionManager | null = null;
 let codexSessionManager: CodexSessionManager | null = null;
 let verificationManager: VerificationManager | null = null;
+let reviewManager: ReviewManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 
@@ -56,9 +59,11 @@ export async function bootstrapDesktopApp(): Promise<void> {
   planningSessionManager = createPlanningSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
+  reviewManager = createReviewManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
   verificationManager.processQueuedRuns();
+  reviewManager.processQueuedRuns();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -328,6 +333,26 @@ function registerDesktopHandlers(context: IStorageContext): void {
     },
   );
 
+  ipcMain.removeHandler("smithly:review-run:update");
+  ipcMain.handle(
+    "smithly:review-run:update",
+    (
+      _event,
+      reviewRunId: string,
+      status: "approved" | "changes_requested",
+      summaryText?: string,
+    ): IDesktopStatus => {
+      updateReviewRunDecision(context, reviewRunId, status, new Date().toISOString(), summaryText);
+      reviewManager?.processQueuedRuns();
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      );
+    },
+  );
+
   ipcMain.removeHandler("smithly:ui-state:get");
   ipcMain.handle("smithly:ui-state:get", (): IDesktopUiStateSnapshot => {
     return readDesktopUiState(context.config.storage.dataDirectory);
@@ -374,21 +399,11 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
   return new PlanningSessionManager(context, (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("smithly:planning-output", event);
-      window.webContents.send(
-        "smithly:desktop-status-updated",
-        buildDesktopStatus(
-          context,
-          resolveDesktopThemeMode(
-            context.config.ui.themePreference,
-            nativeTheme.shouldUseDarkColors,
-          ),
-          selectedProjectId,
-          selectedBacklogItemId,
-        ),
-      );
     }
 
+    broadcastDesktopStatus(context);
     verificationManager?.processQueuedRuns();
+    reviewManager?.processQueuedRuns();
   });
 }
 
@@ -396,26 +411,43 @@ function createCodexSessionManager(context: IStorageContext): CodexSessionManage
   return new CodexSessionManager(context, (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("smithly:codex-output", event);
-      window.webContents.send(
-        "smithly:desktop-status-updated",
-        buildDesktopStatus(
-          context,
-          resolveDesktopThemeMode(
-            context.config.ui.themePreference,
-            nativeTheme.shouldUseDarkColors,
-          ),
-          selectedProjectId,
-          selectedBacklogItemId,
-        ),
-      );
     }
 
+    broadcastDesktopStatus(context);
     verificationManager?.processQueuedRuns();
+    reviewManager?.processQueuedRuns();
   });
 }
 
 function createVerificationManager(context: IStorageContext): VerificationManager {
-  return new VerificationManager(context);
+  return new VerificationManager(context, {
+    onUpdated: () => {
+      broadcastDesktopStatus(context);
+      reviewManager?.processQueuedRuns();
+    },
+  });
+}
+
+function createReviewManager(context: IStorageContext): ReviewManager {
+  return new ReviewManager(context, {
+    onUpdated: () => {
+      broadcastDesktopStatus(context);
+    },
+  });
+}
+
+function broadcastDesktopStatus(context: IStorageContext): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(
+      "smithly:desktop-status-updated",
+      buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      ),
+    );
+  }
 }
 
 function requirePlanningSessionManager(): PlanningSessionManager {

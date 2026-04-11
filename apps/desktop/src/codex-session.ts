@@ -21,19 +21,19 @@ import {
   listApprovalsForProject,
   listBlockersForProject,
   listMemoryNotesForProject,
-  listVerificationRunsForTask,
   listProjects,
   listTaskRunsForProject,
-  parseProjectMetadata,
   startCodingTask,
   upsertApproval,
   upsertBlocker,
   upsertMemoryNote,
   upsertTaskRun,
-  upsertVerificationRun,
   upsertWorkerSession,
   type IStorageContext,
 } from "@smithly/storage";
+
+import { queueProjectVerificationRuns } from "./verification-manager.ts";
+import { queueRequiredReviewRun, reconcileTaskReviewState } from "./task-review-policy.ts";
 
 export interface ICodexOutputEvent {
   readonly terminalKey: string;
@@ -214,11 +214,11 @@ export class CodexSessionManager {
       pty.onData((rawData) => {
         this.appendSessionLog(runtimeSession.logFilePath, rawData);
         this.touchWorkerSession(runtimeSession, "running");
+        this.persistOutput(runtimeSession, rawData);
         this.emitOutput({
           rawData,
           terminalKey,
         });
-        this.persistOutput(runtimeSession, rawData);
       });
       pty.onExit(({ exitCode }) => {
         const closedSession = this.sessions.get(taskRun.id);
@@ -553,7 +553,9 @@ export class CodexSessionManager {
         });
       }
 
-      this.queueProjectVerificationRuns(taskRun, timestamp);
+      queueProjectVerificationRuns(this.context, taskRun, timestamp);
+      queueRequiredReviewRun(this.context, taskRun, timestamp);
+      reconcileTaskReviewState(this.context, taskRun.id, timestamp);
     }
 
     this.upsertSessionSummary(
@@ -571,37 +573,6 @@ export class CodexSessionManager {
 
   private createTranscriptRef(taskRunId: string, logFilePath: string): string {
     return `task-run:${taskRunId}|log-file:${logFilePath}`;
-  }
-
-  private queueProjectVerificationRuns(taskRun: ITaskRunRecord, timestamp: string): void {
-    const project = getProjectById(this.context, taskRun.projectId);
-
-    if (project === null) {
-      return;
-    }
-
-    const verificationCommands = parseProjectMetadata(project).verificationCommands;
-    const existingCommandSet = new Set(
-      listVerificationRunsForTask(this.context, taskRun.id).map((verificationRun) => {
-        return verificationRun.commandText;
-      }),
-    );
-
-    for (const commandText of verificationCommands) {
-      if (existingCommandSet.has(commandText)) {
-        continue;
-      }
-
-      upsertVerificationRun(this.context, {
-        commandText,
-        createdAt: timestamp,
-        id: `verification-${randomUUID()}`,
-        projectId: taskRun.projectId,
-        status: "queued",
-        taskRunId: taskRun.id,
-        updatedAt: timestamp,
-      });
-    }
   }
 
   private resolveSessionLogPath(workerSessionId: string): string {

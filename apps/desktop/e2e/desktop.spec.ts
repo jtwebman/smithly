@@ -362,6 +362,8 @@ test("operator can keep multiple Claude panes open and switch between them", asy
     );
 
     await window.locator("#planning-pane-tabs .session-tab:has-text('Project Chat')").click();
+    await window.locator("#project-planning-button").click();
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
     await expect(window.locator("#planning-history")).toContainText(
       "Plan the minimal desktop shell needed for the first usable UI.",
     );
@@ -405,11 +407,74 @@ test("operator can start a Codex task session and attach to its terminal pane", 
 
     await window.keyboard.type("complete task: Finished the requested desktop slice.");
     await window.keyboard.press("Enter");
-    await expect(window.locator("#task-list")).toContainText(
+    await expect(window.locator("#backlog-list")).toContainText(
       "Finished the requested desktop slice.",
     );
-    await expect(window.locator("#event-log")).toContainText("Codex task completed");
+    await expect(window.locator("#selected-backlog-review-history")).toContainText("human review");
   } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("selected backlog detail shows verification and review history with human review controls", async () => {
+  const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-review-ui-project-"));
+  mkdirSync(join(localRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await window.locator("#open-project-creator-button").click();
+    await window.locator("#project-registration-path").fill(localRepoDirectory);
+    await window.locator("#project-registration-name").fill("Review Fixture");
+    await window
+      .locator("#project-registration-verification")
+      .fill(`${process.execPath} -e "process.exit(0)"`);
+    await window.locator("#save-project-button").click();
+
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window.locator("#project-planning-button").click();
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "create draft: Review-ready task | Exercise verification history and operator review controls.",
+    );
+    await window.keyboard.press("Enter");
+
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Review-ready task" })
+      .locator("button:has-text('Focus')")
+      .click();
+    await window.locator("#task-planning-button").click();
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "revise task: Exercise verification history and operator review controls. | Review stays blocked until the operator approves it. |  | approved | 30 | medium | human",
+    );
+    await window.keyboard.press("Enter");
+
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Review-ready task" })
+      .locator("button:has-text('Start Coding Task')")
+      .click();
+    await window.locator("#codex-terminal .xterm-screen").click();
+    await window.keyboard.type("complete task: Review fixture implementation finished.");
+    await window.keyboard.press("Enter");
+
+    await expect(window.locator("#selected-backlog-review-history")).toContainText("human review");
+    await expect(window.locator("#selected-backlog-review-actions")).toContainText(
+      "Approve Review",
+    );
+    await expect(window.locator("#selected-backlog-verification-history")).toContainText(
+      "Verification passed.",
+    );
+
+    await window
+      .locator("#selected-backlog-review-actions button:has-text('Approve Review')")
+      .click();
+    await expect(window.locator("#selected-backlog-status")).toHaveText("done");
+    await expect(window.locator("#selected-backlog-review-history")).toContainText("approved");
+  } finally {
+    rmSync(localRepoDirectory, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });

@@ -95,13 +95,16 @@ interface DesktopChatMessage {
 
 interface DesktopBacklogDetail {
   readonly id: string;
+  readonly pendingHumanReviewRunId?: string;
   readonly title: string;
   readonly priority: number;
+  readonly reviewHistory: readonly DesktopListItem[];
   readonly reviewMode: string;
   readonly riskLevel: string;
   readonly status: string;
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
+  readonly verificationHistory: readonly DesktopListItem[];
 }
 
 interface DesktopPlanningSession {
@@ -152,6 +155,11 @@ interface SmithlyDesktopApi {
   setProjectStatus(projectId: string, status: "active" | "archived"): Promise<DesktopStatus>;
   updateProject(
     input: DesktopProjectRegistrationInput & { projectId: string },
+  ): Promise<DesktopStatus>;
+  updateReviewRun(
+    reviewRunId: string,
+    status: "approved" | "changes_requested",
+    summaryText?: string,
   ): Promise<DesktopStatus>;
   ensurePlanningSession(scope: PlanningScope, backlogItemId?: string): Promise<DesktopStatus>;
   ensureCodexSession(taskRunId: string): Promise<DesktopStatus>;
@@ -267,6 +275,11 @@ const selectedBacklogStatusNode = document.getElementById("selected-backlog-stat
 const selectedBacklogMetaNode = document.getElementById("selected-backlog-meta");
 const selectedBacklogScopeNode = document.getElementById("selected-backlog-scope");
 const selectedBacklogCriteriaNode = document.getElementById("selected-backlog-criteria");
+const selectedBacklogReviewActionsNode = document.getElementById("selected-backlog-review-actions");
+const selectedBacklogReviewHistoryNode = document.getElementById("selected-backlog-review-history");
+const selectedBacklogVerificationHistoryNode = document.getElementById(
+  "selected-backlog-verification-history",
+);
 const codexTerminalNode = document.getElementById("codex-terminal");
 
 let currentStatus: DesktopStatus | null = null;
@@ -921,23 +934,108 @@ function renderSelectedBacklog(backlogItem?: DesktopBacklogDetail): void {
       "Project planning is active. Switch to task planning to focus one backlog item.",
   );
 
-  if (selectedBacklogCriteriaNode === null) {
+  if (selectedBacklogCriteriaNode !== null) {
+    selectedBacklogCriteriaNode.innerHTML = "";
+
+    if (backlogItem === undefined || backlogItem.acceptanceCriteria.length === 0) {
+      const emptyNode = document.createElement("li");
+      emptyNode.textContent = "No acceptance criteria recorded yet.";
+      selectedBacklogCriteriaNode.append(emptyNode);
+    } else {
+      for (const criterion of backlogItem.acceptanceCriteria) {
+        const item = document.createElement("li");
+        item.textContent = criterion;
+        selectedBacklogCriteriaNode.append(item);
+      }
+    }
+  }
+
+  renderBacklogReviewActions(backlogItem);
+  renderHistoryList(
+    selectedBacklogReviewHistoryNode,
+    backlogItem?.reviewHistory ?? [],
+    "No review history recorded yet.",
+  );
+  renderHistoryList(
+    selectedBacklogVerificationHistoryNode,
+    backlogItem?.verificationHistory ?? [],
+    "No verification history recorded yet.",
+  );
+}
+
+function renderBacklogReviewActions(backlogItem?: DesktopBacklogDetail): void {
+  if (selectedBacklogReviewActionsNode === null) {
     return;
   }
 
-  selectedBacklogCriteriaNode.innerHTML = "";
+  selectedBacklogReviewActionsNode.innerHTML = "";
 
-  if (backlogItem === undefined || backlogItem.acceptanceCriteria.length === 0) {
-    const emptyNode = document.createElement("li");
-    emptyNode.textContent = "No acceptance criteria recorded yet.";
-    selectedBacklogCriteriaNode.append(emptyNode);
+  const pendingHumanReviewRunId = backlogItem?.pendingHumanReviewRunId;
+
+  if (pendingHumanReviewRunId === undefined) {
     return;
   }
 
-  for (const criterion of backlogItem.acceptanceCriteria) {
-    const item = document.createElement("li");
-    item.textContent = criterion;
-    selectedBacklogCriteriaNode.append(item);
+  const approveButton = document.createElement("button");
+  approveButton.type = "button";
+  approveButton.textContent = "Approve Review";
+  approveButton.addEventListener("click", async () => {
+    renderDesktopStatus(
+      await window.smithlyDesktop.updateReviewRun(
+        pendingHumanReviewRunId,
+        "approved",
+        "Operator approved the task.",
+      ),
+    );
+  });
+
+  const requestChangesButton = document.createElement("button");
+  requestChangesButton.type = "button";
+  requestChangesButton.textContent = "Request Changes";
+  requestChangesButton.addEventListener("click", async () => {
+    renderDesktopStatus(
+      await window.smithlyDesktop.updateReviewRun(
+        pendingHumanReviewRunId,
+        "changes_requested",
+        "Operator requested follow-up changes.",
+      ),
+    );
+  });
+
+  selectedBacklogReviewActionsNode.append(approveButton, requestChangesButton);
+}
+
+function renderHistoryList(
+  node: HTMLElement | null,
+  items: readonly DesktopListItem[],
+  emptyLabel: string,
+): void {
+  if (node === null) {
+    return;
+  }
+
+  node.innerHTML = "";
+
+  if (items.length === 0) {
+    const emptyNode = document.createElement("p");
+    emptyNode.className = "empty-state";
+    emptyNode.textContent = emptyLabel;
+    node.append(emptyNode);
+    return;
+  }
+
+  for (const item of items) {
+    const article = document.createElement("article");
+    article.className = "list-card";
+    article.innerHTML = `
+      <div class="list-card__row">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="list-status">${escapeHtml(item.status)}</span>
+      </div>
+      <p>${escapeHtml(item.subtitle)}</p>
+      <time>${escapeHtml(item.timestamp)}</time>
+    `;
+    node.append(article);
   }
 }
 
