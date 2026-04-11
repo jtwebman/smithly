@@ -59,7 +59,7 @@
 23. `done` Implement project registration for local repo paths
 24. `done` Store per-project metadata, verification commands, and approval policy
 25. `done` Add project dashboard UI to create, edit, archive, reactivate, and open project detail pages
-26. `todo` Add project detail UI for upcoming/completed tasks and project-level controls
+26. `done` Add project detail UI for upcoming/completed tasks and project-level controls
 27. `todo` Support draft and approved backlog items with priority, scope, risk, and review metadata
 28. `todo` Add tests for project registration and backlog flows
 

@@ -583,17 +583,29 @@ function applyTheme(mode: "dark" | "light"): void {
 
 function renderSelectedProject(status: DesktopStatus): void {
   const selectedProject = status.selectedProject;
+  const upcomingWorkItems = [
+    ...(selectedProject?.backlogItems ?? []).filter(
+      (item) => !["done", "cancelled"].includes(item.status),
+    ),
+    ...(selectedProject?.taskRuns ?? []).filter(
+      (item) => !["done", "cancelled"].includes(item.status),
+    ),
+  ];
+  const completedWorkItems = [
+    ...(selectedProject?.backlogItems ?? []).filter((item) =>
+      ["done", "cancelled"].includes(item.status),
+    ),
+    ...(selectedProject?.taskRuns ?? []).filter((item) =>
+      ["done", "cancelled"].includes(item.status),
+    ),
+  ];
 
   renderList(
     backlogListNode,
-    selectedProject?.backlogItems ?? [],
-    "No backlog items are available for the selected project.",
+    upcomingWorkItems,
+    "No upcoming work is queued for the selected project.",
   );
-  renderList(
-    taskListNode,
-    selectedProject?.taskRuns ?? [],
-    "No task runs are active for the selected project.",
-  );
+  renderList(taskListNode, completedWorkItems, "No completed work has been recorded yet.");
   renderList(
     approvalsListNode,
     selectedProject?.approvals ?? [],

@@ -533,24 +533,33 @@
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Backlog And Tasks</h2>
-                <p>Selected-project work definition and current task execution state.</p>
+                <h2>Upcoming Work</h2>
+                <p>Selected-project backlog and active task runs that still need attention.</p>
               </div>
             </div>
             <div class="stack" id="backlog-list"></div>
-            <div class="stack" id="task-list"></div>
           </div>
 
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Approvals And Blockers</h2>
-                <p>Operator decisions and current unresolved work constraints.</p>
+                <h2>Completed Work</h2>
+                <p>Finished or cancelled work for the selected project.</p>
               </div>
             </div>
-            <div class="stack" id="approvals-list"></div>
-            <div class="stack" id="blockers-list"></div>
+            <div class="stack" id="task-list"></div>
           </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Approvals And Blockers</h2>
+              <p>Operator decisions and unresolved constraints for the selected project.</p>
+            </div>
+          </div>
+          <div class="stack" id="approvals-list"></div>
+          <div class="stack" id="blockers-list"></div>
         </section>
 
         <section class="workspace-tertiary">

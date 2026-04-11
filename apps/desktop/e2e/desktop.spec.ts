@@ -158,8 +158,13 @@ test("desktop shell shows the seeded dashboard and attaches a project planning s
     await expect(window.locator("#project-list")).toContainText(
       "Approval: new backlog, scope changes, high risk",
     );
+    await expect(window.getByRole("heading", { name: "Upcoming Work" })).toBeVisible();
+    await expect(window.getByRole("heading", { name: "Completed Work" })).toBeVisible();
     await expect(window.locator("#backlog-list")).toContainText("Bootstrap the desktop shell");
-    await expect(window.locator("#task-list")).toContainText("taskrun-bootstrap-ui");
+    await expect(window.locator("#backlog-list")).toContainText("taskrun-bootstrap-ui");
+    await expect(window.locator("#task-list")).toContainText(
+      "No completed work has been recorded yet.",
+    );
     await expect(window.locator("#approvals-list")).toContainText("Approve shell bootstrap work");
     await expect(window.locator("#blockers-list")).toContainText(
       "Need terminal integration decision",
@@ -219,7 +224,7 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
   });
 
   try {
-    await expect(window.locator("#backlog-list .list-card")).toHaveCount(1);
+    await expect(window.locator("#backlog-list .list-card")).toHaveCount(2);
 
     await window
       .locator("#planning-input")
@@ -228,7 +233,7 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
       );
     await window.locator("#planning-input-form button").click();
 
-    await expect(window.locator("#backlog-list .list-card")).toHaveCount(2);
+    await expect(window.locator("#backlog-list .list-card")).toHaveCount(3);
     await expect(window.locator("#backlog-list")).toContainText("Add Smithly MCP write path");
     await expect(window.locator("#backlog-list")).toContainText(
       "Create draft backlog items through planning MCP tools.",
