@@ -115,10 +115,12 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
     await expect(window.locator("#project-list .project-card")).toHaveCount(2);
 
     await window.locator("#project-list .project-card button[data-project-id]").first().click();
-    await expect(window.locator("#project-detail-title")).toHaveText(
-      "Project detail: Project Alpha",
+    await expect(window.locator("#project-workspace")).toBeVisible();
+    await expect(window.locator("#project-workspace-title")).toHaveText(
+      "Project workspace: Project Alpha",
     );
 
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#project-edit-button").click();
     await expect(window.locator("#project-creator-modal")).toBeVisible();
     await expect(window.locator("#project-registration-status")).toContainText(
@@ -128,8 +130,8 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
     await window.locator("#save-project-button").click();
 
     await expect(window.locator("#project-list")).toContainText("Project Alpha Prime");
-    await expect(window.locator("#project-detail-title")).toHaveText(
-      "Project detail: Project Alpha Prime",
+    await expect(window.locator("#project-workspace-title")).toHaveText(
+      "Project workspace: Project Alpha Prime",
     );
 
     await window.locator("#project-archive-button").click();
@@ -160,6 +162,10 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
     await expect(window.locator("#project-list")).toContainText(
       "Approval: new backlog, scope changes, high risk",
     );
+    await expect(window.locator("#project-workspace")).toBeHidden();
+
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#project-workspace")).toBeVisible();
     await expect(window.getByRole("heading", { name: "Upcoming Work" })).toBeVisible();
     await expect(window.getByRole("heading", { name: "Completed Work" })).toBeVisible();
     await expect(window.locator("#backlog-list")).toContainText("Bootstrap the desktop shell");
@@ -175,6 +181,7 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
     await expect(window.locator("#blockers-list")).toContainText(
       "Need terminal integration decision",
     );
+    await expect(window.locator("#orchestration-shell")).toBeHidden();
     await expect(window.locator("#planning-title")).toHaveText("No planning thread");
     await expect(window.locator("#planning-history")).toContainText(
       "No planning transcript has been recorded yet.",
@@ -183,9 +190,6 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
       "Open a project or task Claude session to begin.",
     );
     await expect(window.locator("#terminal-caption")).toContainText(
-      "Open a Claude pane to attach a planning session.",
-    );
-    await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "Open a Claude pane to attach a planning session.",
     );
   } finally {
@@ -200,10 +204,9 @@ test("operator can interact with the project planning TUI through xterm", async 
   });
 
   try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#project-planning-button").click();
-    await expect(window.locator("#terminal .xterm-rows")).toContainText(
-      "mock claude ready for project planning",
-    );
     await window.locator("#terminal .xterm-screen").click();
     await window.keyboard.type("Summarize the next v1 planning slice.");
     await window.keyboard.press("Enter");
@@ -222,6 +225,8 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
   });
 
   try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#project-planning-button").click();
     await expect(window.locator("#backlog-list .list-card")).toHaveCount(2);
     await window.locator("#terminal .xterm-screen").click();
@@ -250,6 +255,8 @@ test("operator can switch to task planning and attach a task-scoped Claude sessi
   });
 
   try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#backlog-list .list-card button").first().click();
     await window.locator("#task-planning-button").click();
 
@@ -283,6 +290,8 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
   });
 
   try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#backlog-list .list-card button").first().click();
     await window.locator("#task-planning-button").click();
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
@@ -322,8 +331,10 @@ test("operator can keep multiple Claude panes open and switch between them", asy
   });
 
   try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
     await expect(window.locator("#planning-pane-tabs")).toContainText("No Claude panes are open.");
 
+    await window.locator("#show-orchestration-button").click();
     await window.locator("#project-planning-button").click();
     await expect(window.locator("#planning-pane-tabs")).toContainText("Project Chat");
     await expect(window.locator("#planning-history")).toContainText(
@@ -367,10 +378,6 @@ test("desktop shell supports explicit light theme preference", async () => {
 
   try {
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
-    await window.locator("#project-planning-button").click();
-    await expect(window.locator("#terminal .xterm-rows")).toContainText(
-      "mock claude ready for project planning",
-    );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
@@ -409,6 +416,30 @@ test("project creator opens as a large chat-style modal", async () => {
     await expect(window.locator("#project-list")).toContainText("Modal Project");
   } finally {
     rmSync(localRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("project workspace hides orchestration until requested", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#project-workspace")).toBeVisible();
+    await expect(window.locator("#orchestration-shell")).toBeHidden();
+
+    await window.locator("#show-orchestration-button").click();
+    await expect(window.locator("#orchestration-shell")).toBeVisible();
+
+    await window.locator("#hide-orchestration-button").click();
+    await expect(window.locator("#orchestration-shell")).toBeHidden();
+
+    await window.locator("#close-project-workspace-button").click();
+    await expect(window.locator("#project-workspace")).toBeHidden();
+  } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
 });

@@ -149,6 +149,18 @@ const themeNode = document.getElementById("theme-mode");
 const dataDirectoryNode = document.getElementById("data-directory");
 const projectCountNode = document.getElementById("project-count");
 const projectListNode = document.getElementById("project-list");
+const projectWorkspaceNode = document.getElementById("project-workspace");
+const projectWorkspaceTitleNode = document.getElementById("project-workspace-title");
+const closeProjectWorkspaceButton = document.getElementById(
+  "close-project-workspace-button",
+) as HTMLButtonElement | null;
+const showOrchestrationButton = document.getElementById(
+  "show-orchestration-button",
+) as HTMLButtonElement | null;
+const orchestrationShellNode = document.getElementById("orchestration-shell");
+const hideOrchestrationButton = document.getElementById(
+  "hide-orchestration-button",
+) as HTMLButtonElement | null;
 const projectCreatorModalNode = document.getElementById("project-creator-modal");
 const projectCreatorTitleNode = document.getElementById("project-creator-title");
 const openProjectCreatorButton = document.getElementById(
@@ -223,6 +235,8 @@ let currentTerminalSignature = "";
 let editingProjectId: string | null = null;
 let activePlanningPaneKey: SessionPaneKey | null = null;
 let openPlanningPaneKeys: SessionPaneKey[] = [];
+let isProjectWorkspaceOpen = false;
+let isOrchestrationVisible = false;
 const terminalBuffers = new Map<string, string[]>();
 let terminalResizeObserver: ResizeObserver | null = null;
 
@@ -290,10 +304,11 @@ function renderProjects(status: DesktopStatus): void {
         </div>
       </dl>
       <div class="project-card__actions">
-        <button type="button" data-project-id="${escapeHtml(project.id)}">Open Project</button>
+        <button type="button" data-project-id="${escapeHtml(project.id)}">Open Workspace</button>
       </div>
     `;
     article.querySelector("button")?.addEventListener("click", async () => {
+      isProjectWorkspaceOpen = true;
       renderDesktopStatus(await window.smithlyDesktop.selectProject(project.id));
     });
     projectListNode.append(article);
@@ -512,6 +527,34 @@ function updateTerminalTheme(mode: "dark" | "light"): void {
         };
 }
 
+function renderWorkspaceVisibility(status: DesktopStatus): void {
+  const hasSelectedProject = status.selectedProject !== undefined;
+  const showWorkspace = isProjectWorkspaceOpen && hasSelectedProject;
+  const showOrchestration = showWorkspace && isOrchestrationVisible;
+
+  projectWorkspaceNode?.toggleAttribute("hidden", !showWorkspace);
+  orchestrationShellNode?.toggleAttribute("hidden", !showOrchestration);
+
+  if (projectWorkspaceTitleNode !== null) {
+    const selectedProjectName = status.projects.find(
+      (project) => project.id === status.selectedProjectId,
+    )?.name;
+    projectWorkspaceTitleNode.textContent = selectedProjectName
+      ? `Project workspace: ${selectedProjectName}`
+      : "Project workspace";
+  }
+
+  if (showOrchestrationButton !== null) {
+    showOrchestrationButton.disabled = !hasSelectedProject;
+  }
+
+  if (showOrchestration) {
+    window.requestAnimationFrame(() => {
+      refitVisibleTerminal(status);
+    });
+  }
+}
+
 function renderPlanningPane(status: DesktopStatus): void {
   const activeThread = getActivePlanningThread(status, activePlanningPaneKey);
   const activeSession = getActivePlanningSession(status, activePlanningPaneKey);
@@ -536,8 +579,8 @@ function renderPlanningPane(status: DesktopStatus): void {
 
   if (projectDetailTitleNode !== null) {
     projectDetailTitleNode.textContent = selectedProjectSummary
-      ? `Project detail: ${selectedProjectSummary.name}`
-      : "Project detail";
+      ? `Project orchestration: ${selectedProjectSummary.name}`
+      : "Project orchestration";
   }
 
   if (projectEditButton !== null) {
@@ -703,7 +746,7 @@ function syncTerminalPane(status: DesktopStatus): void {
     status.resolvedThemeMode,
   ].join(":");
 
-  if (terminal === null || signature === currentTerminalSignature) {
+  if (terminal === null || signature === currentTerminalSignature || !isOrchestrationVisible) {
     return;
   }
 
@@ -732,6 +775,26 @@ function syncTerminalPane(status: DesktopStatus): void {
   }
 
   fitAddon?.fit();
+  void window.smithlyDesktop.resizePlanningTerminal(
+    activeSession.terminalKey,
+    terminal.cols,
+    terminal.rows,
+  );
+}
+
+function refitVisibleTerminal(status: DesktopStatus): void {
+  if (terminal === null || !isOrchestrationVisible) {
+    return;
+  }
+
+  fitAddon?.fit();
+
+  const activeSession = getActivePlanningSession(status, activePlanningPaneKey);
+
+  if (activeSession === undefined) {
+    return;
+  }
+
   void window.smithlyDesktop.resizePlanningTerminal(
     activeSession.terminalKey,
     terminal.cols,
@@ -783,6 +846,7 @@ function renderDesktopStatus(status: DesktopStatus): void {
   setNodeText(dataDirectoryNode, status.dataDirectory);
   setNodeText(projectCountNode, String(status.projectCount));
   renderProjects(status);
+  renderWorkspaceVisibility(status);
   renderSelectedProject(status);
   setNodeText(shellStatusNode, "Shell ready");
 }
@@ -997,6 +1061,33 @@ projectCreatorModalNode?.addEventListener("click", (event) => {
   if (event.target === projectCreatorModalNode) {
     setProjectCreatorModalOpen(false);
     resetProjectRegistrationForm();
+  }
+});
+
+showOrchestrationButton?.addEventListener("click", () => {
+  isOrchestrationVisible = true;
+  currentTerminalSignature = "";
+
+  if (currentStatus !== null) {
+    renderWorkspaceVisibility(currentStatus);
+    renderPlanningPane(currentStatus);
+  }
+});
+
+hideOrchestrationButton?.addEventListener("click", () => {
+  isOrchestrationVisible = false;
+
+  if (currentStatus !== null) {
+    renderWorkspaceVisibility(currentStatus);
+  }
+});
+
+closeProjectWorkspaceButton?.addEventListener("click", () => {
+  isProjectWorkspaceOpen = false;
+  isOrchestrationVisible = false;
+
+  if (currentStatus !== null) {
+    renderWorkspaceVisibility(currentStatus);
   }
 });
 

@@ -177,12 +177,12 @@
 
       .project-list {
         margin-top: 18px;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .project-card {
-        padding: 18px;
-        min-height: 220px;
+        padding: 16px;
+        min-height: 180px;
       }
 
       .project-card[data-selected="true"] {
@@ -259,6 +259,16 @@
         display: flex;
         gap: 10px;
         margin-top: 16px;
+      }
+
+      .workspace-shell[hidden],
+      .orchestration-shell[hidden] {
+        display: none;
+      }
+
+      .workspace-shell {
+        display: grid;
+        gap: 24px;
       }
 
       .scope-toggle button {
@@ -449,6 +459,7 @@
       }
 
       @media (max-width: 1100px) {
+        .project-list,
         .workspace-grid,
         .workspace-secondary,
         .modal-card {
@@ -491,103 +502,127 @@
         <div id="project-list" class="project-list"></div>
       </section>
 
-      <section class="workspace">
-        <section class="workspace-grid">
-          <div class="panel panel--terminal">
-            <div class="panel-header">
-              <div>
-                <h2 id="project-detail-title">Project detail</h2>
-                <p>Project controls on the left, operator-opened Claude panes on the right.</p>
-              </div>
-              <div class="detail-actions">
-                <button id="project-edit-button" type="button">Edit Project</button>
-                <button id="project-archive-button" type="button">Archive</button>
-                <button id="project-reactivate-button" type="button">Reactivate</button>
-              </div>
-            </div>
-            <div class="scope-toggle">
-              <button id="project-planning-button" type="button">Project Planning</button>
-              <button id="task-planning-button" type="button">Task Planning</button>
-            </div>
-            <div id="planning-pane-tabs" class="stack"></div>
-            <div id="terminal"></div>
-            <p id="terminal-caption" class="terminal-caption">Claude TUI attaches here.</p>
-          </div>
-        </section>
-
-        <section class="workspace-secondary">
-          <div class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Upcoming Work</h2>
-                <p>Selected-project backlog and active task runs that still need attention.</p>
-              </div>
-            </div>
-            <div class="stack" id="backlog-list"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Completed Work</h2>
-                <p>Finished or cancelled work for the selected project.</p>
-              </div>
-            </div>
-            <div class="stack" id="task-list"></div>
-          </div>
-        </section>
-
+      <section id="project-workspace" class="workspace-shell" hidden>
         <section class="panel">
           <div class="panel-header">
             <div>
-              <h2>Approvals And Blockers</h2>
-              <p>Operator decisions and unresolved constraints for the selected project.</p>
-            </div>
-          </div>
-          <div class="stack" id="approvals-list"></div>
-          <div class="stack" id="blockers-list"></div>
-        </section>
-
-        <section class="workspace-tertiary">
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <h2 id="planning-title">Claude Transcript</h2>
-                <p id="planning-status">Open a Claude pane to begin.</p>
-              </div>
-            </div>
-            <div class="stack" id="planning-history"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Selected Backlog Focus</h2>
-                <p>Task planning stays anchored to the currently selected backlog item.</p>
-              </div>
-            </div>
-            <article class="subpanel">
-              <strong id="selected-backlog-title">No backlog item selected</strong>
+              <h2 id="project-workspace-title">Project workspace</h2>
               <p>
-                <span class="list-status" id="selected-backlog-status">n/a</span>
+                Upcoming work, completed work, approvals, and blockers for the selected project.
               </p>
-              <p id="selected-backlog-meta">No backlog metadata selected</p>
-              <p id="selected-backlog-scope">
-                Project planning is active. Switch to task planning to focus one backlog item.
-              </p>
-              <ul id="selected-backlog-criteria"></ul>
-            </article>
-          </section>
-        </section>
-
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Event Log</h2>
-              <p>Derived worker and project activity ordered by the latest recorded timestamp.</p>
+            </div>
+            <div class="detail-actions">
+              <button id="show-orchestration-button" class="secondary-button" type="button">
+                Show Orchestration
+              </button>
+              <button id="close-project-workspace-button" class="secondary-button" type="button">
+                Back To Projects
+              </button>
             </div>
           </div>
-          <div class="stack" id="event-log"></div>
+        </section>
+
+        <section class="workspace">
+          <section class="workspace-grid">
+            <div id="orchestration-shell" class="panel panel--terminal orchestration-shell" hidden>
+              <div class="panel-header">
+                <div>
+                  <h2 id="project-detail-title">Project orchestration</h2>
+                  <p>Claude planning and orchestration for the selected project.</p>
+                </div>
+                <div class="detail-actions">
+                  <button id="project-edit-button" type="button">Edit Project</button>
+                  <button id="project-archive-button" type="button">Archive</button>
+                  <button id="project-reactivate-button" type="button">Reactivate</button>
+                  <button id="hide-orchestration-button" class="secondary-button" type="button">
+                    Hide
+                  </button>
+                </div>
+              </div>
+              <div class="scope-toggle">
+                <button id="project-planning-button" type="button">Project Planning</button>
+                <button id="task-planning-button" type="button">Task Planning</button>
+              </div>
+              <div id="planning-pane-tabs" class="stack"></div>
+              <div id="terminal"></div>
+              <p id="terminal-caption" class="terminal-caption">Claude TUI attaches here.</p>
+            </div>
+          </section>
+
+          <section class="workspace-secondary">
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Upcoming Work</h2>
+                  <p>Selected-project backlog and active task runs that still need attention.</p>
+                </div>
+              </div>
+              <div class="stack" id="backlog-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Completed Work</h2>
+                  <p>Finished or cancelled work for the selected project.</p>
+                </div>
+              </div>
+              <div class="stack" id="task-list"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Approvals And Blockers</h2>
+                <p>Operator decisions and unresolved constraints for the selected project.</p>
+              </div>
+            </div>
+            <div class="stack" id="approvals-list"></div>
+            <div class="stack" id="blockers-list"></div>
+          </section>
+
+          <section class="workspace-tertiary">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2 id="planning-title">Claude Transcript</h2>
+                  <p id="planning-status">Open a Claude pane to begin.</p>
+                </div>
+              </div>
+              <div class="stack" id="planning-history"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Selected Backlog Focus</h2>
+                  <p>Task planning stays anchored to the currently selected backlog item.</p>
+                </div>
+              </div>
+              <article class="subpanel">
+                <strong id="selected-backlog-title">No backlog item selected</strong>
+                <p>
+                  <span class="list-status" id="selected-backlog-status">n/a</span>
+                </p>
+                <p id="selected-backlog-meta">No backlog metadata selected</p>
+                <p id="selected-backlog-scope">
+                  Project planning is active. Switch to task planning to focus one backlog item.
+                </p>
+                <ul id="selected-backlog-criteria"></ul>
+              </article>
+            </section>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Event Log</h2>
+                <p>Derived worker and project activity ordered by the latest recorded timestamp.</p>
+              </div>
+            </div>
+            <div class="stack" id="event-log"></div>
+          </section>
         </section>
       </section>
     </main>
