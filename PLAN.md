@@ -25,6 +25,7 @@ Smithly should make it easy to:
 - create a new project through chat before any manual project setup exists
 - keep work moving across several local repos
 - chat with a project or a task without stopping background work
+- distinguish between tasks that are `ready` and tasks that are `approved`, and only start tasks when both are true
 - delegate scoped coding tasks to Codex
 - keep Claude focused on planning, backlog shaping, triage, and review
 - capture blockers and route them to policy, helper models, or the human
@@ -63,7 +64,7 @@ Smithly should make it easy to:
 5. Smithly creates the managed project once the folder, repo, and initial planning state are concrete.
 6. Close the bootstrap chat and return to the dashboard, where the new project now exists with its initial backlog.
 7. Press `Play` when approved work should begin running.
-8. Smithly selects the next approved runnable task and starts or reuses a Codex session for that task.
+8. Smithly selects the next task only when it is both `ready` and `approved`, then starts or reuses a Codex session for that task.
 9. Codex does the code work and reports status back through Smithly.
 10. Smithly runs verification.
 11. Claude reviews the task outcome and either approves completion, requests fixes, raises a blocker, or requests operator input.
@@ -103,6 +104,7 @@ Smithly owns:
 - verification runners
 - review orchestration
 - scheduler that selects exactly one approved runnable task at a time for Codex per playing project
+- dependency tracking so tasks can explicitly block or be blocked by other tasks
 
 ### Worker Model
 
@@ -131,6 +133,9 @@ Smithly, not the AI sessions, is the system of record for:
 - projects
 - draft backlog items
 - approved backlog items
+- task readiness state
+- task ordering and priority
+- task dependency and blocking relationships
 - task runs
 - blockers
 - approvals
@@ -154,6 +159,52 @@ Use a pragmatic memory model first:
 Chats are distinct from memory. Chats are conversational interfaces and audit history. Memory is the distilled durable knowledge Smithly uses for future context.
 
 ### Approval Policy
+
+### Task Readiness And Ordering
+
+`ready` and `approved` are separate concepts.
+
+- `approved` means the operator is allowing the work to happen
+- `ready` means the task is sufficiently specified and unblocked for execution
+
+A task should not start unless both are true.
+
+Typical reasons a task is not ready yet:
+
+- dependency work is incomplete
+- acceptance criteria are too vague
+- review mode or risk level is missing
+- the repo target or technical approach is still unclear
+- there is an unresolved blocker
+
+Planning flows should let Claude help the operator:
+
+- mark tasks ready or not ready
+- reprioritize pending tasks
+- reorder approved-but-not-running work
+- mark a task as blocking another task or blocked by another task
+
+Active tasks and completed tasks should not be reorderable through these planning flows.
+
+### Active Task Immutability
+
+Once a task is actively running, its core scope should be treated as stable.
+
+- planning chat should not silently rewrite the active task underneath Codex
+- meaningful scope changes should pause the task and replan, or create a follow-up task
+- reprioritization should affect pending work, not the currently active task
+
+### Definition Of Done
+
+A task should only count as fully done when all required conditions are satisfied:
+
+- implementation work is complete
+- verification has passed
+- required review has passed
+- branch and pull request state is resolved according to policy
+- required operator approval is resolved
+
+This should be explicit in product behavior and UI, not inferred loosely from one status field.
 
 Allowed without approval:
 
@@ -196,6 +247,14 @@ Primary chat surfaces in v1:
 - project review and approval chat
 - backlog-item-scoped planning chat
 
+These planning surfaces should also support backlog hygiene work such as:
+
+- splitting oversized tasks
+- merging duplicates
+- marking stale tasks
+- converting vague work into not-ready drafts
+- explaining why a given task is next
+
 ## MCP Design
 
 Smithly should expose MCP tools to Claude such as:
@@ -208,6 +267,9 @@ Smithly should expose MCP tools to Claude such as:
 - `create_backlog_draft`
 - `update_backlog_draft`
 - `approve_backlog_item`
+- `set_backlog_item_ready`
+- `reorder_backlog_items`
+- `link_backlog_item_dependency`
 - `claim_next_task`
 - `update_task_status`
 - `create_blocker`
@@ -288,6 +350,29 @@ The execution path should stay narrow:
 - only one coding task should be active per project at a time in v1
 
 This means orchestration can remain relatively lean. It does not need to behave like a fully autonomous project manager as long as it can keep the next approved coding task moving safely.
+
+## Project Modes
+
+Projects should have clear operator-visible modes such as:
+
+- planning
+- ready to execute
+- actively executing
+- blocked on human
+- blocked on external dependency
+- paused
+
+These modes help the operator understand whether the project needs planning attention, approval, or execution capacity.
+
+## Operator Digests
+
+The app should give the operator a compact digest of:
+
+- what changed since the last check
+- what is waiting on the operator
+- what is actively running
+- what is next and why
+- what AI proposed but has not yet been approved
 
 ## Credit And Quota Handling
 
