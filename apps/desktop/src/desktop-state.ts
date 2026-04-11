@@ -16,6 +16,8 @@ import {
 } from "@smithly/storage";
 import packageJson from "../../../package.json" with { type: "json" };
 
+import { parseTaskGitState } from "./task-git-manager.ts";
+
 export interface IDesktopProjectSummary {
   readonly approvalPolicy: {
     readonly requireApprovalForHighRiskTasks: boolean;
@@ -100,7 +102,11 @@ export interface IDesktopChatMessage {
 
 export interface IDesktopBacklogDetail {
   readonly id: string;
+  readonly actionableHumanReviewRunId?: string;
+  readonly mergeTaskRunId?: string;
   readonly pendingHumanReviewRunId?: string;
+  readonly pullRequestStatus?: string;
+  readonly pullRequestUrl?: string;
   readonly title: string;
   readonly priority: number;
   readonly reviewHistory: readonly IDesktopListItem[];
@@ -230,6 +236,20 @@ function buildSelectedProject(
   const pendingHumanReviewRunId =
     selectedBacklogItem !== undefined
       ? findPendingHumanReviewRunId(context, projectId, selectedBacklogItem.id)
+      : undefined;
+  const selectedBacklogTaskRun =
+    selectedBacklogItem !== undefined
+      ? findLatestTaskRunForBacklogItem(taskRuns, selectedBacklogItem.id)
+      : undefined;
+  const selectedBacklogTaskGitState =
+    selectedBacklogTaskRun !== undefined
+      ? findTaskGitState(memoryNotes, selectedBacklogTaskRun.id)
+      : undefined;
+  const mergeTaskRunId =
+    selectedBacklogTaskRun !== undefined &&
+    selectedBacklogTaskGitState?.status === "pr_opened" &&
+    findLatestHumanReviewRun(context, projectId, selectedBacklogItem?.id)?.status === "approved"
+      ? selectedBacklogTaskRun.id
       : undefined;
   const codexSessions = taskRuns.flatMap((taskRun) => {
     const codexSession = findCodexSession(workerSessions, taskRun.id);
@@ -386,6 +406,16 @@ function buildSelectedProject(
               selectedBacklogItem.id,
             ),
             ...(pendingHumanReviewRunId !== undefined ? { pendingHumanReviewRunId } : {}),
+            ...(pendingHumanReviewRunId !== undefined
+              ? { actionableHumanReviewRunId: pendingHumanReviewRunId }
+              : {}),
+            ...(mergeTaskRunId !== undefined ? { mergeTaskRunId } : {}),
+            ...(selectedBacklogTaskGitState?.pullRequestUrl !== undefined
+              ? { pullRequestUrl: selectedBacklogTaskGitState.pullRequestUrl }
+              : {}),
+            ...(selectedBacklogTaskGitState !== undefined
+              ? { pullRequestStatus: selectedBacklogTaskGitState.status }
+              : {}),
           },
         }
       : {}),
@@ -472,6 +502,48 @@ function findPendingHumanReviewRunId(
     .find((reviewRun) => {
       return reviewRun.reviewerKind === "human" && ["queued", "running"].includes(reviewRun.status);
     })?.id;
+}
+
+function findLatestHumanReviewRun(
+  context: IStorageContext,
+  projectId: string,
+  backlogItemId?: string,
+) {
+  if (backlogItemId === undefined) {
+    return undefined;
+  }
+
+  return listTaskRunsForProject(context, projectId)
+    .filter((taskRun) => taskRun.backlogItemId === backlogItemId)
+    .flatMap((taskRun) => listReviewRunsForTask(context, taskRun.id))
+    .filter((reviewRun) => reviewRun.reviewerKind === "human")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function findLatestTaskRunForBacklogItem(
+  taskRuns: readonly ReturnType<typeof listTaskRunsForProject>[number][],
+  backlogItemId: string,
+) {
+  return [...taskRuns]
+    .filter((taskRun) => taskRun.backlogItemId === backlogItemId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function findTaskGitState(
+  memoryNotes: readonly ReturnType<typeof listMemoryNotesForProject>[number][],
+  taskRunId: string,
+) {
+  const note = memoryNotes.find((candidate) => candidate.id === `memory-task-git-${taskRunId}`);
+
+  if (note === undefined) {
+    return undefined;
+  }
+
+  try {
+    return parseTaskGitState(note.bodyText);
+  } catch {
+    return undefined;
+  }
 }
 
 function findPlanningSession(

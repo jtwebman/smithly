@@ -99,8 +99,12 @@ interface DesktopChatMessage {
 }
 
 interface DesktopBacklogDetail {
+  readonly actionableHumanReviewRunId?: string;
   readonly id: string;
+  readonly mergeTaskRunId?: string;
   readonly pendingHumanReviewRunId?: string;
+  readonly pullRequestStatus?: string;
+  readonly pullRequestUrl?: string;
   readonly title: string;
   readonly priority: number;
   readonly reviewHistory: readonly DesktopListItem[];
@@ -168,6 +172,9 @@ interface SmithlyDesktopApi {
     status: "approved" | "changes_requested",
     summaryText?: string,
   ): Promise<DesktopStatus>;
+  deferReviewRun(reviewRunId: string, summaryText?: string): Promise<DesktopStatus>;
+  commentOnReviewRun(reviewRunId: string, summaryText: string): Promise<DesktopStatus>;
+  mergeTaskRun(taskRunId: string): Promise<DesktopStatus>;
   createMemoryNote(input: {
     noteType: "fact" | "decision" | "note" | "session_summary";
     title: string;
@@ -1048,7 +1055,7 @@ function renderSelectedBacklog(backlogItem?: DesktopBacklogDetail): void {
   setNodeText(
     selectedBacklogMetaNode,
     backlogItem
-      ? `priority ${backlogItem.priority} | ${backlogItem.riskLevel} risk | ${backlogItem.reviewMode} review`
+      ? `priority ${backlogItem.priority} | ${backlogItem.riskLevel} risk | ${backlogItem.reviewMode} review${backlogItem.pullRequestStatus ? ` | ${backlogItem.pullRequestStatus}` : ""}`
       : "No backlog metadata selected",
   );
   setNodeText(
@@ -1093,39 +1100,98 @@ function renderBacklogReviewActions(backlogItem?: DesktopBacklogDetail): void {
 
   selectedBacklogReviewActionsNode.innerHTML = "";
 
-  const pendingHumanReviewRunId = backlogItem?.pendingHumanReviewRunId;
+  const pendingHumanReviewRunId = backlogItem?.actionableHumanReviewRunId;
 
-  if (pendingHumanReviewRunId === undefined) {
+  if (pendingHumanReviewRunId === undefined && backlogItem?.mergeTaskRunId === undefined) {
     return;
   }
 
-  const approveButton = document.createElement("button");
-  approveButton.type = "button";
-  approveButton.textContent = "Approve Review";
-  approveButton.addEventListener("click", async () => {
-    renderDesktopStatus(
-      await window.smithlyDesktop.updateReviewRun(
-        pendingHumanReviewRunId,
-        "approved",
-        "Operator approved the task.",
-      ),
-    );
-  });
+  const summaryInput = document.createElement("textarea");
+  summaryInput.rows = 3;
+  summaryInput.placeholder = "Add an operator note for this review or merge decision.";
+  summaryInput.className = "input";
+  selectedBacklogReviewActionsNode.append(summaryInput);
 
-  const requestChangesButton = document.createElement("button");
-  requestChangesButton.type = "button";
-  requestChangesButton.textContent = "Request Changes";
-  requestChangesButton.addEventListener("click", async () => {
-    renderDesktopStatus(
-      await window.smithlyDesktop.updateReviewRun(
-        pendingHumanReviewRunId,
-        "changes_requested",
-        "Operator requested follow-up changes.",
-      ),
-    );
-  });
+  const actionRow = document.createElement("div");
+  actionRow.className = "detail-actions";
 
-  selectedBacklogReviewActionsNode.append(approveButton, requestChangesButton);
+  if (pendingHumanReviewRunId !== undefined) {
+    const approveButton = document.createElement("button");
+    approveButton.type = "button";
+    approveButton.textContent = "Approve Review";
+    approveButton.addEventListener("click", async () => {
+      renderDesktopStatus(
+        await window.smithlyDesktop.updateReviewRun(
+          pendingHumanReviewRunId,
+          "approved",
+          summaryInput.value.trim() || "Operator approved the task.",
+        ),
+      );
+    });
+
+    const rejectButton = document.createElement("button");
+    rejectButton.type = "button";
+    rejectButton.textContent = "Reject Review";
+    rejectButton.addEventListener("click", async () => {
+      renderDesktopStatus(
+        await window.smithlyDesktop.updateReviewRun(
+          pendingHumanReviewRunId,
+          "changes_requested",
+          summaryInput.value.trim() || "Operator rejected the task.",
+        ),
+      );
+    });
+
+    const deferButton = document.createElement("button");
+    deferButton.type = "button";
+    deferButton.textContent = "Defer Review";
+    deferButton.addEventListener("click", async () => {
+      renderDesktopStatus(
+        await window.smithlyDesktop.deferReviewRun(
+          pendingHumanReviewRunId,
+          summaryInput.value.trim() || "Operator deferred the review decision.",
+        ),
+      );
+    });
+
+    const commentButton = document.createElement("button");
+    commentButton.type = "button";
+    commentButton.textContent = "Add Comment";
+    commentButton.addEventListener("click", async () => {
+      const commentText = summaryInput.value.trim();
+
+      if (commentText.length === 0) {
+        return;
+      }
+
+      renderDesktopStatus(
+        await window.smithlyDesktop.commentOnReviewRun(pendingHumanReviewRunId, commentText),
+      );
+    });
+
+    actionRow.append(approveButton, rejectButton, deferButton, commentButton);
+  }
+
+  if (backlogItem?.mergeTaskRunId !== undefined) {
+    const mergeButton = document.createElement("button");
+    mergeButton.type = "button";
+    mergeButton.textContent = "Merge Pull Request";
+    mergeButton.addEventListener("click", async () => {
+      renderDesktopStatus(await window.smithlyDesktop.mergeTaskRun(backlogItem.mergeTaskRunId!));
+    });
+    actionRow.append(mergeButton);
+  }
+
+  if (backlogItem?.pullRequestUrl !== undefined) {
+    const pullRequestLink = document.createElement("a");
+    pullRequestLink.href = backlogItem.pullRequestUrl;
+    pullRequestLink.target = "_blank";
+    pullRequestLink.rel = "noreferrer";
+    pullRequestLink.textContent = "Open Pull Request";
+    selectedBacklogReviewActionsNode.append(pullRequestLink);
+  }
+
+  selectedBacklogReviewActionsNode.append(actionRow);
 }
 
 function renderHistoryList(

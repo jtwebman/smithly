@@ -5,6 +5,14 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 
+import { createConfig } from "@smithly/core";
+import {
+  createContext,
+  createInitialSeedFixture,
+  seedInitialState,
+  upsertMemoryNote,
+} from "@smithly/storage";
+
 function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light" | "system") {
   return {
     ...Object.fromEntries(
@@ -17,6 +25,8 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
     SMITHLY_CODEX_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-codex.mjs")]),
     SMITHLY_CODEX_COMMAND: process.execPath,
     SMITHLY_DATA_DIRECTORY: dataDirectory,
+    SMITHLY_GH_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-gh.mjs")]),
+    SMITHLY_GH_COMMAND: process.execPath,
     SMITHLY_NODE_COMMAND: process.execPath,
     ...(themePreference !== undefined ? { SMITHLY_THEME_PREFERENCE: themePreference } : {}),
   };
@@ -55,13 +65,6 @@ async function closeDesktop(
     readonly cleanup?: boolean;
   } = {},
 ): Promise<void> {
-  await Promise.race([
-    electronApp.close(),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 2_000);
-    }),
-  ]);
-
   try {
     await electronApp.evaluate(({ app }) => {
       app.exit(0);
@@ -69,6 +72,13 @@ async function closeDesktop(
   } catch {
     // Ignore already-closed app errors.
   }
+
+  await Promise.race([
+    electronApp.close(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 2_000);
+    }),
+  ]);
 
   if (options.cleanup ?? true) {
     rmSync(dataDirectory, { force: true, recursive: true });
@@ -281,6 +291,103 @@ test("project play starts hidden orchestration and pause drains it safely", asyn
     );
   } finally {
     rmSync(localRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("operator review UI supports defer, comment, approve, and merge decisions", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-review-ui-"));
+  const repoPath = mkdtempSync(join(tmpdir(), "smithly-review-ui-repo-"));
+
+  mkdirSync(join(repoPath, ".git"));
+
+  const fixture = createInitialSeedFixture();
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+
+  seedInitialState(context, {
+    ...fixture,
+    project: {
+      ...fixture.project,
+      defaultBranch: "main",
+      repoPath,
+    },
+    reviewRun: {
+      ...fixture.reviewRun,
+      status: "queued",
+    },
+    taskRun: {
+      ...fixture.taskRun,
+      completedAt: "2026-04-10T07:10:00.000Z",
+      status: "awaiting_review",
+      updatedAt: "2026-04-10T07:10:00.000Z",
+    },
+    verificationRun: {
+      ...fixture.verificationRun,
+      completedAt: "2026-04-10T07:08:00.000Z",
+      startedAt: "2026-04-10T07:07:00.000Z",
+      status: "passed",
+      summaryText: "Verification passed.",
+      updatedAt: "2026-04-10T07:08:00.000Z",
+    },
+    workerSession: {
+      ...fixture.workerSession,
+      endedAt: "2026-04-10T07:10:00.000Z",
+      status: "exited",
+      updatedAt: "2026-04-10T07:10:00.000Z",
+    },
+  });
+  upsertMemoryNote(context, {
+    backlogItemId: fixture.backlogItem.id,
+    bodyText: [
+      "status: pr_opened",
+      "branchName: smithly-bootstrap-ui",
+      "defaultBranch: main",
+      "pauseCommitCreated: false",
+      "pullRequestUrl: https://github.com/jtwebman/smithly/pull/777",
+      "updatedAt: 2026-04-10T07:10:00.000Z",
+    ].join("\n"),
+    createdAt: "2026-04-10T07:10:00.000Z",
+    id: `memory-task-git-${fixture.taskRun.id}`,
+    noteType: "note",
+    projectId: fixture.project.id,
+    taskRunId: fixture.taskRun.id,
+    title: "Task git lifecycle",
+    updatedAt: "2026-04-10T07:10:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+
+    const reviewActions = window.locator("#selected-backlog-review-actions");
+
+    await reviewActions.locator("textarea").fill("Need one more pass.");
+    await reviewActions.getByRole("button", { name: "Defer Review" }).click();
+    await expect(window.locator("#memory-list")).toContainText("Review deferred");
+
+    await expect(reviewActions.getByRole("button", { name: "Add Comment" })).toBeVisible();
+    await expect(reviewActions.getByRole("button", { name: "Reject Review" })).toBeVisible();
+
+    await reviewActions.locator("textarea").fill("Looks good to merge.");
+    await reviewActions.getByRole("button", { name: "Approve Review" }).click();
+    await expect(reviewActions.getByRole("button", { name: "Merge Pull Request" })).toBeVisible();
+    await expect(window.locator("#selected-backlog-status")).toHaveText("in_progress");
+
+    await reviewActions.getByRole("button", { name: "Merge Pull Request" }).click();
+    await expect(window.locator("#selected-backlog-status")).toHaveText("done");
+    await expect(window.locator("#selected-backlog-meta")).toContainText("merged");
+  } finally {
+    rmSync(repoPath, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });

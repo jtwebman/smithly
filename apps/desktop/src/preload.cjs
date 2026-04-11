@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   updateReviewRun(reviewRunId, status, summaryText) {
     return ipcRenderer.invoke("smithly:review-run:update", reviewRunId, status, summaryText);
   },
+  deferReviewRun(reviewRunId, summaryText) {
+    return ipcRenderer.invoke("smithly:review-run:defer", reviewRunId, summaryText);
+  },
+  commentOnReviewRun(reviewRunId, summaryText) {
+    return ipcRenderer.invoke("smithly:review-run:comment", reviewRunId, summaryText);
+  },
+  mergeTaskRun(taskRunId) {
+    return ipcRenderer.invoke("smithly:task-merge", taskRunId);
+  },
   createMemoryNote(input) {
     return ipcRenderer.invoke("smithly:memory-note:create", input);
   },

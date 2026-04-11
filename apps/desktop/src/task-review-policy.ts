@@ -10,14 +10,20 @@ import type {
 import {
   getBacklogItemById,
   type IStorageContext,
+  listMemoryNotesForProject,
   listProjects,
+  listBacklogItemsForProject,
+  listBlockersForProject,
   listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
+  upsertBlocker,
   upsertBacklogItem,
   upsertReviewRun,
   upsertTaskRun,
 } from "@smithly/storage";
+
+import { parseTaskGitState } from "./task-git-manager.ts";
 
 export function queueRequiredReviewRun(
   context: IStorageContext,
@@ -91,11 +97,14 @@ export function reconcileTaskReviewState(
   const hasFailedVerification = verificationRuns.some((verificationRun) => {
     return ["failed", "cancelled"].includes(verificationRun.status);
   });
+  const taskGitState = getTaskGitState(context, taskRun);
+  const isMerged = taskGitState === null || taskGitState.status === "merged";
   const nextTaskStatus =
     relevantReviewRun === null ||
     ["queued", "running"].includes(relevantReviewRun.status) ||
     hasPendingVerification ||
     hasFailedVerification ||
+    !isMerged ||
     ["changes_requested", "failed"].includes(relevantReviewRun.status)
       ? "awaiting_review"
       : "done";
@@ -117,6 +126,8 @@ export function reconcileTaskReviewState(
       updatedAt: timestamp,
     });
   }
+
+  syncDependentMergeBlockers(context, taskRun, backlogItem, isMerged, timestamp);
 
   return findTaskRun(context, taskRunId);
 }
@@ -185,4 +196,57 @@ function findTaskRun(context: IStorageContext, taskRunId: string): ITaskRunRecor
 
 function listAllTaskRuns(context: IStorageContext): readonly ITaskRunRecord[] {
   return listProjects(context).flatMap((project) => listTaskRunsForProject(context, project.id));
+}
+
+function getTaskGitState(context: IStorageContext, taskRun: ITaskRunRecord) {
+  const note = listMemoryNotesForProject(context, taskRun.projectId).find((candidate) => {
+    return candidate.id === `memory-task-git-${taskRun.id}`;
+  });
+
+  return note === undefined ? null : parseTaskGitState(note.bodyText);
+}
+
+function syncDependentMergeBlockers(
+  context: IStorageContext,
+  taskRun: ITaskRunRecord,
+  backlogItem: IBacklogItemRecord,
+  isMerged: boolean,
+  timestamp: string,
+): void {
+  const dependentItems = listBacklogItemsForProject(context, backlogItem.projectId).filter(
+    (candidate) => candidate.parentBacklogItemId === backlogItem.id,
+  );
+
+  for (const dependentItem of dependentItems) {
+    const blockerId = `blocker-merge-dependency-${taskRun.id}-${dependentItem.id}`;
+    const existingBlocker = listBlockersForProject(context, backlogItem.projectId).find(
+      (candidate) => candidate.id === blockerId,
+    );
+
+    if (isMerged) {
+      if (existingBlocker?.status === "open") {
+        upsertBlocker(context, {
+          ...existingBlocker,
+          resolutionNote: "The parent task pull request has merged.",
+          resolvedAt: timestamp,
+          status: "resolved",
+          updatedAt: timestamp,
+        });
+      }
+
+      continue;
+    }
+
+    upsertBlocker(context, {
+      backlogItemId: dependentItem.id,
+      blockerType: "system",
+      createdAt: existingBlocker?.createdAt ?? timestamp,
+      detail: `Dependent work is waiting for ${backlogItem.title} to merge before it can safely proceed.`,
+      id: blockerId,
+      projectId: backlogItem.projectId,
+      status: "open",
+      title: "Waiting for parent task merge",
+      updatedAt: timestamp,
+    });
+  }
 }

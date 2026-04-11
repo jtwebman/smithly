@@ -1,4 +1,5 @@
 import {
+  getBacklogItemById,
   getProjectById,
   listProjects,
   listReviewRunsForTask,
@@ -9,14 +10,18 @@ import {
 } from "@smithly/storage";
 
 import { reconcileTaskReviewState } from "./task-review-policy.ts";
+import { TaskMergeManager } from "./task-merge-manager.ts";
+import { TaskGitManager } from "./task-git-manager.ts";
 
 export interface IReviewManagerOptions {
+  readonly mergeManager?: TaskMergeManager;
   readonly now?: () => Date;
   readonly onUpdated?: () => void;
 }
 
 export class ReviewManager {
   private readonly activeReviewRunIds = new Set<string>();
+  private readonly mergeManager: TaskMergeManager;
   private readonly now: () => Date;
   private readonly onUpdated: () => void;
 
@@ -26,6 +31,14 @@ export class ReviewManager {
   ) {
     this.now = options.now ?? (() => new Date());
     this.onUpdated = options.onUpdated ?? (() => undefined);
+    this.mergeManager =
+      options.mergeManager ??
+      new TaskMergeManager(context, {
+        now: this.now,
+        taskGitManager: new TaskGitManager(context, {
+          now: this.now,
+        }),
+      });
   }
 
   public processQueuedRuns(): void {
@@ -54,8 +67,14 @@ export class ReviewManager {
       return candidate.id === taskRunId;
     });
     const project = getProjectById(this.context, projectId);
+    const backlogItem = taskRun ? getBacklogItemById(this.context, taskRun.backlogItemId) : null;
 
-    if (reviewRun === undefined || taskRun === undefined || project === null) {
+    if (
+      reviewRun === undefined ||
+      taskRun === undefined ||
+      project === null ||
+      backlogItem === null
+    ) {
       return;
     }
 
@@ -85,6 +104,13 @@ export class ReviewManager {
           : `${reviewRun.reviewerKind} requested changes after verification failed: ${failedVerificationRun.commandText}.`,
       updatedAt: completedAt,
     });
+    if (failedVerificationRun === undefined && backlogItem.reviewMode !== "human") {
+      try {
+        this.mergeManager.mergeTaskRun(taskRun.id);
+      } catch {
+        // Leave the task awaiting follow-up when merge automation cannot complete.
+      }
+    }
     this.activeReviewRunIds.delete(reviewRun.id);
     reconcileTaskReviewState(this.context, taskRun.id, completedAt);
     this.onUpdated();

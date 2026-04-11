@@ -17,7 +17,7 @@ export interface ITaskGitState {
   readonly defaultBranch: string;
   readonly pauseCommitCreated: boolean;
   readonly pullRequestUrl?: string;
-  readonly status: "branch_prepared" | "paused" | "pr_opened";
+  readonly status: "branch_prepared" | "paused" | "pr_opened" | "merged";
   readonly updatedAt: string;
 }
 
@@ -162,6 +162,28 @@ export class TaskGitManager {
     });
   }
 
+  public mergePullRequest(taskRunId: string): ITaskGitState {
+    const taskRun = this.requireTaskRun(taskRunId);
+    const project = this.requireProject(taskRun.projectId);
+    const state = this.ensureTaskBranch(taskRunId);
+
+    if (state.pullRequestUrl === undefined) {
+      throw new Error(`Task ${taskRunId} is missing a pull request URL.`);
+    }
+
+    this.execCommand(
+      "gh",
+      ["pr", "merge", state.pullRequestUrl, "--squash", "--delete-branch"],
+      project.repoPath,
+    );
+
+    return this.writeTaskGitState(taskRun, {
+      ...state,
+      status: "merged",
+      updatedAt: this.now().toISOString(),
+    });
+  }
+
   public getTaskGitState(taskRunId: string): ITaskGitState | null {
     const taskRun = this.requireTaskRun(taskRunId);
     const note = listMemoryNotesForProject(this.context, taskRun.projectId).find((candidate) => {
@@ -290,7 +312,7 @@ export function parseTaskGitState(bodyText: string): ITaskGitState {
 
   if (
     typeof status !== "string" ||
-    !["branch_prepared", "paused", "pr_opened"].includes(status) ||
+    !["branch_prepared", "paused", "pr_opened", "merged"].includes(status) ||
     typeof branchName !== "string" ||
     typeof defaultBranch !== "string" ||
     typeof updatedAt !== "string"
@@ -334,12 +356,43 @@ function slugify(value: string): string {
 }
 
 function runCommand(command: string, args: readonly string[], cwd: string): ITaskGitCommandResult {
-  const result = spawnSync(command, args, {
+  const executable =
+    command === "gh"
+      ? {
+          args: parseCommandArgs("SMITHLY_GH_ARGS_JSON") ?? [],
+          command: process.env.SMITHLY_GH_COMMAND?.trim() || "gh",
+        }
+      : command === "git"
+        ? {
+            args: parseCommandArgs("SMITHLY_GIT_ARGS_JSON") ?? [],
+            command: process.env.SMITHLY_GIT_COMMAND?.trim() || "git",
+          }
+        : {
+            args: [],
+            command,
+          };
+  const result = spawnSync(executable.command, [...executable.args, ...args], {
     cwd,
     encoding: "utf8",
   });
 
   return normalizeSpawnResult(result);
+}
+
+function parseCommandArgs(environmentVariableName: string): string[] | undefined {
+  const rawValue = process.env[environmentVariableName]?.trim();
+
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const parsedValue = JSON.parse(rawValue) as unknown;
+
+  if (!Array.isArray(parsedValue) || parsedValue.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${environmentVariableName} must be a JSON string array.`);
+  }
+
+  return [...parsedValue];
 }
 
 function normalizeSpawnResult(result: SpawnSyncReturns<string>): ITaskGitCommandResult {

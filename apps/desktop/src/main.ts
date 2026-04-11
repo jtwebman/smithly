@@ -11,6 +11,8 @@ import {
   createInitialSeedFixture,
   listChatThreadsForProject,
   listProjects,
+  listReviewRunsForTask,
+  listTaskRunsForProject,
   listWorkerSessionsForProject,
   registerLocalProject,
   seedInitialState,
@@ -29,6 +31,7 @@ import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 import { ProjectExecutionManager } from "./project-execution.ts";
 import { ReviewManager } from "./review-manager.ts";
+import { TaskMergeManager } from "./task-merge-manager.ts";
 import { updateReviewRunDecision } from "./task-review-policy.ts";
 import { VerificationManager } from "./verification-manager.ts";
 
@@ -38,6 +41,7 @@ let codexSessionManager: CodexSessionManager | null = null;
 let verificationManager: VerificationManager | null = null;
 let reviewManager: ReviewManager | null = null;
 let projectExecutionManager: ProjectExecutionManager | null = null;
+let taskMergeManager: TaskMergeManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 let isAppQuitting = false;
@@ -63,6 +67,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   planningSessionManager = createPlanningSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
+  taskMergeManager = createTaskMergeManager(storageContext);
   reviewManager = createReviewManager(storageContext);
   projectExecutionManager = createProjectExecutionManager(storageContext);
   registerDesktopHandlers(storageContext);
@@ -403,6 +408,70 @@ function registerDesktopHandlers(context: IStorageContext): void {
     },
   );
 
+  ipcMain.removeHandler("smithly:review-run:defer");
+  ipcMain.handle(
+    "smithly:review-run:defer",
+    (_event, reviewRunId: string, summaryText?: string): IDesktopStatus => {
+      const reviewRun = requireReviewRun(context, reviewRunId);
+      const timestamp = new Date().toISOString();
+
+      upsertMemoryNote(context, {
+        bodyText: summaryText?.trim() || "Operator deferred the review decision.",
+        createdAt: timestamp,
+        id: `memory-review-defer-${reviewRunId}-${randomUUID()}`,
+        noteType: "note",
+        projectId: reviewRun.projectId,
+        taskRunId: reviewRun.taskRunId,
+        title: "Review deferred",
+        updatedAt: timestamp,
+      });
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:review-run:comment");
+  ipcMain.handle(
+    "smithly:review-run:comment",
+    (_event, reviewRunId: string, summaryText: string): IDesktopStatus => {
+      const reviewRun = requireReviewRun(context, reviewRunId);
+      const timestamp = new Date().toISOString();
+
+      upsertMemoryNote(context, {
+        bodyText: summaryText.trim(),
+        createdAt: timestamp,
+        id: `memory-review-comment-${reviewRunId}-${randomUUID()}`,
+        noteType: "note",
+        projectId: reviewRun.projectId,
+        taskRunId: reviewRun.taskRunId,
+        title: "Review comment",
+        updatedAt: timestamp,
+      });
+      return buildDesktopStatus(
+        context,
+        resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+        selectedProjectId,
+        selectedBacklogItemId,
+      );
+    },
+  );
+
+  ipcMain.removeHandler("smithly:task-merge");
+  ipcMain.handle("smithly:task-merge", (_event, taskRunId: string): IDesktopStatus => {
+    requireTaskMergeManager().mergeTaskRun(taskRunId);
+    reviewManager?.processQueuedRuns();
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+      selectedBacklogItemId,
+    );
+  });
+
   ipcMain.removeHandler("smithly:memory-note:create");
   ipcMain.handle(
     "smithly:memory-note:create",
@@ -527,10 +596,15 @@ function createProjectExecutionManager(context: IStorageContext): ProjectExecuti
 
 function createReviewManager(context: IStorageContext): ReviewManager {
   return new ReviewManager(context, {
+    mergeManager: requireTaskMergeManager(),
     onUpdated: () => {
       broadcastDesktopStatus(context);
     },
   });
+}
+
+function createTaskMergeManager(context: IStorageContext): TaskMergeManager {
+  return new TaskMergeManager(context);
 }
 
 function broadcastDesktopStatus(context: IStorageContext): void {
@@ -569,6 +643,14 @@ function requireProjectExecutionManager(): ProjectExecutionManager {
   }
 
   return projectExecutionManager;
+}
+
+function requireTaskMergeManager(): TaskMergeManager {
+  if (taskMergeManager === null) {
+    throw new Error("Task merge manager is not available.");
+  }
+
+  return taskMergeManager;
 }
 
 function requireSelectedProjectId(context: IStorageContext): string {
@@ -780,6 +862,7 @@ if (typeof app?.on === "function") {
         verificationManager = null;
         reviewManager = null;
         projectExecutionManager = null;
+        taskMergeManager = null;
         storageContext?.db.close();
         storageContext = null;
         app.exit(0);
@@ -792,6 +875,22 @@ if (typeof app?.on === "function") {
       app.quit();
     }
   });
+}
+
+function requireReviewRun(context: IStorageContext, reviewRunId: string) {
+  for (const project of listProjects(context)) {
+    for (const taskRun of listTaskRunsForProject(context, project.id)) {
+      const reviewRun = listReviewRunsForTask(context, taskRun.id).find((candidate) => {
+        return candidate.id === reviewRunId;
+      });
+
+      if (reviewRun !== undefined) {
+        return reviewRun;
+      }
+    }
+  }
+
+  throw new Error(`Missing review run ${reviewRunId}`);
 }
 
 if (!process.env.VITEST) {

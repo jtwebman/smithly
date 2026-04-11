@@ -124,11 +124,11 @@
 
 ## Phase 12: Review, Merge, And Dependency Gating
 
-67. `todo` Route completed tasks through the opposite AI for peer review before merge
-68. `todo` Auto-merge AI-approved tasks when human review is not required
-69. `todo` Hold merge when human review is required and block dependent follow-up work until merged
-70. `todo` Add operator UI for approve, reject, defer, comment, and merge decisions
-71. `todo` Add tests for review-to-merge policy and dependency blocking
+67. `done` Route completed tasks through the opposite AI for peer review before merge
+68. `done` Auto-merge AI-approved tasks when human review is not required
+69. `done` Hold merge when human review is required and block dependent follow-up work until merged
+70. `done` Add operator UI for approve, reject, defer, comment, and merge decisions
+71. `done` Add tests for review-to-merge policy and dependency blocking
 
 ## Phase 13: Blockers And Helper Routing
 
