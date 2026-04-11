@@ -16,8 +16,11 @@ import {
 } from "@smithly/core";
 import {
   createContext,
+  createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
+  finalizeBootstrapProject,
   getBacklogItemById,
+  getBootstrapMvpPlan,
   getProjectById,
   listProjects,
   registerLocalProject,
@@ -30,6 +33,9 @@ import {
   listWorkerSessionsForProject,
   reviseBacklogItemFromPlanning,
   startCodingTask,
+  approveBootstrapBacklogItem,
+  ensureProjectPlanningThread,
+  parseProjectMetadata,
   upsertApproval,
   upsertBacklogItem,
   upsertBlocker,
@@ -37,6 +43,7 @@ import {
   upsertReviewRun,
   upsertTaskRun,
   upsertVerificationRun,
+  upsertBootstrapMvpPlan,
   updateProjectMetadata,
   type IStorageContext,
 } from "@smithly/storage";
@@ -195,6 +202,7 @@ export function createSmithlyMcpServer(
       ensureBootstrapConfirmed(operatorConfirmed);
       const project = registerProjectFromBootstrap(context, {
         ...(defaultBranch !== undefined ? { defaultBranch } : {}),
+        mode: "create",
         ...(name !== undefined ? { name } : {}),
         repoPath,
         ...(verificationCommands !== undefined ? { verificationCommands } : {}),
@@ -252,6 +260,7 @@ export function createSmithlyMcpServer(
       ensureBootstrapConfirmed(operatorConfirmed);
       const project = registerProjectFromBootstrap(context, {
         ...(defaultBranch !== undefined ? { defaultBranch } : {}),
+        mode: "adopt",
         ...(name !== undefined ? { name } : {}),
         repoPath,
         ...(verificationCommands !== undefined ? { verificationCommands } : {}),
@@ -264,6 +273,244 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: `Adopted existing repo ${project.name} (${project.id}) into Smithly.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_bootstrap_project_state",
+    {
+      description:
+        "Get bootstrap planning state for a project, including the MVP plan, backlog drafts, and bootstrap metadata.",
+      inputSchema: {
+        projectId: z.string().describe("Project to inspect during bootstrap planning."),
+      },
+      outputSchema: {
+        approvedBacklogCount: z.number(),
+        bootstrapState: z.string().nullable(),
+        draftBacklogCount: z.number(),
+        hasMvpPlan: z.boolean(),
+        mvpPlan: z.string().nullable(),
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          repoPath: z.string(),
+          status: z.string(),
+        }),
+      },
+    },
+    async ({ projectId }) => {
+      const project = requireProject(context, projectId);
+      const metadata = parseProjectMetadata(project).metadata;
+      const backlogItems = listBacklogItemsForProject(context, projectId);
+      const mvpPlan = getBootstrapMvpPlan(context, projectId);
+      const structuredContent = {
+        approvedBacklogCount: backlogItems.filter(
+          (backlogItem) => backlogItem.status === "approved",
+        ).length,
+        bootstrapState: metadata.bootstrapState ?? null,
+        draftBacklogCount: backlogItems.filter((backlogItem) => backlogItem.status === "draft")
+          .length,
+        hasMvpPlan: mvpPlan !== null,
+        mvpPlan: mvpPlan?.bodyText ?? null,
+        project: summarizeProject(project),
+      };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "save_bootstrap_mvp_plan",
+    {
+      description:
+        "Save or update the MVP plan for a bootstrap project after the operator and Claude agree on the direction.",
+      inputSchema: {
+        planText: z.string().min(1).describe("Condensed MVP plan text for the bootstrap project."),
+        projectId: z.string().describe("Project receiving the bootstrap MVP plan."),
+      },
+      outputSchema: {
+        noteId: z.string(),
+        projectId: z.string(),
+        title: z.string(),
+      },
+    },
+    async ({ planText, projectId }) => {
+      const planNote = upsertBootstrapMvpPlan(context, {
+        bodyText: planText,
+        projectId,
+      });
+      const structuredContent = {
+        noteId: planNote.id,
+        projectId,
+        title: planNote.title,
+      };
+
+      return {
+        content: [
+          {
+            text: `Saved bootstrap MVP plan for project ${projectId}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "draft_bootstrap_backlog_item",
+    {
+      description:
+        "Create a bootstrap backlog item from the MVP plan before the project is handed off to the main dashboard.",
+      inputSchema: {
+        acceptanceCriteria: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Optional acceptance criteria for the bootstrap backlog item."),
+        priority: z
+          .number()
+          .int()
+          .min(0)
+          .max(100)
+          .optional()
+          .describe("Optional backlog priority."),
+        projectId: z.string().describe("Project receiving the bootstrap backlog item."),
+        reviewMode: z.enum(["human", "ai"]).optional().describe("Optional review mode."),
+        riskLevel: z.enum(["low", "medium", "high"]).optional().describe("Optional risk level."),
+        scopeSummary: z.string().min(1).describe("Short scope summary for the bootstrap item."),
+        title: z.string().min(1).describe("Short bootstrap backlog title."),
+      },
+      outputSchema: {
+        backlogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+      },
+    },
+    async ({
+      acceptanceCriteria,
+      priority,
+      projectId,
+      reviewMode,
+      riskLevel,
+      scopeSummary,
+      title,
+    }) => {
+      const backlogItem = createBootstrapBacklogItem(context, {
+        ...(acceptanceCriteria !== undefined ? { acceptanceCriteria } : {}),
+        ...(priority !== undefined ? { priority } : {}),
+        projectId,
+        ...(reviewMode !== undefined ? { reviewMode } : {}),
+        ...(riskLevel !== undefined ? { riskLevel } : {}),
+        scopeSummary,
+        title,
+      });
+      const structuredContent = {
+        backlogItem: summarizeBacklogItem(backlogItem),
+      };
+
+      return {
+        content: [
+          {
+            text: `Created bootstrap backlog item ${backlogItem.title} (${backlogItem.id}).`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "approve_bootstrap_backlog_item",
+    {
+      description:
+        "Record operator approval for a bootstrap backlog item so selected work is ready before dashboard handoff.",
+      inputSchema: {
+        backlogItemId: z.string().describe("Bootstrap backlog item to approve."),
+        detail: z
+          .string()
+          .optional()
+          .describe("Optional approval detail captured from the bootstrap review."),
+      },
+      outputSchema: {
+        approvalId: z.string(),
+        backlogItemId: z.string(),
+        status: z.string(),
+      },
+    },
+    async ({ backlogItemId, detail }) => {
+      const result = approveBootstrapBacklogItem(context, {
+        backlogItemId,
+        ...(detail !== undefined ? { detail } : {}),
+      });
+      const structuredContent = {
+        approvalId: result.approval.id,
+        backlogItemId: result.backlogItem.id,
+        status: result.backlogItem.status,
+      };
+
+      return {
+        content: [
+          {
+            text: `Approved bootstrap backlog item ${result.backlogItem.title}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "finalize_bootstrap_project",
+    {
+      description:
+        "Mark bootstrap planning complete once the MVP plan exists and at least one bootstrap backlog item has been approved.",
+      inputSchema: {
+        projectId: z.string().describe("Project to finalize after bootstrap planning."),
+      },
+      outputSchema: {
+        bootstrapState: z.string().nullable(),
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          repoPath: z.string(),
+          status: z.string(),
+        }),
+      },
+    },
+    async ({ projectId }) => {
+      const project = finalizeBootstrapProject(context, {
+        projectId,
+      });
+      const metadata = parseProjectMetadata(project).metadata;
+      const structuredContent = {
+        bootstrapState: metadata.bootstrapState ?? null,
+        project: summarizeProject(project),
+      };
+
+      return {
+        content: [
+          {
+            text: `Finalized bootstrap planning for project ${project.name}.`,
             type: "text",
           },
         ],
@@ -1291,6 +1538,7 @@ interface IBootstrapTargetFolderInspection {
 
 interface IRegisterProjectFromBootstrapInput {
   readonly defaultBranch?: string;
+  readonly mode: "adopt" | "create";
   readonly name?: string;
   readonly repoPath: string;
   readonly verificationCommands?: readonly string[];
@@ -1431,6 +1679,10 @@ function registerProjectFromBootstrap(
   input: IRegisterProjectFromBootstrapInput,
 ) {
   const project = registerLocalProject(context, {
+    metadata: {
+      bootstrapOrigin: input.mode,
+      bootstrapState: "planning",
+    },
     ...(input.name !== undefined ? { name: input.name } : {}),
     repoPath: input.repoPath,
     ...(input.verificationCommands !== undefined

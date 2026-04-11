@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  IApprovalRecord,
   IBacklogItemRecord,
   IChatMessageRecord,
   IChatThreadRecord,
   IContext,
+  IMemoryNoteRecord,
   ITaskRunRecord,
   ReviewMode,
   RiskLevel,
@@ -13,13 +15,19 @@ import type {
 
 import {
   getBacklogItemById,
+  getProjectById,
+  listBacklogItemsForProject,
   listChatThreadsForProject,
+  listMemoryNotesForProject,
   listTaskRunsForProject,
+  upsertApproval,
   upsertBacklogItem,
   upsertChatMessage,
   upsertChatThread,
+  upsertMemoryNote,
   upsertTaskRun,
 } from "./data.ts";
+import { parseProjectMetadata, updateProjectMetadata } from "./projects.ts";
 
 export interface ICreateDraftBacklogItemInput {
   readonly projectId: string;
@@ -45,6 +53,32 @@ export interface IStartCodingTaskInput {
   readonly assignedWorker?: WorkerKind;
   readonly summaryText?: string;
 }
+
+export interface IUpsertBootstrapMvpPlanInput {
+  readonly bodyText: string;
+  readonly projectId: string;
+}
+
+export interface ICreateBootstrapBacklogItemInput {
+  readonly acceptanceCriteria?: readonly string[];
+  readonly priority?: number;
+  readonly projectId: string;
+  readonly reviewMode?: ReviewMode;
+  readonly riskLevel?: RiskLevel;
+  readonly scopeSummary: string;
+  readonly title: string;
+}
+
+export interface IApproveBootstrapBacklogItemInput {
+  readonly backlogItemId: string;
+  readonly detail?: string;
+}
+
+export interface IFinalizeBootstrapProjectInput {
+  readonly projectId: string;
+}
+
+const BOOTSTRAP_MVP_PLAN_NOTE_ID_PREFIX = "memory-bootstrap-mvp-plan-";
 
 export function createDraftBacklogItemFromPlanning(
   context: IContext,
@@ -200,6 +234,208 @@ export function startCodingTask(context: IContext, input: IStartCodingTaskInput)
   return taskRun;
 }
 
+export function ensureProjectPlanningThread(
+  context: IContext,
+  projectId: string,
+): IChatThreadRecord {
+  requireProject(projectId, context);
+  const existingThread = listChatThreadsForProject(context, projectId).find((thread) => {
+    return thread.kind === "project_planning";
+  });
+
+  if (existingThread !== undefined) {
+    return existingThread;
+  }
+
+  const timestamp = new Date().toISOString();
+  const planningThread: IChatThreadRecord = {
+    createdAt: timestamp,
+    id: `thread-project-${randomUUID()}`,
+    kind: "project_planning",
+    projectId,
+    status: "open",
+    title: "Project planning",
+    updatedAt: timestamp,
+  };
+
+  upsertChatThread(context, planningThread);
+  upsertChatMessage(
+    context,
+    createMessage(
+      planningThread.id,
+      "system",
+      "Bootstrap planning thread created for MVP shaping and initial backlog approval.",
+      timestamp,
+    ),
+  );
+
+  return planningThread;
+}
+
+export function getBootstrapMvpPlan(
+  context: IContext,
+  projectId: string,
+): IMemoryNoteRecord | null {
+  requireProject(projectId, context);
+
+  return (
+    listMemoryNotesForProject(context, projectId).find((note) => {
+      return note.id === `${BOOTSTRAP_MVP_PLAN_NOTE_ID_PREFIX}${projectId}`;
+    }) ?? null
+  );
+}
+
+export function upsertBootstrapMvpPlan(
+  context: IContext,
+  input: IUpsertBootstrapMvpPlanInput,
+): IMemoryNoteRecord {
+  const planningThread = ensureProjectPlanningThread(context, input.projectId);
+  const existingNote = getBootstrapMvpPlan(context, input.projectId);
+  const timestamp = new Date().toISOString();
+  const bodyText = input.bodyText.trim();
+
+  if (bodyText.length === 0) {
+    throw new Error("Bootstrap MVP plan text is required.");
+  }
+
+  const planNote: IMemoryNoteRecord = {
+    bodyText,
+    createdAt: existingNote?.createdAt ?? timestamp,
+    id: `${BOOTSTRAP_MVP_PLAN_NOTE_ID_PREFIX}${input.projectId}`,
+    noteType: "note",
+    projectId: input.projectId,
+    sourceThreadId: planningThread.id,
+    title: "Bootstrap MVP plan",
+    updatedAt: timestamp,
+  };
+
+  upsertMemoryNote(context, planNote);
+  upsertChatMessage(
+    context,
+    createMessage(
+      planningThread.id,
+      "tool",
+      "Updated the bootstrap MVP plan for this project.",
+      timestamp,
+    ),
+  );
+  upsertChatThread(context, {
+    ...planningThread,
+    updatedAt: timestamp,
+  });
+
+  return planNote;
+}
+
+export function createBootstrapBacklogItem(
+  context: IContext,
+  input: ICreateBootstrapBacklogItemInput,
+): IBacklogItemRecord {
+  const planningThread = ensureProjectPlanningThread(context, input.projectId);
+  const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+    projectId: input.projectId,
+    scopeSummary: input.scopeSummary,
+    sourceThreadId: planningThread.id,
+    title: input.title,
+  });
+  const hasRevisions =
+    (input.acceptanceCriteria?.length ?? 0) > 0 ||
+    input.priority !== undefined ||
+    input.reviewMode !== undefined ||
+    input.riskLevel !== undefined;
+
+  if (!hasRevisions) {
+    return createdBacklogItem;
+  }
+
+  return reviseBacklogItemFromPlanning(context, {
+    acceptanceCriteria: input.acceptanceCriteria ?? [],
+    backlogItemId: createdBacklogItem.id,
+    ...(input.priority !== undefined ? { priority: input.priority } : {}),
+    ...(input.reviewMode !== undefined ? { reviewMode: input.reviewMode } : {}),
+    ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel } : {}),
+    scopeSummary: input.scopeSummary,
+    sourceThreadId: planningThread.id,
+    status: "draft",
+  });
+}
+
+export function approveBootstrapBacklogItem(
+  context: IContext,
+  input: IApproveBootstrapBacklogItemInput,
+): {
+  readonly approval: IApprovalRecord;
+  readonly backlogItem: IBacklogItemRecord;
+} {
+  const backlogItem = requireBacklogItem(context, input.backlogItemId);
+  const planningThread = ensureProjectPlanningThread(context, backlogItem.projectId);
+  const timestamp = new Date().toISOString();
+  const approvedBacklogItem: IBacklogItemRecord = {
+    ...backlogItem,
+    status: "approved",
+    updatedAt: timestamp,
+  };
+  const approval: IApprovalRecord = {
+    backlogItemId: backlogItem.id,
+    createdAt: timestamp,
+    decisionBy: "human",
+    decidedAt: timestamp,
+    detail: input.detail?.trim() || `Approved during bootstrap planning for ${backlogItem.title}.`,
+    id: `approval-${randomUUID()}`,
+    projectId: backlogItem.projectId,
+    requestedBy: "human",
+    status: "approved",
+    title: `Approve bootstrap backlog item: ${backlogItem.title}`,
+    updatedAt: timestamp,
+  };
+
+  upsertBacklogItem(context, approvedBacklogItem);
+  upsertApproval(context, approval);
+  upsertChatMessage(
+    context,
+    createMessage(
+      planningThread.id,
+      "tool",
+      `Approved bootstrap backlog item "${backlogItem.title}".`,
+      timestamp,
+    ),
+  );
+  upsertChatThread(context, {
+    ...planningThread,
+    updatedAt: timestamp,
+  });
+
+  return {
+    approval,
+    backlogItem: approvedBacklogItem,
+  };
+}
+
+export function finalizeBootstrapProject(context: IContext, input: IFinalizeBootstrapProjectInput) {
+  const project = requireProject(input.projectId, context);
+  const bootstrapPlan = getBootstrapMvpPlan(context, input.projectId);
+
+  if (bootstrapPlan === null) {
+    throw new Error("Bootstrap MVP plan is required before finalizing the project.");
+  }
+
+  const approvedBootstrapBacklogItems = requireApprovedBootstrapBacklogItems(
+    context,
+    input.projectId,
+  );
+  const metadata = parseProjectMetadata(project);
+
+  return updateProjectMetadata(context, {
+    metadata: {
+      ...metadata.metadata,
+      bootstrapApprovedBacklogCount: String(approvedBootstrapBacklogItems.length),
+      bootstrapCompletedAt: new Date().toISOString(),
+      bootstrapState: "ready_for_dashboard",
+    },
+    projectId: input.projectId,
+  });
+}
+
 function requireBacklogItem(context: IContext, backlogItemId: string): IBacklogItemRecord {
   const backlogItem = getBacklogItemById(context, backlogItemId);
 
@@ -208,6 +444,16 @@ function requireBacklogItem(context: IContext, backlogItemId: string): IBacklogI
   }
 
   return backlogItem;
+}
+
+function requireProject(projectId: string, context: IContext) {
+  const project = getProjectById(context, projectId);
+
+  if (project === null) {
+    throw new Error(`Missing project ${projectId}`);
+  }
+
+  return project;
 }
 
 function requireThreadById(
@@ -240,4 +486,18 @@ function createMessage(
     role,
     threadId,
   };
+}
+
+function requireApprovedBootstrapBacklogItems(context: IContext, projectId: string) {
+  const projectBacklogItems = listBacklogItemsForProject(context, projectId).filter(
+    (backlogItem) => {
+      return backlogItem.status === "approved";
+    },
+  );
+
+  if (projectBacklogItems.length === 0) {
+    throw new Error("Approve at least one bootstrap backlog item before finalizing the project.");
+  }
+
+  return projectBacklogItems;
 }

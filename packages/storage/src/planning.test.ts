@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,18 +8,27 @@ import { createConfig } from "@smithly/core";
 
 import { createContext, closeContext } from "./context.ts";
 import {
+  listApprovalsForProject,
   getBacklogItemById,
   listBacklogItemsForProject,
   listChatMessagesForThread,
   listChatThreadsForProject,
+  listMemoryNotesForProject,
   listTaskRunsForProject,
 } from "./data.ts";
 import {
+  approveBootstrapBacklogItem,
+  createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
+  ensureProjectPlanningThread,
+  finalizeBootstrapProject,
+  getBootstrapMvpPlan,
   reviseBacklogItemFromPlanning,
   startCodingTask,
+  upsertBootstrapMvpPlan,
 } from "./planning.ts";
 import { seedInitialState } from "./seed.ts";
+import { parseProjectMetadata, registerLocalProject } from "./projects.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -200,4 +209,109 @@ describe("planning mutations", () => {
 
     closeContext(context);
   });
+
+  it("stores a bootstrap MVP plan on the project planning thread", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const planningThread = ensureProjectPlanningThread(context, fixture.project.id);
+    const planNote = upsertBootstrapMvpPlan(context, {
+      bodyText:
+        "Ship a narrow local-first operator app that can plan, approve, and run one coding task at a time.",
+      projectId: fixture.project.id,
+    });
+    const storedPlan = getBootstrapMvpPlan(context, fixture.project.id);
+    const planningMessages = listChatMessagesForThread(context, planningThread.id);
+
+    expect(planNote.id).toBe(`memory-bootstrap-mvp-plan-${fixture.project.id}`);
+    expect(storedPlan?.bodyText).toContain("local-first operator app");
+    expect(
+      planningMessages.some((message) => {
+        return message.bodyText === "Updated the bootstrap MVP plan for this project.";
+      }),
+    ).toBe(true);
+    expect(listMemoryNotesForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `memory-bootstrap-mvp-plan-${fixture.project.id}`,
+          title: "Bootstrap MVP plan",
+        }),
+      ]),
+    );
+
+    closeContext(context);
+  });
+
+  it("drafts, approves, and finalizes bootstrap backlog state", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerFixtureProject(context, repoDirectory);
+
+    upsertBootstrapMvpPlan(context, {
+      bodyText:
+        "Draft the MVP, review the first few slices, and only then hand the project off to the dashboard.",
+      projectId: project.id,
+    });
+
+    const backlogItem = createBootstrapBacklogItem(context, {
+      acceptanceCriteria: [
+        "Bootstrap can write an MVP plan",
+        "Claude can draft initial backlog items before dashboard handoff",
+      ],
+      priority: 80,
+      projectId: project.id,
+      reviewMode: "human",
+      riskLevel: "medium",
+      scopeSummary: "Create the first bootstrap backlog item from the MVP plan.",
+      title: "Draft bootstrap backlog",
+    });
+    const approvalResult = approveBootstrapBacklogItem(context, {
+      backlogItemId: backlogItem.id,
+      detail: "Reviewed with the operator during bootstrap planning.",
+    });
+    const finalizedProject = finalizeBootstrapProject(context, {
+      projectId: project.id,
+    });
+
+    expect(getBacklogItemById(context, backlogItem.id)?.status).toBe("approved");
+    expect(approvalResult.approval.status).toBe("approved");
+    expect(listApprovalsForProject(context, project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          backlogItemId: backlogItem.id,
+          status: "approved",
+          title: `Approve bootstrap backlog item: ${backlogItem.title}`,
+        }),
+      ]),
+    );
+    expect(parseProjectMetadata(finalizedProject).metadata).toMatchObject({
+      bootstrapApprovedBacklogCount: "1",
+      bootstrapState: "ready_for_dashboard",
+    });
+
+    closeContext(context);
+  });
 });
+
+function registerFixtureProject(context: ReturnType<typeof createContext>, repoDirectory: string) {
+  mkdirSync(join(repoDirectory, ".git"));
+  return registerLocalProject(context, {
+    name: "Bootstrap Fixture",
+    repoPath: repoDirectory,
+  });
+}

@@ -263,6 +263,147 @@ describe("smithly mcp server", () => {
     context.db.close();
   });
 
+  it("stores bootstrap planning state, drafts initial backlog, and finalizes the bootstrap project", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-flow-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-flow-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "global",
+      dataDirectory,
+    });
+    const { client, close } = await connectClient(server);
+    const createResult = await client.callTool({
+      arguments: {
+        name: "Bootstrap Flow",
+        operatorConfirmed: true,
+        repoPath: repoDirectory,
+      },
+      name: "create_project_from_bootstrap",
+    });
+    const projectId = (
+      createResult.structuredContent as {
+        project: {
+          id: string;
+        };
+      }
+    ).project.id;
+
+    const planResult = await client.callTool({
+      arguments: {
+        planText:
+          "Ship a narrow MVP, draft the first backlog, and approve the earliest execution slices before dashboard handoff.",
+        projectId,
+      },
+      name: "save_bootstrap_mvp_plan",
+    });
+    const draftResult = await client.callTool({
+      arguments: {
+        acceptanceCriteria: [
+          "Bootstrap can persist the MVP plan",
+          "Bootstrap can draft the first backlog items before dashboard handoff",
+        ],
+        priority: 85,
+        projectId,
+        reviewMode: "human",
+        riskLevel: "medium",
+        scopeSummary: "Draft the first bootstrap backlog item from the MVP plan.",
+        title: "Bootstrap first backlog item",
+      },
+      name: "draft_bootstrap_backlog_item",
+    });
+    const approveResult = await client.callTool({
+      arguments: {
+        backlogItemId: (
+          draftResult.structuredContent as {
+            backlogItem: {
+              id: string;
+            };
+          }
+        ).backlogItem.id,
+        detail: "Reviewed and approved with the operator during bootstrap.",
+      },
+      name: "approve_bootstrap_backlog_item",
+    });
+    const stateResult = await client.callTool({
+      arguments: {
+        projectId,
+      },
+      name: "get_bootstrap_project_state",
+    });
+    const finalizeResult = await client.callTool({
+      arguments: {
+        projectId,
+      },
+      name: "finalize_bootstrap_project",
+    });
+
+    expect(planResult.structuredContent).toMatchObject({
+      noteId: `memory-bootstrap-mvp-plan-${projectId}`,
+      projectId,
+      title: "Bootstrap MVP plan",
+    });
+    expect(draftResult.structuredContent).toMatchObject({
+      backlogItem: {
+        id: expect.any(String),
+        priority: 85,
+        reviewMode: "human",
+        riskLevel: "medium",
+        status: "draft",
+        title: "Bootstrap first backlog item",
+      },
+    });
+    expect(approveResult.structuredContent).toMatchObject({
+      approvalId: expect.any(String),
+      backlogItemId: expect.any(String),
+      status: "approved",
+    });
+    expect(stateResult.structuredContent).toMatchObject({
+      approvedBacklogCount: 1,
+      bootstrapState: "planning",
+      draftBacklogCount: 0,
+      hasMvpPlan: true,
+      mvpPlan: expect.stringContaining("narrow MVP"),
+      project: {
+        id: projectId,
+        name: "Bootstrap Flow",
+      },
+    });
+    expect(finalizeResult.structuredContent).toMatchObject({
+      bootstrapState: "ready_for_dashboard",
+      project: {
+        id: projectId,
+        name: "Bootstrap Flow",
+      },
+    });
+    expect(listBacklogItemsForProject(context, projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "approved",
+          title: "Bootstrap first backlog item",
+        }),
+      ]),
+    );
+    expect(listApprovalsForProject(context, projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          detail: "Reviewed and approved with the operator during bootstrap.",
+          status: "approved",
+        }),
+      ]),
+    );
+
+    await close();
+    context.db.close();
+  });
+
   it("creates draft backlog items from the project planning thread", async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
 
