@@ -75,8 +75,8 @@ async function closeDesktop(
 
   await Promise.race([
     electronApp.close(),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 2_000);
+    new Promise<void>((done) => {
+      setTimeout(done, 2_000);
     }),
   ]);
 

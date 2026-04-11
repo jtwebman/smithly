@@ -2,6 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createConfig } from "@smithly/core";
@@ -18,6 +21,7 @@ import {
 } from "@smithly/storage";
 
 import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts";
+import { SmithlyMcpService } from "./mcp-service.ts";
 import {
   recoverOrphanedClaudeSessions,
   recoverProjectExecutionStates,
@@ -495,6 +499,83 @@ describe("desktop bootstrap", () => {
       ]),
     );
 
+    context.db.close();
+  });
+
+  it("starts a persistent local Smithly MCP service and serves scoped MCP sessions", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-mcp-service-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, fixture);
+
+    const service = new SmithlyMcpService(dataDirectory);
+    const manifest = await service.start();
+    const client = new Client({
+      name: "smithly-desktop-test-client",
+      version: "0.1.0",
+    });
+    const transport = new StreamableHTTPClientTransport(new URL(manifest.endpointUrl), {
+      requestInit: {
+        headers: {
+          authorization: `Bearer ${manifest.authToken}`,
+          "x-smithly-project-id": fixture.project.id,
+          "x-smithly-thread-id": fixture.projectChatThread.id,
+        },
+      },
+    });
+
+    await client.connect(transport as Transport);
+
+    const toolResult = await client.callTool({
+      name: "get_project_snapshot",
+    });
+    const healthResponse = await fetch(manifest.endpointUrl.replace("/mcp", "/health"));
+    const unauthorizedResponse = await fetch(manifest.endpointUrl, {
+      body: JSON.stringify({
+        id: "1",
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: {
+            name: "unauthorized",
+            version: "0.1.0",
+          },
+          protocolVersion: "2025-06-18",
+        },
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+
+    expect(toolResult.structuredContent).toMatchObject({
+      backlogCount: 1,
+      memoryNoteCount: 1,
+      planningThreadCount: 2,
+      projectId: fixture.project.id,
+      projectName: fixture.project.name,
+    });
+    expect(manifest.manifestPath).toBe(join(dataDirectory, "runtime", "smithly-mcp.json"));
+    expect(healthResponse.ok).toBe(true);
+    expect(await healthResponse.json()).toMatchObject({
+      endpointUrl: manifest.endpointUrl,
+      pid: process.pid,
+      status: "ok",
+    });
+    expect(unauthorizedResponse.status).toBe(401);
+
+    await client.close();
+    await service.stop();
     context.db.close();
   });
 });

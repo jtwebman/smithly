@@ -30,6 +30,7 @@ import {
 import { BootstrapSessionManager } from "./bootstrap-session.ts";
 import { BlockerRoutingManager } from "./blocker-routing-manager.ts";
 import { CodexSessionManager } from "./codex-session.ts";
+import { SmithlyMcpService } from "./mcp-service.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 import { ProjectExecutionManager } from "./project-execution.ts";
 import { ReviewManager } from "./review-manager.ts";
@@ -46,6 +47,7 @@ let projectExecutionManager: ProjectExecutionManager | null = null;
 let taskMergeManager: TaskMergeManager | null = null;
 let blockerRoutingManager: BlockerRoutingManager | null = null;
 let bootstrapSessionManager: BootstrapSessionManager | null = null;
+let mcpService: SmithlyMcpService | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 let isAppQuitting = false;
@@ -69,6 +71,8 @@ export async function bootstrapDesktopApp(): Promise<void> {
   hydrateDesktopSelectionState(storageContext);
   recoverOrphanedClaudeSessions(storageContext);
   recoverProjectExecutionStates(storageContext);
+  mcpService = new SmithlyMcpService(storageContext.config.storage.dataDirectory);
+  await mcpService.start();
   planningSessionManager = createPlanningSessionManager(storageContext);
   bootstrapSessionManager = createBootstrapSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
@@ -690,6 +694,10 @@ export function resolveDesktopMcpServerPath(): string {
   return join(dirname(), "../../../packages/mcp-server/src/main.js");
 }
 
+export function getDesktopMcpServiceManifest() {
+  return mcpService?.getManifest() ?? null;
+}
+
 function resolveDesktopUiStatePath(dataDirectory: string): string {
   return join(dataDirectory, "desktop-ui-state.json");
 }
@@ -855,6 +863,8 @@ if (typeof app?.on === "function") {
           "Smithly is shutting down. Pause orchestration safely before exit.",
         );
       } finally {
+        await mcpService?.stop();
+        mcpService = null;
         planningSessionManager?.dispose();
         planningSessionManager = null;
         codexSessionManager?.dispose();
