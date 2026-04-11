@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { basename, dirname as pathDirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { spawn, type IPty } from "node-pty";
@@ -8,14 +9,17 @@ import type {
   ChatMessageRole,
   IChatMessageRecord,
   IChatThreadRecord,
+  IMemoryNoteRecord,
   IWorkerSessionRecord,
 } from "@smithly/core";
 import {
   getBacklogItemById,
   getProjectById,
+  listChatMessagesForThread,
   listChatThreadsForProject,
   upsertChatMessage,
   upsertChatThread,
+  upsertMemoryNote,
   upsertWorkerSession,
   type IStorageContext,
 } from "@smithly/storage";
@@ -44,6 +48,7 @@ export interface IEnsurePlanningSessionInput {
 interface IPlanningRuntimeSession {
   readonly backlogItemId?: string;
   readonly createdAt: string;
+  readonly logFilePath: string;
   readonly projectId: string;
   readonly pty: IPty;
   readonly scope: PlanningScope;
@@ -64,13 +69,24 @@ interface IMcpServerConfig {
   };
 }
 
+interface IPlanningSessionManagerOptions {
+  readonly now?: () => Date;
+  readonly spawnPty?: typeof spawn;
+}
+
 export class PlanningSessionManager {
   private readonly sessions = new Map<string, IPlanningRuntimeSession>();
+  private readonly now: () => Date;
+  private readonly spawnPty: typeof spawn;
 
   public constructor(
     private readonly context: IStorageContext,
     private readonly emitOutput: (event: IPlanningOutputEvent) => void,
-  ) {}
+    options: IPlanningSessionManagerOptions = {},
+  ) {
+    this.now = options.now ?? (() => new Date());
+    this.spawnPty = options.spawnPty ?? spawn;
+  }
 
   public ensureSession(input: IEnsurePlanningSessionInput): void {
     const thread = this.requirePlanningThread(input);
@@ -99,7 +115,7 @@ export class PlanningSessionManager {
       throw new Error(`Planning session is unavailable for thread ${thread.id}`);
     }
 
-    const timestamp = new Date().toISOString();
+    const timestamp = this.now().toISOString();
 
     upsertChatMessage(this.context, {
       bodyText,
@@ -115,6 +131,8 @@ export class PlanningSessionManager {
       ...thread,
       updatedAt: timestamp,
     });
+    this.appendSessionLog(session.logFilePath, `operator> ${bodyText}\n`);
+    this.upsertSessionSummary(thread, session, "running");
     session.pty.write(`${bodyText}\r`);
   }
 
@@ -136,9 +154,16 @@ export class PlanningSessionManager {
       throw new Error(`Missing project ${input.projectId}`);
     }
 
-    const startedAt = new Date().toISOString();
+    const startedAt = this.now().toISOString();
     const workerSessionId = `session-claude-${randomUUID()}`;
     const terminalKey = this.createTerminalKey(input);
+    const logFilePath = this.resolveSessionLogPath(workerSessionId);
+    const transcriptRef = this.createTranscriptRef(thread.id, logFilePath);
+
+    this.appendSessionLog(
+      logFilePath,
+      `[smithly] session ${workerSessionId} started for ${input.scope} planning on ${startedAt}\n`,
+    );
 
     upsertWorkerSession(this.context, {
       createdAt: startedAt,
@@ -148,14 +173,14 @@ export class PlanningSessionManager {
       startedAt,
       status: "starting",
       terminalKey,
-      transcriptRef: `chat-thread:${thread.id}`,
+      transcriptRef,
       updatedAt: startedAt,
       workerKind: "claude",
     });
 
     try {
       const mcpConfig = this.buildMcpServerConfig(thread, input);
-      const pty = spawn(
+      const pty = this.spawnPty(
         this.context.config.workers.claude.command,
         this.buildWorkerArgs(this.context.config.workers.claude.command, mcpConfig),
         {
@@ -177,6 +202,7 @@ export class PlanningSessionManager {
         ...(input.backlogItemId !== undefined ? { backlogItemId: input.backlogItemId } : {}),
         createdAt: startedAt,
         lineBuffer: "",
+        logFilePath,
         projectId: input.projectId,
         pty,
         scope: input.scope,
@@ -189,8 +215,10 @@ export class PlanningSessionManager {
       this.sessions.set(thread.id, runtimeSession);
       this.touchWorkerSession(runtimeSession, "running");
       this.touchThread(thread);
+      this.upsertSessionSummary(thread, runtimeSession, "running");
 
       pty.onData((rawData) => {
+        this.appendSessionLog(runtimeSession.logFilePath, rawData);
         this.touchWorkerSession(runtimeSession, "running");
         this.emitOutput({
           entries: this.persistOutput(runtimeSession, rawData),
@@ -209,11 +237,13 @@ export class PlanningSessionManager {
         const message = `[smithly] Claude planning session ${status} (${exitCode}).`;
 
         this.touchWorkerSession(closedSession, status);
+        this.appendSessionLog(closedSession.logFilePath, `${message}\n`);
         this.emitOutput({
           entries: this.persistOutput(closedSession, `${message}\n`, "system"),
           rawData: `\r\n${message}\r\n`,
           terminalKey,
         });
+        this.upsertSessionSummary(thread, closedSession, status);
         this.sessions.delete(thread.id);
       });
     } catch (error: unknown) {
@@ -223,6 +253,7 @@ export class PlanningSessionManager {
         {
           createdAt: startedAt,
           lineBuffer: "",
+          logFilePath,
           projectId: input.projectId,
           scope: input.scope,
           startedAt,
@@ -232,11 +263,28 @@ export class PlanningSessionManager {
         } as IPlanningRuntimeSession,
         "failed",
       );
+      this.appendSessionLog(logFilePath, `${failureMessage}\n`);
       this.emitOutput({
         entries: this.persistStaticMessage(thread.id, workerSessionId, failureMessage, "system"),
         rawData: `${failureMessage}\r\n`,
         terminalKey,
       });
+      this.upsertSessionSummary(
+        thread,
+        {
+          ...(input.backlogItemId !== undefined ? { backlogItemId: input.backlogItemId } : {}),
+          createdAt: startedAt,
+          lineBuffer: "",
+          logFilePath,
+          projectId: input.projectId,
+          scope: input.scope,
+          startedAt,
+          terminalKey,
+          threadId: thread.id,
+          workerSessionId,
+        } as IPlanningRuntimeSession,
+        "failed",
+      );
     }
   }
 
@@ -255,7 +303,7 @@ export class PlanningSessionManager {
       return existingThread;
     }
 
-    const timestamp = new Date().toISOString();
+    const timestamp = this.now().toISOString();
 
     if (input.scope === "project") {
       const projectThread: IChatThreadRecord = {
@@ -349,11 +397,17 @@ export class PlanningSessionManager {
   private touchWorkerSession(
     session: Pick<
       IPlanningRuntimeSession,
-      "createdAt" | "projectId" | "startedAt" | "terminalKey" | "threadId" | "workerSessionId"
+      | "createdAt"
+      | "logFilePath"
+      | "projectId"
+      | "startedAt"
+      | "terminalKey"
+      | "threadId"
+      | "workerSessionId"
     >,
     status: IWorkerSessionRecord["status"],
   ): void {
-    const timestamp = new Date().toISOString();
+    const timestamp = this.now().toISOString();
 
     upsertWorkerSession(this.context, {
       createdAt: session.createdAt,
@@ -364,7 +418,7 @@ export class PlanningSessionManager {
       startedAt: session.startedAt,
       status,
       terminalKey: session.terminalKey,
-      transcriptRef: `chat-thread:${session.threadId}`,
+      transcriptRef: this.createTranscriptRef(session.threadId, session.logFilePath),
       updatedAt: timestamp,
       workerKind: "claude",
     });
@@ -400,7 +454,7 @@ export class PlanningSessionManager {
       return [];
     }
 
-    const timestamp = new Date().toISOString();
+    const timestamp = this.now().toISOString();
     const message: IChatMessageRecord = {
       bodyText: normalizedBodyText,
       createdAt: timestamp,
@@ -422,6 +476,83 @@ export class PlanningSessionManager {
         role: message.role,
       },
     ];
+  }
+
+  private createTranscriptRef(threadId: string, logFilePath: string): string {
+    return `chat-thread:${threadId}|log-file:${logFilePath}`;
+  }
+
+  private resolveSessionLogPath(workerSessionId: string): string {
+    return join(this.context.config.storage.dataDirectory, "worker-logs", `${workerSessionId}.log`);
+  }
+
+  private appendSessionLog(logFilePath: string, content: string): void {
+    mkdirSync(pathDirname(logFilePath), { recursive: true });
+    appendFileSync(logFilePath, content);
+  }
+
+  private upsertSessionSummary(
+    thread: IChatThreadRecord,
+    session: Pick<
+      IPlanningRuntimeSession,
+      | "backlogItemId"
+      | "createdAt"
+      | "logFilePath"
+      | "projectId"
+      | "scope"
+      | "threadId"
+      | "workerSessionId"
+    >,
+    status: IWorkerSessionRecord["status"],
+  ): void {
+    const timestamp = this.now().toISOString();
+    const recentMessages = listChatMessagesForThread(this.context, thread.id).slice(-4);
+    const note: IMemoryNoteRecord = {
+      ...(session.backlogItemId !== undefined ? { backlogItemId: session.backlogItemId } : {}),
+      bodyText: this.buildSessionSummaryBody(thread, session, status, recentMessages),
+      createdAt: session.createdAt,
+      id: `memory-session-summary-${session.workerSessionId}`,
+      noteType: "session_summary",
+      projectId: session.projectId,
+      sourceThreadId: session.threadId,
+      title: `Claude ${session.scope} session snapshot`,
+      updatedAt: timestamp,
+    };
+
+    upsertMemoryNote(this.context, note);
+  }
+
+  private buildSessionSummaryBody(
+    thread: IChatThreadRecord,
+    session: Pick<
+      IPlanningRuntimeSession,
+      "backlogItemId" | "logFilePath" | "scope" | "threadId" | "workerSessionId"
+    >,
+    status: IWorkerSessionRecord["status"],
+    recentMessages: readonly IChatMessageRecord[],
+  ): string {
+    const lines = [
+      `scope: ${session.scope}`,
+      `status: ${status}`,
+      `thread: ${thread.title} (${session.threadId})`,
+      `workerSessionId: ${session.workerSessionId}`,
+      `transcriptRef: ${this.createTranscriptRef(session.threadId, session.logFilePath)}`,
+      `logFilePath: ${session.logFilePath}`,
+      ...(session.backlogItemId !== undefined ? [`backlogItemId: ${session.backlogItemId}`] : []),
+    ];
+
+    if (recentMessages.length === 0) {
+      lines.push("recentMessages: none");
+    } else {
+      lines.push("recentMessages:");
+      lines.push(
+        ...recentMessages.map((message) => {
+          return `- ${message.role}: ${message.bodyText}`;
+        }),
+      );
+    }
+
+    return lines.join("\n");
   }
 }
 

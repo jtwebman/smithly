@@ -68,7 +68,7 @@
 29. `done` Spawn and manage Claude Code CLI sessions per project
 30. `done` Attach Claude sessions to right-side resumable session panes
 31. `done` Add operator-driven Claude TUI sessions for project planning and task planning
-32. `todo` Track Claude session lifecycle, transcript references, summary snapshots, and status in the DB
+32. `done` Track Claude session lifecycle, transcript references, summary snapshots, and status in the DB
 33. `todo` Ingest Claude hook events and structured outcomes into Smithly state without duplicating full raw chat
 34. `todo` Restore resumable operator-opened Claude sessions after app restart when possible
 35. `todo` Add recovery logic for crashed or orphaned Claude sessions

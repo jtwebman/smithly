@@ -368,7 +368,10 @@ function findPlanningSession(
 ) {
   return [...workerSessions]
     .filter((session) => {
-      return session.workerKind === "claude" && session.transcriptRef === `chat-thread:${threadId}`;
+      return (
+        session.workerKind === "claude" &&
+        session.transcriptRef?.startsWith(`chat-thread:${threadId}`)
+      );
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
