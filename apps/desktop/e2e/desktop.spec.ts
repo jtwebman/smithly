@@ -59,19 +59,21 @@ test("desktop shell can register a local repo path as a managed project", async 
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
-    await expect(window.locator("#project-count")).toHaveText("0");
+    await expect(window.getByRole("heading", { name: "Projects" })).toBeVisible();
     await expect(window.locator("#planning-status")).toContainText(
       "Register a local project to enable planning.",
     );
 
+    await window.locator("#open-project-creator-button").click();
+    await expect(window.locator("#project-creator-modal")).toBeVisible();
     await window.locator("#project-registration-path").fill(localRepoDirectory);
     await window.locator("#project-registration-name").fill("Local Fixture");
     await window.locator("#project-registration-verification").fill("npm run check\nnpm run test");
     await window.locator("#project-registration-metadata").fill("owner=jt\nstack=electron");
     await window.locator("#project-registration-approval-high-risk").uncheck();
-    await window.locator("#project-registration-form button").click();
+    await window.locator("#save-project-button").click();
 
-    await expect(window.locator("#project-count")).toHaveText("1");
+    await expect(window.locator("#project-creator-modal")).toBeHidden();
     await expect(window.locator("#project-list")).toContainText("Local Fixture");
     await expect(window.locator("#project-list")).toContainText(localRepoDirectory);
     await expect(window.locator("#project-list")).toContainText(
@@ -82,9 +84,6 @@ test("desktop shell can register a local repo path as a managed project", async 
     );
     await expect(window.locator("#project-list")).toContainText(
       "Metadata: owner=jt | stack=electron",
-    );
-    await expect(window.locator("#project-registration-status")).toContainText(
-      "Registered Local Fixture.",
     );
     await expect(window.locator("#planning-status")).toContainText(
       "Open a project or task Claude session to begin.",
@@ -103,13 +102,15 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
   const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
 
   try {
+    await window.locator("#open-project-creator-button").click();
     await window.locator("#project-registration-path").fill(firstRepoDirectory);
     await window.locator("#project-registration-name").fill("Project Alpha");
-    await window.locator("#project-registration-form button").click();
+    await window.locator("#save-project-button").click();
 
+    await window.locator("#open-project-creator-button").click();
     await window.locator("#project-registration-path").fill(secondRepoDirectory);
     await window.locator("#project-registration-name").fill("Project Beta");
-    await window.locator("#project-registration-form button").click();
+    await window.locator("#save-project-button").click();
 
     await expect(window.locator("#project-list .project-card")).toHaveCount(2);
 
@@ -119,11 +120,12 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
     );
 
     await window.locator("#project-edit-button").click();
+    await expect(window.locator("#project-creator-modal")).toBeVisible();
     await expect(window.locator("#project-registration-status")).toContainText(
       "Editing Project Alpha.",
     );
     await window.locator("#project-registration-name").fill("Project Alpha Prime");
-    await window.locator("#project-registration-form button").click();
+    await window.locator("#save-project-button").click();
 
     await expect(window.locator("#project-list")).toContainText("Project Alpha Prime");
     await expect(window.locator("#project-detail-title")).toHaveText(
@@ -151,10 +153,8 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
 
   try {
     await expect(window).toHaveTitle("Smithly");
-    await expect(window.locator("h1")).toHaveText("Project dashboard");
-    await expect(window.locator("#project-count")).toHaveText("1");
+    await expect(window.getByRole("heading", { name: "Projects" })).toBeVisible();
     await expect(window.locator("html")).toHaveAttribute("data-theme", "dark");
-    await expect(window.locator("#theme-mode")).toHaveText("dark -> dark");
     await expect(window.locator("#project-list")).toContainText("Smithly");
     await expect(window.locator("#project-list")).toContainText("Verification: npm run check");
     await expect(window.locator("#project-list")).toContainText(
@@ -367,7 +367,6 @@ test("desktop shell supports explicit light theme preference", async () => {
 
   try {
     await expect(window.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(window.locator("#theme-mode")).toHaveText("light -> light");
     await window.locator("#project-planning-button").click();
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "mock claude ready for project planning",
@@ -384,12 +383,32 @@ test("desktop shell resolves system theme preference to a concrete runtime theme
   });
 
   try {
-    await expect(window.locator("#theme-mode")).toHaveText(/^system -> (dark|light)$/u);
-
-    const htmlTheme = await window.locator("html").getAttribute("data-theme");
-
-    expect(htmlTheme === "dark" || htmlTheme === "light").toBe(true);
+    await expect(window.locator("html")).toHaveAttribute("data-theme", /^(dark|light)$/u);
   } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("project creator opens as a large chat-style modal", async () => {
+  const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-modal-"));
+  mkdirSync(join(localRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await window.locator("#open-project-creator-button").click();
+    await expect(window.locator("#project-creator-modal")).toBeVisible();
+    await expect(window.locator("#project-creator-chat")).toContainText(
+      "Start with a project name and repo path if you already have one.",
+    );
+
+    await window.locator("#project-registration-path").fill(localRepoDirectory);
+    await window.locator("#project-registration-name").fill("Modal Project");
+    await window.locator("#save-project-button").click();
+
+    await expect(window.locator("#project-creator-modal")).toBeHidden();
+    await expect(window.locator("#project-list")).toContainText("Modal Project");
+  } finally {
+    rmSync(localRepoDirectory, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });

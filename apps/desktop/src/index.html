@@ -90,22 +90,21 @@
         line-height: 1.65;
       }
 
-      .dashboard-hero,
-      .dashboard-actions,
       .project-list,
-      .project-registration,
       .workspace-grid,
       .workspace-secondary,
       .workspace-tertiary,
-      .stack {
+      .stack,
+      .project-toolbar,
+      .project-creator-chat,
+      .project-creator-form {
         display: grid;
         gap: 16px;
       }
 
-      .dashboard-hero,
-      .dashboard-card,
       .panel,
-      .project-card {
+      .project-card,
+      .modal-card {
         border: 1px solid var(--border);
         border-radius: 24px;
         background: var(--panel);
@@ -113,12 +112,6 @@
         backdrop-filter: blur(12px);
       }
 
-      .dashboard-card,
-      .dashboard-hero {
-        padding: 20px 22px;
-      }
-
-      .dashboard-card dt,
       .project-metrics dt {
         margin: 0 0 6px;
         font-size: 0.74rem;
@@ -127,28 +120,14 @@
         color: var(--accent);
       }
 
-      .dashboard-card dd,
       .project-metrics dd {
         margin: 0;
         font-size: 1rem;
       }
 
-      .dashboard-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
-        gap: 20px;
-      }
-
-      .dashboard-hero h1 {
-        margin: 0 0 10px;
-        font-size: clamp(2rem, 3vw, 3rem);
-        line-height: 0.95;
-        letter-spacing: -0.04em;
-      }
-
-      .dashboard-actions {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-top: 16px;
+      .project-toolbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
       }
 
       .workspace-grid {
@@ -165,6 +144,12 @@
         padding: 22px;
       }
 
+      .panel--terminal {
+        display: grid;
+        grid-template-rows: auto auto auto 1fr auto;
+        min-height: 0;
+      }
+
       .panel h2,
       .project-card h3 {
         margin: 0;
@@ -173,9 +158,7 @@
 
       .panel-header,
       .project-card__header,
-      .chat-message__row,
-      .planning-toolbar,
-      .planning-form {
+      .chat-message__row {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
@@ -195,27 +178,6 @@
       .project-list {
         margin-top: 18px;
         grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      }
-
-      .project-registration {
-        margin-top: 18px;
-      }
-
-      .project-registration__fields {
-        display: grid;
-        gap: 12px;
-        margin-top: 16px;
-      }
-
-      .project-registration__actions {
-        display: flex;
-        justify-content: flex-end;
-      }
-
-      .project-registration__status {
-        min-height: 1.5rem;
-        margin-top: 10px;
-        font-size: 0.94rem;
       }
 
       .project-card {
@@ -321,7 +283,9 @@
       }
 
       #terminal {
-        height: min(56vh, 520px);
+        aspect-ratio: 16 / 10;
+        min-height: 320px;
+        max-height: 60vh;
         margin-top: 16px;
         padding: 12px;
         border: 1px solid var(--border);
@@ -333,6 +297,13 @@
       .terminal-caption {
         margin-top: 12px;
         font-size: 0.9rem;
+      }
+
+      .chat-monitor {
+        aspect-ratio: 16 / 10;
+        min-height: 300px;
+        max-height: 60vh;
+        overflow: auto;
       }
 
       .stack {
@@ -390,6 +361,87 @@
         color: var(--muted);
       }
 
+      .primary-button,
+      .secondary-button {
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        color: var(--ink);
+      }
+
+      .primary-button {
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+        color: #08121c;
+        border-color: transparent;
+        font-weight: 600;
+      }
+
+      .secondary-button {
+        background: var(--panel-strong);
+      }
+
+      .modal-overlay[hidden] {
+        display: none;
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        background: rgba(6, 10, 16, 0.62);
+        backdrop-filter: blur(10px);
+      }
+
+      .modal-card {
+        width: min(1200px, calc(100vw - 64px));
+        max-height: calc(100vh - 64px);
+        padding: 24px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 20px;
+        overflow: hidden;
+      }
+
+      .project-creator-chat {
+        align-content: start;
+      }
+
+      .project-creator-chat .chat-message {
+        min-height: 0;
+      }
+
+      .project-creator-form {
+        align-content: start;
+      }
+
+      .project-creator-form label {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .project-creator-form__actions {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .project-creator-form__actions > div {
+        display: flex;
+        gap: 12px;
+      }
+
+      .project-registration__status {
+        min-height: 1.5rem;
+        font-size: 0.94rem;
+      }
+
       @media (max-width: 1280px) {
         .workspace-tertiary {
           grid-template-columns: 1fr;
@@ -397,120 +449,43 @@
       }
 
       @media (max-width: 1100px) {
-        .dashboard-header,
         .workspace-grid,
-        .workspace-secondary {
+        .workspace-secondary,
+        .modal-card {
           grid-template-columns: 1fr;
         }
       }
 
       @media (max-width: 800px) {
-        .dashboard-actions {
+        .project-toolbar,
+        .project-creator-form__actions {
           grid-template-columns: 1fr;
+        }
+
+        .project-creator-form__actions {
+          display: grid;
+        }
+
+        .project-creator-form__actions > div {
+          display: grid;
         }
       }
     </style>
   </head>
   <body>
     <main class="workspace">
-      <section class="dashboard-header">
-        <article class="dashboard-hero">
-          <h1>Project dashboard</h1>
-          <p>
-            Jump into project planning, inspect active work, and open managed Claude sessions
-            without dedicating the whole screen to app chrome.
-          </p>
-          <div class="dashboard-actions">
-            <article class="dashboard-card">
-              <dt>Managed Projects</dt>
-              <dd id="project-count">Loading...</dd>
-            </article>
-            <article class="dashboard-card">
-              <dt>Theme</dt>
-              <dd id="theme-mode">Loading...</dd>
-            </article>
-            <article class="dashboard-card">
-              <dt>Shell Status</dt>
-              <dd id="shell-status">Connecting shell...</dd>
-            </article>
-          </div>
-        </article>
-        <article class="dashboard-hero">
+      <section class="panel">
+        <div class="project-toolbar">
           <div class="panel-header">
             <div>
-              <h2>Add Project</h2>
-              <p>Create a managed project card first, then continue planning and registration.</p>
+              <h2>Projects</h2>
+              <p>Pick a project card, or open the creator to start a new project shell.</p>
             </div>
           </div>
-          <form id="project-registration-form" class="project-registration">
-            <div class="project-registration__fields">
-              <input
-                id="project-registration-path"
-                name="project-registration-path"
-                type="text"
-                placeholder="/absolute/path/to/local/repo"
-              />
-              <input
-                id="project-registration-name"
-                name="project-registration-name"
-                type="text"
-                placeholder="Optional display name"
-              />
-              <textarea
-                id="project-registration-verification"
-                name="project-registration-verification"
-                rows="3"
-                placeholder="Verification commands, one per line"
-              ></textarea>
-              <textarea
-                id="project-registration-metadata"
-                name="project-registration-metadata"
-                rows="3"
-                placeholder="Metadata entries, one key=value pair per line"
-              ></textarea>
-              <label>
-                <input
-                  id="project-registration-approval-new-backlog"
-                  name="project-registration-approval-new-backlog"
-                  type="checkbox"
-                  checked
-                />
-                Require approval for new backlog items
-              </label>
-              <label>
-                <input
-                  id="project-registration-approval-scope"
-                  name="project-registration-approval-scope"
-                  type="checkbox"
-                  checked
-                />
-                Require approval for scope changes
-              </label>
-              <label>
-                <input
-                  id="project-registration-approval-high-risk"
-                  name="project-registration-approval-high-risk"
-                  type="checkbox"
-                  checked
-                />
-                Require approval for high-risk tasks
-              </label>
-            </div>
-            <div class="project-registration__actions">
-              <button type="submit">Register Project</button>
-            </div>
-            <p id="project-registration-status" class="project-registration__status"></p>
-          </form>
-        </article>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
           <div>
-            <h2>Projects</h2>
-            <p>
-              Title-card project summaries with status, work counts, and current operating policy.
-            </p>
+            <button id="open-project-creator-button" class="primary-button" type="button">
+              Add Project
+            </button>
           </div>
         </div>
         <div id="project-list" class="project-list"></div>
@@ -518,7 +493,7 @@
 
       <section class="workspace">
         <section class="workspace-grid">
-          <div class="panel">
+          <div class="panel panel--terminal">
             <div class="panel-header">
               <div>
                 <h2 id="project-detail-title">Project detail</h2>
@@ -616,6 +591,120 @@
         </section>
       </section>
     </main>
+    <div id="project-creator-modal" class="modal-overlay" hidden>
+      <section class="modal-card">
+        <div class="project-creator-chat">
+          <div class="panel-header">
+            <div>
+              <h2 id="project-creator-title">Create project</h2>
+              <p>Use this large setup surface to sketch the project first, then wire the repo.</p>
+            </div>
+          </div>
+          <div class="stack chat-monitor" id="project-creator-chat">
+            <article class="chat-message">
+              <div class="chat-message__row">
+                <strong>smithly</strong>
+                <time>setup</time>
+              </div>
+              <p>Start with a project name and repo path if you already have one.</p>
+            </article>
+            <article class="chat-message">
+              <div class="chat-message__row">
+                <strong>smithly</strong>
+                <time>policy</time>
+              </div>
+              <p>
+                Add verification commands and approval gates now so the project starts with
+                guardrails.
+              </p>
+            </article>
+            <article class="chat-message">
+              <div class="chat-message__row">
+                <strong>smithly</strong>
+                <time>notes</time>
+              </div>
+              <p>Metadata is optional. Use it for stack, owner, repo host, or any planning tags.</p>
+            </article>
+          </div>
+        </div>
+        <form id="project-registration-form" class="project-creator-form">
+          <label>
+            Local repo path
+            <input
+              id="project-registration-path"
+              name="project-registration-path"
+              type="text"
+              placeholder="/absolute/path/to/local/repo"
+            />
+          </label>
+          <label>
+            Display name
+            <input
+              id="project-registration-name"
+              name="project-registration-name"
+              type="text"
+              placeholder="Optional display name"
+            />
+          </label>
+          <label>
+            Verification commands
+            <textarea
+              id="project-registration-verification"
+              name="project-registration-verification"
+              rows="4"
+              placeholder="Verification commands, one per line"
+            ></textarea>
+          </label>
+          <label>
+            Metadata
+            <textarea
+              id="project-registration-metadata"
+              name="project-registration-metadata"
+              rows="4"
+              placeholder="Metadata entries, one key=value pair per line"
+            ></textarea>
+          </label>
+          <label>
+            <input
+              id="project-registration-approval-new-backlog"
+              name="project-registration-approval-new-backlog"
+              type="checkbox"
+              checked
+            />
+            Require approval for new backlog items
+          </label>
+          <label>
+            <input
+              id="project-registration-approval-scope"
+              name="project-registration-approval-scope"
+              type="checkbox"
+              checked
+            />
+            Require approval for scope changes
+          </label>
+          <label>
+            <input
+              id="project-registration-approval-high-risk"
+              name="project-registration-approval-high-risk"
+              type="checkbox"
+              checked
+            />
+            Require approval for high-risk tasks
+          </label>
+          <p id="project-registration-status" class="project-registration__status"></p>
+          <div class="project-creator-form__actions">
+            <button id="close-project-creator-button" class="secondary-button" type="button">
+              Cancel
+            </button>
+            <div>
+              <button id="save-project-button" class="primary-button" type="submit">
+                Save Project
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>

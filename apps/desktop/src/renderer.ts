@@ -149,6 +149,14 @@ const themeNode = document.getElementById("theme-mode");
 const dataDirectoryNode = document.getElementById("data-directory");
 const projectCountNode = document.getElementById("project-count");
 const projectListNode = document.getElementById("project-list");
+const projectCreatorModalNode = document.getElementById("project-creator-modal");
+const projectCreatorTitleNode = document.getElementById("project-creator-title");
+const openProjectCreatorButton = document.getElementById(
+  "open-project-creator-button",
+) as HTMLButtonElement | null;
+const closeProjectCreatorButton = document.getElementById(
+  "close-project-creator-button",
+) as HTMLButtonElement | null;
 const projectRegistrationForm = document.getElementById(
   "project-registration-form",
 ) as HTMLFormElement | null;
@@ -302,6 +310,56 @@ function createSessionPaneKey(scope: PlanningScope, backlogItemId?: string): Ses
 
 function renderProjectRegistrationStatus(message: string): void {
   setNodeText(projectRegistrationStatusNode, message);
+}
+
+function setProjectCreatorModalOpen(isOpen: boolean): void {
+  projectCreatorModalNode?.toggleAttribute("hidden", !isOpen);
+}
+
+function resetProjectRegistrationForm(): void {
+  editingProjectId = null;
+
+  if (projectRegistrationPathNode !== null) {
+    projectRegistrationPathNode.value = "";
+  }
+
+  if (projectRegistrationNameNode !== null) {
+    projectRegistrationNameNode.value = "";
+  }
+
+  if (projectRegistrationVerificationNode !== null) {
+    projectRegistrationVerificationNode.value = "";
+  }
+
+  if (projectRegistrationMetadataNode !== null) {
+    projectRegistrationMetadataNode.value = "";
+  }
+
+  if (projectRegistrationApprovalNewBacklogNode !== null) {
+    projectRegistrationApprovalNewBacklogNode.checked = true;
+  }
+
+  if (projectRegistrationApprovalScopeNode !== null) {
+    projectRegistrationApprovalScopeNode.checked = true;
+  }
+
+  if (projectRegistrationApprovalHighRiskNode !== null) {
+    projectRegistrationApprovalHighRiskNode.checked = true;
+  }
+
+  setNodeText(projectCreatorTitleNode, "Create project");
+  renderProjectRegistrationStatus("");
+}
+
+function openProjectCreatorModal(mode: "create" | "edit"): void {
+  if (mode === "create") {
+    resetProjectRegistrationForm();
+  } else {
+    setNodeText(projectCreatorTitleNode, "Edit project");
+  }
+
+  setProjectCreatorModalOpen(true);
+  projectRegistrationPathNode?.focus();
 }
 
 function renderList(
@@ -505,6 +563,7 @@ function renderPlanningPane(status: DesktopStatus): void {
           ? `${activeScope} planning session ${activeSession.status}`
           : `${activeScope} planning session idle`,
   );
+  setNodeText(shellStatusNode, activeSession ? `${activeScope} TUI attached` : "Shell ready");
   setNodeText(
     terminalCaptionNode,
     !hasSelectedProject
@@ -834,32 +893,8 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
         ? `Registered ${status.projects[status.projects.length - 1]?.name ?? "project"}.`
         : `Updated ${status.projects.find((project) => project.id === editingProjectId)?.name ?? "project"}.`,
     );
-    editingProjectId = null;
-    projectRegistrationPathNode.value = "";
-
-    if (projectRegistrationNameNode !== null) {
-      projectRegistrationNameNode.value = "";
-    }
-
-    if (projectRegistrationVerificationNode !== null) {
-      projectRegistrationVerificationNode.value = "";
-    }
-
-    if (projectRegistrationMetadataNode !== null) {
-      projectRegistrationMetadataNode.value = "";
-    }
-
-    if (projectRegistrationApprovalNewBacklogNode !== null) {
-      projectRegistrationApprovalNewBacklogNode.checked = true;
-    }
-
-    if (projectRegistrationApprovalScopeNode !== null) {
-      projectRegistrationApprovalScopeNode.checked = true;
-    }
-
-    if (projectRegistrationApprovalHighRiskNode !== null) {
-      projectRegistrationApprovalHighRiskNode.checked = true;
-    }
+    setProjectCreatorModalOpen(false);
+    resetProjectRegistrationForm();
 
     if (previousStatus?.selectedProject === undefined && status.selectedProject !== undefined) {
       activePlanningPaneKey = null;
@@ -887,6 +922,7 @@ projectEditButton?.addEventListener("click", () => {
   }
 
   editingProjectId = selectedProject.id;
+  setNodeText(projectCreatorTitleNode, "Edit project");
   projectRegistrationPathNode.value = selectedProject.repoPath;
 
   if (projectRegistrationNameNode !== null) {
@@ -913,6 +949,7 @@ projectEditButton?.addEventListener("click", () => {
       selectedProject.approvalPolicy.requireApprovalForHighRiskTasks;
   }
   renderProjectRegistrationStatus(`Editing ${selectedProject.name}. Submit the form to save.`);
+  setProjectCreatorModalOpen(true);
 });
 
 projectArchiveButton?.addEventListener("click", async () => {
@@ -945,6 +982,22 @@ taskPlanningButton?.addEventListener("click", () => {
   }
 
   void activatePlanningScope("task");
+});
+
+openProjectCreatorButton?.addEventListener("click", () => {
+  openProjectCreatorModal("create");
+});
+
+closeProjectCreatorButton?.addEventListener("click", () => {
+  setProjectCreatorModalOpen(false);
+  resetProjectRegistrationForm();
+});
+
+projectCreatorModalNode?.addEventListener("click", (event) => {
+  if (event.target === projectCreatorModalNode) {
+    setProjectCreatorModalOpen(false);
+    resetProjectRegistrationForm();
+  }
 });
 
 async function renderStatus(): Promise<void> {
