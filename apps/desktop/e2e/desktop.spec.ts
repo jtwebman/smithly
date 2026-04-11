@@ -5,8 +5,6 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 
-import packageJson from "../../../package.json" with { type: "json" };
-
 function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light" | "system") {
   return {
     ...Object.fromEntries(
@@ -103,11 +101,10 @@ test("desktop shell shows the seeded dashboard and attaches a project planning s
 
   try {
     await expect(window).toHaveTitle("Smithly");
-    await expect(window.locator("#app-version")).toHaveText(packageJson.version);
+    await expect(window.locator("h1")).toHaveText("Project dashboard");
     await expect(window.locator("#project-count")).toHaveText("1");
     await expect(window.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(window.locator("#theme-mode")).toHaveText("dark -> dark");
-    await expect(window.locator("#data-directory")).toHaveText(dataDirectory);
     await expect(window.locator("#project-list")).toContainText("Smithly");
     await expect(window.locator("#project-list")).toContainText("Verification: npm run check");
     await expect(window.locator("#project-list")).toContainText(

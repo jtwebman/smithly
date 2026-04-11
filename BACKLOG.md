@@ -43,7 +43,7 @@
 13. `done` Add approvals inbox and blocker inbox views
 14. `done` Add event log view for project and worker activity
 15. `done` Add desktop end-to-end tests for the initial shell
-16. `todo` Refine the root UI into a project-card dashboard with reduced chrome and project-first navigation
+16. `done` Refine the root UI into a project-card dashboard with reduced chrome and project-first navigation
 
 ## Phase 3: Planning And Chat
 

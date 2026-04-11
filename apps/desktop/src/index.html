@@ -77,44 +77,11 @@
         background: var(--panel-strong);
       }
 
-      .shell {
-        display: grid;
-        min-height: 100vh;
-        grid-template-columns: minmax(320px, 420px) 1fr;
-      }
-
-      .sidebar,
       .workspace {
         padding: 28px;
-      }
-
-      .sidebar {
-        border-right: 1px solid var(--border);
-        background: linear-gradient(180deg, var(--panel), transparent);
-      }
-
-      .workspace {
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
         gap: 24px;
-      }
-
-      .eyebrow {
-        display: inline-flex;
-        padding: 6px 10px;
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        color: var(--accent);
-      }
-
-      h1 {
-        margin: 16px 0 10px;
-        font-size: clamp(2.5rem, 4vw, 4.75rem);
-        line-height: 0.92;
-        letter-spacing: -0.05em;
       }
 
       p {
@@ -123,7 +90,8 @@
         line-height: 1.65;
       }
 
-      .metrics,
+      .dashboard-hero,
+      .dashboard-actions,
       .project-list,
       .project-registration,
       .workspace-grid,
@@ -134,11 +102,8 @@
         gap: 16px;
       }
 
-      .metrics {
-        margin-top: 28px;
-      }
-
-      .metric-card,
+      .dashboard-hero,
+      .dashboard-card,
       .panel,
       .project-card {
         border: 1px solid var(--border);
@@ -148,11 +113,12 @@
         backdrop-filter: blur(12px);
       }
 
-      .metric-card {
-        padding: 18px 20px;
+      .dashboard-card,
+      .dashboard-hero {
+        padding: 20px 22px;
       }
 
-      .metric-card dt,
+      .dashboard-card dt,
       .project-metrics dt {
         margin: 0 0 6px;
         font-size: 0.74rem;
@@ -161,10 +127,28 @@
         color: var(--accent);
       }
 
-      .metric-card dd,
+      .dashboard-card dd,
       .project-metrics dd {
         margin: 0;
         font-size: 1rem;
+      }
+
+      .dashboard-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+        gap: 20px;
+      }
+
+      .dashboard-hero h1 {
+        margin: 0 0 10px;
+        font-size: clamp(2rem, 3vw, 3rem);
+        line-height: 0.95;
+        letter-spacing: -0.04em;
+      }
+
+      .dashboard-actions {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 16px;
       }
 
       .workspace-grid {
@@ -210,6 +194,7 @@
 
       .project-list {
         margin-top: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       }
 
       .project-registration {
@@ -235,6 +220,7 @@
 
       .project-card {
         padding: 18px;
+        min-height: 220px;
       }
 
       .project-status,
@@ -379,130 +365,132 @@
       }
 
       @media (max-width: 1100px) {
-        .shell {
-          grid-template-columns: 1fr;
-        }
-
-        .sidebar {
-          border-right: 0;
-          border-bottom: 1px solid var(--border);
-        }
-
+        .dashboard-header,
         .workspace-grid,
         .workspace-secondary {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 800px) {
+        .dashboard-actions {
           grid-template-columns: 1fr;
         }
       }
     </style>
   </head>
   <body>
-    <main class="shell">
-      <aside class="sidebar">
-        <span class="eyebrow">Local Desktop Operator</span>
-        <h1>Smithly</h1>
-        <p>
-          Control surface for project planning, approvals, worker sessions, and persistent task
-          state. Planning now rides a Claude terminal session, while the app keeps the durable
-          record and operator context around it.
-        </p>
-        <dl class="metrics">
-          <div class="metric-card">
-            <dt>App Version</dt>
-            <dd id="app-version">Loading...</dd>
+    <main class="workspace">
+      <section class="dashboard-header">
+        <article class="dashboard-hero">
+          <h1>Project dashboard</h1>
+          <p>
+            Jump into project planning, inspect active work, and open managed Claude sessions
+            without dedicating the whole screen to app chrome.
+          </p>
+          <div class="dashboard-actions">
+            <article class="dashboard-card">
+              <dt>Managed Projects</dt>
+              <dd id="project-count">Loading...</dd>
+            </article>
+            <article class="dashboard-card">
+              <dt>Theme</dt>
+              <dd id="theme-mode">Loading...</dd>
+            </article>
+            <article class="dashboard-card">
+              <dt>Shell Status</dt>
+              <dd id="shell-status">Connecting shell...</dd>
+            </article>
           </div>
-          <div class="metric-card">
-            <dt>Theme</dt>
-            <dd id="theme-mode">Loading...</dd>
+        </article>
+        <article class="dashboard-hero">
+          <div class="panel-header">
+            <div>
+              <h2>Add Project</h2>
+              <p>Create a managed project card first, then continue planning and registration.</p>
+            </div>
           </div>
-          <div class="metric-card">
-            <dt>Data Directory</dt>
-            <dd id="data-directory">Loading...</dd>
+          <form id="project-registration-form" class="project-registration">
+            <div class="project-registration__fields">
+              <input
+                id="project-registration-path"
+                name="project-registration-path"
+                type="text"
+                placeholder="/absolute/path/to/local/repo"
+              />
+              <input
+                id="project-registration-name"
+                name="project-registration-name"
+                type="text"
+                placeholder="Optional display name"
+              />
+              <textarea
+                id="project-registration-verification"
+                name="project-registration-verification"
+                rows="3"
+                placeholder="Verification commands, one per line"
+              ></textarea>
+              <textarea
+                id="project-registration-metadata"
+                name="project-registration-metadata"
+                rows="3"
+                placeholder="Metadata entries, one key=value pair per line"
+              ></textarea>
+              <label>
+                <input
+                  id="project-registration-approval-new-backlog"
+                  name="project-registration-approval-new-backlog"
+                  type="checkbox"
+                  checked
+                />
+                Require approval for new backlog items
+              </label>
+              <label>
+                <input
+                  id="project-registration-approval-scope"
+                  name="project-registration-approval-scope"
+                  type="checkbox"
+                  checked
+                />
+                Require approval for scope changes
+              </label>
+              <label>
+                <input
+                  id="project-registration-approval-high-risk"
+                  name="project-registration-approval-high-risk"
+                  type="checkbox"
+                  checked
+                />
+                Require approval for high-risk tasks
+              </label>
+            </div>
+            <div class="project-registration__actions">
+              <button type="submit">Register Project</button>
+            </div>
+            <p id="project-registration-status" class="project-registration__status"></p>
+          </form>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Projects</h2>
+            <p>
+              Title-card project summaries with status, work counts, and current operating policy.
+            </p>
           </div>
-          <div class="metric-card">
-            <dt>Managed Projects</dt>
-            <dd id="project-count">Loading...</dd>
-          </div>
-        </dl>
-      </aside>
+        </div>
+        <div id="project-list" class="project-list"></div>
+      </section>
 
       <section class="workspace">
         <section class="workspace-grid">
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Projects</h2>
-                <p>
-                  Current status, active work, and live session counts from the local SQLite store.
-                </p>
-              </div>
-            </div>
-            <form id="project-registration-form" class="project-registration">
-              <div class="project-registration__fields">
-                <input
-                  id="project-registration-path"
-                  name="project-registration-path"
-                  type="text"
-                  placeholder="/absolute/path/to/local/repo"
-                />
-                <input
-                  id="project-registration-name"
-                  name="project-registration-name"
-                  type="text"
-                  placeholder="Optional display name"
-                />
-                <textarea
-                  id="project-registration-verification"
-                  name="project-registration-verification"
-                  rows="3"
-                  placeholder="Verification commands, one per line"
-                ></textarea>
-                <textarea
-                  id="project-registration-metadata"
-                  name="project-registration-metadata"
-                  rows="3"
-                  placeholder="Metadata entries, one key=value pair per line"
-                ></textarea>
-                <label>
-                  <input
-                    id="project-registration-approval-new-backlog"
-                    name="project-registration-approval-new-backlog"
-                    type="checkbox"
-                    checked
-                  />
-                  Require approval for new backlog items
-                </label>
-                <label>
-                  <input
-                    id="project-registration-approval-scope"
-                    name="project-registration-approval-scope"
-                    type="checkbox"
-                    checked
-                  />
-                  Require approval for scope changes
-                </label>
-                <label>
-                  <input
-                    id="project-registration-approval-high-risk"
-                    name="project-registration-approval-high-risk"
-                    type="checkbox"
-                    checked
-                  />
-                  Require approval for high-risk tasks
-                </label>
-              </div>
-              <div class="project-registration__actions">
-                <button type="submit">Register Project</button>
-              </div>
-              <p id="project-registration-status" class="project-registration__status"></p>
-            </form>
-            <div id="project-list" class="project-list"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <div>
                 <h2>Operator Pane</h2>
-                <p id="shell-status">Connecting shell...</p>
+                <p>Session transcript view for the currently attached planning context.</p>
               </div>
             </div>
             <div class="scope-toggle">
