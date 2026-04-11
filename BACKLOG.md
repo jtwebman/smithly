@@ -117,10 +117,10 @@
 
 ## Phase 11: Task Git Lifecycle
 
-63. `todo` Run each task on its own git branch from the project default branch using `smithly-<taskIdTail>-<slug>`
-64. `todo` On pause or app close, ask active task sessions to pause, commit WIP with `--no-verify`, and switch repos back to the default branch
-65. `todo` On task completion, push the task branch and open a pull request
-66. `todo` Add tests for branch creation, WIP pause commits, and PR creation flows
+63. `done` Run each task on its own git branch from the project default branch using `smithly-<taskIdTail>-<slug>`
+64. `done` On pause or app close, ask active task sessions to pause, commit WIP with `--no-verify`, and switch repos back to the default branch
+65. `done` On task completion, push the task branch and open a pull request
+66. `done` Add tests for branch creation, WIP pause commits, and PR creation flows
 
 ## Phase 12: Review, Merge, And Dependency Gating
 

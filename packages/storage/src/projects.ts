@@ -21,6 +21,7 @@ export interface IRegisterLocalProjectInput {
 
 export interface IUpdateProjectMetadataInput {
   readonly approvalPolicy?: Partial<IProjectApprovalPolicy>;
+  readonly defaultBranch?: string;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly name?: string;
   readonly projectId: string;
@@ -137,6 +138,11 @@ export function updateProjectMetadata(
   const updatedProject: IProjectRecord = {
     ...project,
     ...(input.name !== undefined ? { name: input.name.trim() || project.name } : {}),
+    ...(input.defaultBranch !== undefined
+      ? input.defaultBranch.trim().length > 0
+        ? { defaultBranch: input.defaultBranch.trim() }
+        : {}
+      : {}),
     metadataJson: serializeProjectMetadata({
       approvalPolicy: normalizeApprovalPolicy(
         input.approvalPolicy ?? parseProjectMetadata(project).approvalPolicy,

@@ -137,6 +137,7 @@ describe("project registration", () => {
         requireApprovalForNewBacklogItems: false,
         requireApprovalForScopeChanges: true,
       },
+      defaultBranch: "main",
       metadata: {
         owner: "jt",
         runtime: "desktop",
@@ -157,6 +158,7 @@ describe("project registration", () => {
       },
       verificationCommands: ["npm run lint"],
     });
+    expect(updatedProject.defaultBranch).toBe("main");
 
     closeContext(context);
   });

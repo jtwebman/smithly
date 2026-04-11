@@ -27,6 +27,11 @@ reader.on("line", (line) => {
     process.exit(0);
   }
 
+  if (prompt.startsWith("/pause")) {
+    console.log(`mock codex pausing: ${prompt.slice("/pause".length).trim() || "requested"}`);
+    process.exit(0);
+  }
+
   if (prompt.startsWith("complete task:")) {
     const summaryText = prompt.slice("complete task:".length).trim();
 

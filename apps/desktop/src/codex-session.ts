@@ -33,6 +33,7 @@ import {
 } from "@smithly/storage";
 
 import { queueProjectVerificationRuns } from "./verification-manager.ts";
+import { TaskGitManager } from "./task-git-manager.ts";
 import { queueRequiredReviewRun, reconcileTaskReviewState } from "./task-review-policy.ts";
 
 export interface ICodexOutputEvent {
@@ -67,12 +68,16 @@ interface ICodexRuntimeSession {
 interface ICodexSessionManagerOptions {
   readonly now?: () => Date;
   readonly spawnPty?: typeof spawn;
+  readonly taskGitManager?: TaskGitManager;
 }
 
 export class CodexSessionManager {
   private readonly sessions = new Map<string, ICodexRuntimeSession>();
+  private readonly pendingPauseRequests = new Map<string, Promise<void>>();
+  private readonly pauseRequestedTaskRunIds = new Set<string>();
   private readonly now: () => Date;
   private readonly spawnPty: typeof spawn;
+  private readonly taskGitManager: TaskGitManager;
 
   public constructor(
     private readonly context: IStorageContext,
@@ -81,6 +86,7 @@ export class CodexSessionManager {
   ) {
     this.now = options.now ?? (() => new Date());
     this.spawnPty = options.spawnPty ?? spawn;
+    this.taskGitManager = options.taskGitManager ?? new TaskGitManager(context);
   }
 
   public startSession(input: IStartCodexSessionInput): ITaskRunRecord {
@@ -95,6 +101,7 @@ export class CodexSessionManager {
       return taskRun;
     }
 
+    this.taskGitManager.ensureTaskBranch(taskRun.id);
     this.spawnCodexSession(taskRun, input.projectId);
     return taskRun;
   }
@@ -142,6 +149,25 @@ export class CodexSessionManager {
     }
 
     this.sessions.clear();
+    this.pendingPauseRequests.clear();
+    this.pauseRequestedTaskRunIds.clear();
+  }
+
+  public requestProjectPause(
+    projectId: string,
+    reason = "Pause requested by Smithly.",
+  ): Promise<void> {
+    const projectSessions = [...this.sessions.values()].filter((session) => {
+      return session.projectId === projectId;
+    });
+
+    if (projectSessions.length === 0) {
+      return Promise.resolve();
+    }
+
+    return Promise.all(
+      projectSessions.map((session) => this.requestSessionPause(session.taskRunId, reason)),
+    ).then(() => undefined);
   }
 
   private spawnCodexSession(taskRun: ITaskRunRecord, projectId: string): void {
@@ -230,8 +256,12 @@ export class CodexSessionManager {
         const status = exitCode === 0 ? "exited" : "failed";
         const message = `[smithly] Codex task session ${status} (${exitCode}).`;
         const currentTaskRun = this.requireTaskRun(closedSession.taskRunId);
-        const nextTaskStatus =
-          exitCode === 0
+        const wasPauseRequested = this.pauseRequestedTaskRunIds.has(closedSession.taskRunId);
+        const nextTaskStatus = wasPauseRequested
+          ? ["done", "cancelled", "failed"].includes(currentTaskRun.status)
+            ? currentTaskRun.status
+            : "queued"
+          : exitCode === 0
             ? ["done", "cancelled", "failed"].includes(currentTaskRun.status)
               ? currentTaskRun.status
               : "awaiting_review"
@@ -246,6 +276,8 @@ export class CodexSessionManager {
         });
         this.upsertSessionSummary(closedSession, status);
         this.sessions.delete(taskRun.id);
+        this.pendingPauseRequests.delete(taskRun.id);
+        this.pauseRequestedTaskRunIds.delete(taskRun.id);
       });
     } catch (error: unknown) {
       const failureMessage = `[smithly] Unable to start Codex: ${error instanceof Error ? error.message : String(error)}.`;
@@ -553,6 +585,25 @@ export class CodexSessionManager {
         });
       }
 
+      try {
+        this.taskGitManager.openPullRequest(taskRun.id);
+      } catch (error: unknown) {
+        upsertBlocker(this.context, {
+          backlogItemId: session.backlogItemId,
+          blockerType: "system",
+          createdAt: timestamp,
+          detail:
+            error instanceof Error
+              ? error.message
+              : "Unable to push the branch and open a pull request.",
+          id: `blocker-pr-${taskRun.id}-${randomUUID()}`,
+          projectId: session.projectId,
+          status: "open",
+          taskRunId: taskRun.id,
+          title: "Task completion needs pull request follow-up",
+          updatedAt: timestamp,
+        });
+      }
       queueProjectVerificationRuns(this.context, taskRun, timestamp);
       queueRequiredReviewRun(this.context, taskRun, timestamp);
       reconcileTaskReviewState(this.context, taskRun.id, timestamp);
@@ -569,6 +620,71 @@ export class CodexSessionManager {
       },
       "running",
     );
+  }
+
+  private requestSessionPause(taskRunId: string, reason: string): Promise<void> {
+    const existingRequest = this.pendingPauseRequests.get(taskRunId);
+
+    if (existingRequest !== undefined) {
+      return existingRequest;
+    }
+
+    const session = this.sessions.get(taskRunId);
+
+    if (session === undefined) {
+      this.taskGitManager.pauseTaskBranch(taskRunId);
+      return Promise.resolve();
+    }
+
+    const pauseRequest = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        try {
+          session.pty.kill();
+        } catch {
+          this.pendingPauseRequests.delete(taskRunId);
+          this.pauseRequestedTaskRunIds.delete(taskRunId);
+          resolve();
+          return;
+        }
+
+        setTimeout(() => {
+          this.taskGitManager.pauseTaskBranch(taskRunId);
+          this.pendingPauseRequests.delete(taskRunId);
+          this.pauseRequestedTaskRunIds.delete(taskRunId);
+          resolve();
+        }, 100);
+      }, 1_500);
+      const completePause = () => {
+        clearTimeout(timeout);
+        this.taskGitManager.pauseTaskBranch(taskRunId);
+        this.pendingPauseRequests.delete(taskRunId);
+        this.pauseRequestedTaskRunIds.delete(taskRunId);
+        resolve();
+      };
+
+      this.pauseRequestedTaskRunIds.add(taskRunId);
+      this.touchWorkerSession(session, "waiting");
+      this.appendSessionLog(
+        session.logFilePath,
+        `[smithly] pause requested for task ${taskRunId}: ${reason}\n`,
+      );
+      this.upsertSessionSummary(session, "waiting");
+      session.pty.write(`/pause ${reason}\r`);
+
+      const pollForExit = () => {
+        if (!this.sessions.has(taskRunId)) {
+          completePause();
+          return;
+        }
+
+        setTimeout(pollForExit, 25);
+      };
+
+      pollForExit();
+    });
+
+    this.pendingPauseRequests.set(taskRunId, pauseRequest);
+    return pauseRequest;
   }
 
   private createTranscriptRef(taskRunId: string, logFilePath: string): string {

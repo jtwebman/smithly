@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { IPty } from "node-pty";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConfig } from "@smithly/core";
 import {
@@ -59,9 +59,11 @@ describe("CodexSessionManager", () => {
     });
 
     const fakePty = createFakePty();
+    const fakeTaskGitManager = createFakeTaskGitManager();
     const manager = new CodexSessionManager(context, () => undefined, {
       now: () => new Date("2026-04-10T10:00:00.000Z"),
       spawnPty: () => fakePty,
+      taskGitManager: fakeTaskGitManager,
     });
 
     const taskRun = manager.startSession({
@@ -81,6 +83,7 @@ describe("CodexSessionManager", () => {
     expect(codexSession?.status).toBe("running");
     expect(codexSession?.transcriptRef).toContain(`task-run:${taskRun.id}`);
     expect(codexSession?.transcriptRef).toContain("|log-file:");
+    expect(fakeTaskGitManager.ensureTaskBranch).toHaveBeenCalledWith(taskRun.id);
 
     fakePty.emitData(
       `smithly-hook: ${JSON.stringify({
@@ -130,6 +133,7 @@ describe("CodexSessionManager", () => {
       ]),
     );
     expect(readFileSync(logFilePath ?? "", "utf8")).toContain('status":"done"');
+    expect(fakeTaskGitManager.openPullRequest).toHaveBeenCalledWith(taskRun.id);
 
     manager.dispose();
     context.db.close();
@@ -164,9 +168,11 @@ describe("CodexSessionManager", () => {
     });
 
     const fakePty = createFakePty();
+    const fakeTaskGitManager = createFakeTaskGitManager();
     const manager = new CodexSessionManager(context, () => undefined, {
       now: () => new Date("2026-04-10T10:30:00.000Z"),
       spawnPty: () => fakePty,
+      taskGitManager: fakeTaskGitManager,
     });
 
     const taskRun = manager.startSession({
@@ -220,9 +226,11 @@ describe("CodexSessionManager", () => {
     });
 
     const fakePty = createFakePty();
+    const fakeTaskGitManager = createFakeTaskGitManager();
     const manager = new CodexSessionManager(context, () => undefined, {
       now: () => new Date("2026-04-10T11:00:00.000Z"),
       spawnPty: () => fakePty,
+      taskGitManager: fakeTaskGitManager,
     });
 
     const taskRun = manager.startSession({
@@ -254,11 +262,74 @@ describe("CodexSessionManager", () => {
     manager.dispose();
     context.db.close();
   });
+
+  it("requests codex task pauses and hands WIP persistence to the git manager", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-codex-session-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-codex-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        repoPath,
+      },
+    });
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Exercise the Codex pause path.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Paused Codex session task",
+    });
+
+    const fakePty = createFakePty();
+    const fakeTaskGitManager = createFakeTaskGitManager();
+    const manager = new CodexSessionManager(context, () => undefined, {
+      now: () => new Date("2026-04-10T11:30:00.000Z"),
+      spawnPty: () => fakePty,
+      taskGitManager: fakeTaskGitManager,
+    });
+
+    const taskRun = manager.startSession({
+      backlogItemId: createdBacklogItem.id,
+      projectId: fixture.project.id,
+    });
+
+    const pausePromise = manager.requestProjectPause(
+      fixture.project.id,
+      "Operator paused the project from the desktop controls.",
+    );
+
+    expect(fakePty.writes.at(-1)).toContain("/pause Operator paused the project");
+
+    fakePty.emitExit(0);
+    await pausePromise;
+
+    expect(fakeTaskGitManager.pauseTaskBranch).toHaveBeenCalledWith(taskRun.id);
+    expect(
+      listTaskRunsForProject(context, fixture.project.id).find(
+        (candidate) => candidate.id === taskRun.id,
+      )?.status,
+    ).toBe("queued");
+
+    manager.dispose();
+    context.db.close();
+  });
 });
 
 function createFakePty(): IFakePty {
   const dataListeners: Array<(data: string) => void> = [];
   const exitListeners: Array<(event: { exitCode: number; signal?: number }) => void> = [];
+  const writes: string[] = [];
 
   return {
     kill() {
@@ -275,7 +346,8 @@ function createFakePty(): IFakePty {
     resize() {
       return undefined;
     },
-    write() {
+    write(data: string) {
+      writes.push(data);
       return undefined;
     },
     emitData(data: string) {
@@ -288,10 +360,39 @@ function createFakePty(): IFakePty {
         listener({ exitCode });
       }
     },
+    writes,
   } as unknown as IFakePty;
 }
 
 interface IFakePty extends IPty {
   emitData(data: string): void;
   emitExit(exitCode: number): void;
+  readonly writes: readonly string[];
+}
+
+function createFakeTaskGitManager() {
+  return {
+    ensureTaskBranch: vi.fn((taskRunId: string) => ({
+      branchName: `smithly-${taskRunId}-task`,
+      defaultBranch: "main",
+      pauseCommitCreated: false,
+      status: "branch_prepared",
+      updatedAt: "2026-04-10T10:00:00.000Z",
+    })),
+    openPullRequest: vi.fn((taskRunId: string) => ({
+      branchName: `smithly-${taskRunId}-task`,
+      defaultBranch: "main",
+      pauseCommitCreated: false,
+      pullRequestUrl: `https://github.com/jtwebman/smithly/pull/${taskRunId}`,
+      status: "pr_opened",
+      updatedAt: "2026-04-10T10:05:00.000Z",
+    })),
+    pauseTaskBranch: vi.fn((taskRunId: string) => ({
+      branchName: `smithly-${taskRunId}-task`,
+      defaultBranch: "main",
+      pauseCommitCreated: true,
+      status: "paused",
+      updatedAt: "2026-04-10T11:30:00.000Z",
+    })),
+  } as unknown as import("./task-git-manager.ts").TaskGitManager;
 }

@@ -512,7 +512,17 @@ function createVerificationManager(context: IStorageContext): VerificationManage
 }
 
 function createProjectExecutionManager(context: IStorageContext): ProjectExecutionManager {
-  return new ProjectExecutionManager(context, requirePlanningSessionManager());
+  return new ProjectExecutionManager(context, {
+    ensureSession(input) {
+      requirePlanningSessionManager().ensureSession(input);
+    },
+    async requestProjectPause(projectId, reason) {
+      await Promise.all([
+        requirePlanningSessionManager().requestProjectPause(projectId, reason),
+        requireCodexSessionManager().requestProjectPause(projectId, reason),
+      ]);
+    },
+  });
 }
 
 function createReviewManager(context: IStorageContext): ReviewManager {
