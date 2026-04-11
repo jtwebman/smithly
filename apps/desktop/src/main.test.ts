@@ -1,11 +1,17 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createConfig } from "@smithly/core";
-import { createContext, createInitialSeedFixture, seedInitialState } from "@smithly/storage";
+import {
+  createContext,
+  createInitialSeedFixture,
+  registerLocalProject,
+  seedInitialState,
+  updateProjectMetadata,
+} from "@smithly/storage";
 
 import { buildDesktopStatus, resolveDesktopThemeMode } from "./desktop-state.ts";
 
@@ -203,6 +209,73 @@ describe("desktop bootstrap", () => {
       resolvedThemeMode: "light",
       themePreference: "system",
     });
+
+    context.db.close();
+  });
+
+  it("prefers the requested selected project when multiple projects exist", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-selection-"));
+    const firstRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-repo-a-"));
+    const secondRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-repo-b-"));
+
+    temporaryDirectories.push(dataDirectory, firstRepoDirectory, secondRepoDirectory);
+    mkdirSync(join(firstRepoDirectory, ".git"));
+    mkdirSync(join(secondRepoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    registerLocalProject(context, {
+      name: "Project Alpha",
+      repoPath: firstRepoDirectory,
+    });
+    const secondProject = registerLocalProject(context, {
+      name: "Project Beta",
+      repoPath: secondRepoDirectory,
+    });
+
+    const status = buildDesktopStatus(context, "dark", secondProject.id);
+
+    expect(status.selectedProjectId).toBe(secondProject.id);
+    expect(status.selectedProject?.projectId).toBe(secondProject.id);
+
+    context.db.close();
+  });
+
+  it("keeps an explicitly requested archived project selected", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-selection-"));
+    const firstRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-repo-a-"));
+    const secondRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-repo-b-"));
+
+    temporaryDirectories.push(dataDirectory, firstRepoDirectory, secondRepoDirectory);
+    mkdirSync(join(firstRepoDirectory, ".git"));
+    mkdirSync(join(secondRepoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    registerLocalProject(context, {
+      name: "Project Alpha",
+      repoPath: firstRepoDirectory,
+    });
+    const secondProject = registerLocalProject(context, {
+      name: "Project Beta",
+      repoPath: secondRepoDirectory,
+    });
+
+    updateProjectMetadata(context, {
+      projectId: secondProject.id,
+      status: "archived",
+    });
+
+    const status = buildDesktopStatus(context, "dark", secondProject.id);
+
+    expect(status.selectedProjectId).toBe(secondProject.id);
+    expect(status.selectedProject?.projectId).toBe(secondProject.id);
 
     context.db.close();
   });

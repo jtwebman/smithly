@@ -96,7 +96,11 @@ describe("smithly mcp server", () => {
           "Acceptance criteria are persisted in SQLite",
         ],
         noteText: "Track the first revision path through the task planning thread.",
+        priority: 95,
+        reviewMode: "ai",
+        riskLevel: "high",
         scopeSummary: "Revise the selected backlog item through Smithly MCP.",
+        status: "approved",
       },
       name: "revise_backlog_item",
     });
@@ -106,9 +110,16 @@ describe("smithly mcp server", () => {
     expect(firstContent && "text" in firstContent ? firstContent.text : "").toContain(
       '"name": "Smithly"',
     );
+    expect(firstContent && "text" in firstContent ? firstContent.text : "").toContain(
+      '"riskLevel": "medium"',
+    );
     expect(reviseResult.structuredContent).toMatchObject({
       acceptanceCriteriaCount: 2,
       backlogItemId: fixture.backlogItem.id,
+      priority: 95,
+      reviewMode: "ai",
+      riskLevel: "high",
+      status: "approved",
       title: "Bootstrap the desktop shell",
     });
 

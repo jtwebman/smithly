@@ -161,6 +161,36 @@ describe("project registration", () => {
     closeContext(context);
   });
 
+  it("updates project repo path and archived status", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-data-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-repo-"));
+    const movedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-repo-moved-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory, movedRepoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+    mkdirSync(join(movedRepoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      repoPath: repoDirectory,
+    });
+
+    const updatedProject = updateProjectMetadata(context, {
+      projectId: project.id,
+      repoPath: movedRepoDirectory,
+      status: "archived",
+    });
+
+    expect(updatedProject.repoPath).toBe(movedRepoDirectory);
+    expect(updatedProject.status).toBe("archived");
+
+    closeContext(context);
+  });
+
   it("parses legacy project metadata JSON without dropping old fields", () => {
     expect(
       parseProjectMetadata({
