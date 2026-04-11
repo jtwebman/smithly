@@ -27,6 +27,7 @@ import {
 } from "./desktop-state.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
+import { ProjectExecutionManager } from "./project-execution.ts";
 import { ReviewManager } from "./review-manager.ts";
 import { updateReviewRunDecision } from "./task-review-policy.ts";
 import { VerificationManager } from "./verification-manager.ts";
@@ -36,8 +37,10 @@ let planningSessionManager: PlanningSessionManager | null = null;
 let codexSessionManager: CodexSessionManager | null = null;
 let verificationManager: VerificationManager | null = null;
 let reviewManager: ReviewManager | null = null;
+let projectExecutionManager: ProjectExecutionManager | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
+let isAppQuitting = false;
 
 export interface IDesktopUiStateSnapshot {
   readonly activePlanningPaneKey?: string;
@@ -61,8 +64,10 @@ export async function bootstrapDesktopApp(): Promise<void> {
   codexSessionManager = createCodexSessionManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
   reviewManager = createReviewManager(storageContext);
+  projectExecutionManager = createProjectExecutionManager(storageContext);
   registerDesktopHandlers(storageContext);
   createMainWindow();
+  projectExecutionManager.resumeActiveProjects();
   verificationManager.processQueuedRuns();
   reviewManager.processQueuedRuns();
 
@@ -217,13 +222,13 @@ function registerDesktopHandlers(context: IStorageContext): void {
   ipcMain.removeHandler("smithly:project-set-status");
   ipcMain.handle(
     "smithly:project-set-status",
-    (_event, projectId: string, status: "active" | "archived"): IDesktopStatus => {
+    (_event, projectId: string, status: "paused" | "archived"): IDesktopStatus => {
       updateProjectMetadata(context, {
         projectId,
         status,
       });
 
-      if (status === "active") {
+      if (status === "paused") {
         selectedProjectId = projectId;
       }
 
@@ -235,6 +240,50 @@ function registerDesktopHandlers(context: IStorageContext): void {
       );
     },
   );
+
+  ipcMain.removeHandler("smithly:project-play");
+  ipcMain.handle("smithly:project-play", (_event, projectId: string): IDesktopStatus => {
+    updateProjectMetadata(context, {
+      projectId,
+      status: "active",
+    });
+    selectedProjectId = projectId;
+
+    setTimeout(() => {
+      try {
+        requirePlanningSessionManager().ensureSession({
+          projectId,
+          scope: "project",
+        });
+      } finally {
+        broadcastDesktopStatus(context);
+      }
+    }, 0);
+
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+      selectedBacklogItemId,
+    );
+  });
+
+  ipcMain.removeHandler("smithly:project-pause");
+  ipcMain.handle("smithly:project-pause", (_event, projectId: string): IDesktopStatus => {
+    void requireProjectExecutionManager()
+      .pauseProject(projectId, "Operator paused the project from the desktop controls.")
+      .catch(() => {
+        broadcastDesktopStatus(context);
+      });
+    selectedProjectId = projectId;
+
+    return buildDesktopStatus(
+      context,
+      resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
+      selectedProjectId,
+      selectedBacklogItemId,
+    );
+  });
 
   ipcMain.removeHandler("smithly:planning-session:ensure");
   ipcMain.handle(
@@ -462,6 +511,10 @@ function createVerificationManager(context: IStorageContext): VerificationManage
   });
 }
 
+function createProjectExecutionManager(context: IStorageContext): ProjectExecutionManager {
+  return new ProjectExecutionManager(context, requirePlanningSessionManager());
+}
+
 function createReviewManager(context: IStorageContext): ReviewManager {
   return new ReviewManager(context, {
     onUpdated: () => {
@@ -498,6 +551,14 @@ function requireCodexSessionManager(): CodexSessionManager {
   }
 
   return codexSessionManager;
+}
+
+function requireProjectExecutionManager(): ProjectExecutionManager {
+  if (projectExecutionManager === null) {
+    throw new Error("Project execution manager is not available.");
+  }
+
+  return projectExecutionManager;
 }
 
 function requireSelectedProjectId(context: IStorageContext): string {
@@ -688,15 +749,35 @@ function dirname(): string {
 }
 
 if (typeof app?.on === "function") {
-  app.on("window-all-closed", () => {
-    planningSessionManager?.dispose();
-    planningSessionManager = null;
-    codexSessionManager?.dispose();
-    codexSessionManager = null;
-    verificationManager = null;
-    storageContext?.db.close();
-    storageContext = null;
+  app.on("before-quit", (event) => {
+    if (isAppQuitting) {
+      return;
+    }
 
+    event.preventDefault();
+    isAppQuitting = true;
+
+    void (async () => {
+      try {
+        await projectExecutionManager?.pauseAllRunningProjects(
+          "Smithly is shutting down. Pause orchestration safely before exit.",
+        );
+      } finally {
+        planningSessionManager?.dispose();
+        planningSessionManager = null;
+        codexSessionManager?.dispose();
+        codexSessionManager = null;
+        verificationManager = null;
+        reviewManager = null;
+        projectExecutionManager = null;
+        storageContext?.db.close();
+        storageContext = null;
+        app.exit(0);
+      }
+    })();
+  });
+
+  app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
       app.quit();
     }

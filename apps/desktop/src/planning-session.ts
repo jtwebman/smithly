@@ -96,6 +96,7 @@ interface IPlanningSessionManagerOptions {
 
 export class PlanningSessionManager {
   private readonly sessions = new Map<string, IPlanningRuntimeSession>();
+  private readonly pendingPauseRequests = new Map<string, Promise<void>>();
   private readonly now: () => Date;
   private readonly spawnPty: typeof spawn;
 
@@ -190,6 +191,90 @@ export class PlanningSessionManager {
     }
 
     this.sessions.clear();
+    this.pendingPauseRequests.clear();
+  }
+
+  public requestProjectPause(
+    projectId: string,
+    reason = "Pause requested by Smithly.",
+  ): Promise<void> {
+    const session = [...this.sessions.values()].find((candidate) => {
+      return candidate.projectId === projectId && candidate.scope === "project";
+    });
+
+    if (session === undefined) {
+      return Promise.resolve();
+    }
+
+    const existingRequest = this.pendingPauseRequests.get(session.threadId);
+
+    if (existingRequest !== undefined) {
+      return existingRequest;
+    }
+
+    const pauseRequest = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        try {
+          session.pty.kill();
+        } catch {
+          this.pendingPauseRequests.delete(session.threadId);
+          resolve();
+          return;
+        }
+
+        setTimeout(() => {
+          if (this.sessions.has(session.threadId)) {
+            this.touchWorkerSession(session, "failed");
+            this.upsertSessionSummary(
+              this.requirePlanningThread({
+                projectId,
+                scope: "project",
+              }),
+              session,
+              "failed",
+            );
+            this.sessions.delete(session.threadId);
+          }
+
+          this.pendingPauseRequests.delete(session.threadId);
+          resolve();
+        }, 100);
+      }, 1_500);
+      const resolvePauseRequest = () => {
+        clearTimeout(timeout);
+        this.pendingPauseRequests.delete(session.threadId);
+        resolve();
+      };
+
+      this.touchWorkerSession(session, "waiting");
+      this.appendSessionLog(
+        session.logFilePath,
+        `[smithly] pause requested for project ${projectId}: ${reason}\n`,
+      );
+      this.upsertSessionSummary(
+        this.requirePlanningThread({
+          projectId,
+          scope: "project",
+        }),
+        session,
+        "waiting",
+      );
+      session.pty.write(`/pause ${reason}\r`);
+
+      const pollForExit = () => {
+        if (!this.sessions.has(session.threadId)) {
+          resolvePauseRequest();
+          return;
+        }
+
+        setTimeout(pollForExit, 25);
+      };
+
+      pollForExit();
+    });
+
+    this.pendingPauseRequests.set(session.threadId, pauseRequest);
+    return pauseRequest;
   }
 
   private spawnPlanningSession(
@@ -294,6 +379,7 @@ export class PlanningSessionManager {
         });
         this.upsertSessionSummary(thread, closedSession, status);
         this.sessions.delete(thread.id);
+        this.pendingPauseRequests.delete(thread.id);
       });
     } catch (error: unknown) {
       const failureMessage = `[smithly] Unable to start Claude: ${error instanceof Error ? error.message : String(error)}.`;

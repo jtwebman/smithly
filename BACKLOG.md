@@ -107,34 +107,54 @@
 
 57. `done` Implement pragmatic memory types: facts, decisions, notes, session summaries
 58. `done` Add UI and MCP support for writing and reading project memory
-59. `todo` Implement blocker classification: policy-answerable, helper-model-answerable, human-required
-60. `todo` Add helper-model routing for low-risk auto-answerable questions
-61. `todo` Add tests for blocker classification and memory writes
 
-## Phase 10: Approval System
+## Phase 10: Project Execution
 
-62. `todo` Define approval policy schema and rule evaluation
-63. `todo` Add approval requests for new features, larger changes, and scope changes
-64. `todo` Add operator UI for approve, reject, defer, and comment
-65. `todo` Prevent restricted work from proceeding without explicit approval
-66. `todo` Add tests for approval gating behavior
+59. `done` Add explicit project execution state with desktop `Play` and `Pause` controls
+60. `done` Start a hidden Claude orchestration session when a project is played; keep attach/view optional
+61. `done` Add graceful pause and shutdown flow so orchestration drains active work before stopping
+62. `done` Add tests for project play, pause, orchestration startup, and graceful pause behavior
 
-## Phase 11: Multi-Project Operation
+## Phase 11: Task Git Lifecycle
 
-67. `todo` Implement project scheduling and runnable-work selection
-68. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
-69. `todo` Add idle-work loops for low-risk maintenance and research
-70. `todo` Add quota and credit pause-resume handling
-71. `todo` Add dashboard summaries across all projects
-72. `todo` Add tests for multi-project scheduling behavior
+63. `todo` Run each task on its own git branch from the project default branch using `smithly-<taskIdTail>-<slug>`
+64. `todo` On pause or app close, ask active task sessions to pause, commit WIP with `--no-verify`, and switch repos back to the default branch
+65. `todo` On task completion, push the task branch and open a pull request
+66. `todo` Add tests for branch creation, WIP pause commits, and PR creation flows
 
-## Phase 12: Smithly Builds Smithly
+## Phase 12: Review, Merge, And Dependency Gating
 
-73. `todo` Register Smithly as a managed project inside Smithly
-74. `todo` Create initial approved backlog items for Smithly inside Smithly
-75. `todo` Use Claude plus Codex through Smithly to complete a small Smithly task
-76. `todo` Record the first end-to-end self-hosted task run and lessons learned
-77. `todo` Tighten the design based on actual operator usage
+67. `todo` Route completed tasks through the opposite AI for peer review before merge
+68. `todo` Auto-merge AI-approved tasks when human review is not required
+69. `todo` Hold merge when human review is required and block dependent follow-up work until merged
+70. `todo` Add operator UI for approve, reject, defer, comment, and merge decisions
+71. `todo` Add tests for review-to-merge policy and dependency blocking
+
+## Phase 13: Blockers And Helper Routing
+
+72. `todo` Implement blocker classification: policy-answerable, helper-model-answerable, human-required
+73. `todo` Add helper-model routing for low-risk auto-answerable questions
+74. `todo` Add tests for blocker classification and helper-model routing
+
+## Phase 14: Multi-Project Operation
+
+75. `todo` Implement project scheduling and runnable-work selection across running projects
+76. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
+77. `todo` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
+78. `todo` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
+79. `todo` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
+80. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
+81. `todo` Add quota and credit pause-resume handling
+82. `todo` Add dashboard summaries across all projects
+83. `todo` Add tests for multi-project scheduling behavior and backlog-generation loops
+
+## Phase 15: Smithly Builds Smithly
+
+84. `todo` Register Smithly as a managed project inside Smithly
+85. `todo` Create initial approved backlog items for Smithly inside Smithly
+86. `todo` Use Claude plus Codex through Smithly to complete a small Smithly task
+87. `todo` Record the first end-to-end self-hosted task run and lessons learned
+88. `todo` Tighten the design based on actual operator usage
 
 ## Near-Term Suggested Start Order
 

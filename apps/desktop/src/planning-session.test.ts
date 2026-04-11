@@ -228,14 +228,75 @@ describe("PlanningSessionManager", () => {
     manager.dispose();
     context.db.close();
   });
+
+  it("requests a graceful pause for running project orchestration sessions", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-pause-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-planning-pause-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        repoPath,
+      },
+    });
+
+    const fakePty = createFakePty();
+    const manager = new PlanningSessionManager(context, () => undefined, {
+      now: () => new Date("2026-04-10T09:30:00.000Z"),
+      spawnPty: () => fakePty,
+    });
+
+    manager.ensureSession({
+      projectId: fixture.project.id,
+      scope: "project",
+    });
+
+    const pausePromise = manager.requestProjectPause(
+      fixture.project.id,
+      "Operator paused the project from the desktop controls.",
+    );
+
+    expect(fakePty.writes.at(-1)).toContain("/pause Operator paused the project");
+    expect(
+      listWorkerSessionsForProject(context, fixture.project.id).find(
+        (session) => session.workerKind === "claude" && session.status === "waiting",
+      ),
+    ).toBeDefined();
+
+    fakePty.emitExit(0);
+    await pausePromise;
+
+    expect(
+      listWorkerSessionsForProject(context, fixture.project.id).find(
+        (session) => session.workerKind === "claude",
+      )?.status,
+    ).toBe("exited");
+
+    manager.dispose();
+    context.db.close();
+  });
 });
 
 function createFakePty(): IFakePty {
   const dataListeners: Array<(data: string) => void> = [];
   const exitListeners: Array<(event: { exitCode: number; signal?: number }) => void> = [];
+  const writes: string[] = [];
+  let killCount = 0;
 
   return {
     kill() {
+      killCount += 1;
       return undefined;
     },
     onData(listener: (data: string) => void) {
@@ -246,7 +307,8 @@ function createFakePty(): IFakePty {
       exitListeners.push(listener);
       return undefined;
     },
-    write() {
+    write(data: string) {
+      writes.push(data);
       return undefined;
     },
     emitData(data: string) {
@@ -259,9 +321,15 @@ function createFakePty(): IFakePty {
         listener({ exitCode });
       }
     },
+    get killCount() {
+      return killCount;
+    },
+    writes,
   } as unknown as IFakePty;
 }
 interface IFakePty extends IPty {
   emitData(data: string): void;
   emitExit(exitCode: number): void;
+  readonly killCount: number;
+  readonly writes: readonly string[];
 }

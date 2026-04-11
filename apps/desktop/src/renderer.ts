@@ -157,7 +157,9 @@ interface SmithlyDesktopApi {
   saveUiState(state: DesktopUiStateSnapshot): Promise<void>;
   selectProject(projectId: string): Promise<DesktopStatus>;
   selectBacklogItem(backlogItemId: string): Promise<DesktopStatus>;
-  setProjectStatus(projectId: string, status: "active" | "archived"): Promise<DesktopStatus>;
+  setProjectStatus(projectId: string, status: "paused" | "archived"): Promise<DesktopStatus>;
+  playProject(projectId: string): Promise<DesktopStatus>;
+  pauseProject(projectId: string): Promise<DesktopStatus>;
   updateProject(
     input: DesktopProjectRegistrationInput & { projectId: string },
   ): Promise<DesktopStatus>;
@@ -296,6 +298,12 @@ const projectEditButton = document.getElementById(
 const projectArchiveButton = document.getElementById(
   "project-archive-button",
 ) as HTMLButtonElement | null;
+const projectPlayButton = document.getElementById(
+  "project-play-button",
+) as HTMLButtonElement | null;
+const projectPauseButton = document.getElementById(
+  "project-pause-button",
+) as HTMLButtonElement | null;
 const projectReactivateButton = document.getElementById(
   "project-reactivate-button",
 ) as HTMLButtonElement | null;
@@ -413,10 +421,30 @@ function renderProjects(status: DesktopStatus): void {
         </div>
       </dl>
       <div class="project-card__actions">
+        <button type="button" data-project-action="play" data-project-control-id="${escapeHtml(project.id)}" ${
+          project.status === "archived" || project.status === "active" ? "disabled" : ""
+        }>
+          Play
+        </button>
+        <button type="button" data-project-action="pause" data-project-control-id="${escapeHtml(project.id)}" ${
+          project.status !== "active" ? "disabled" : ""
+        }>
+          Pause
+        </button>
         <button type="button" data-project-id="${escapeHtml(project.id)}">Open Workspace</button>
       </div>
     `;
-    article.querySelector("button")?.addEventListener("click", async () => {
+    article
+      .querySelector('button[data-project-action="play"]')
+      ?.addEventListener("click", async () => {
+        renderDesktopStatus(await window.smithlyDesktop.playProject(project.id));
+      });
+    article
+      .querySelector('button[data-project-action="pause"]')
+      ?.addEventListener("click", async () => {
+        renderDesktopStatus(await window.smithlyDesktop.pauseProject(project.id));
+      });
+    article.querySelector("button[data-project-id]")?.addEventListener("click", async () => {
       isProjectWorkspaceOpen = true;
       renderDesktopStatus(await window.smithlyDesktop.selectProject(project.id));
     });
@@ -810,6 +838,17 @@ function renderPlanningPane(status: DesktopStatus): void {
     projectArchiveButton.disabled = !hasSelectedProject;
   }
 
+  if (projectPlayButton !== null) {
+    projectPlayButton.disabled =
+      !hasSelectedProject ||
+      selectedProjectSummary?.status === "active" ||
+      selectedProjectSummary?.status === "archived";
+  }
+
+  if (projectPauseButton !== null) {
+    projectPauseButton.disabled = selectedProjectSummary?.status !== "active";
+  }
+
   if (projectReactivateButton !== null) {
     projectReactivateButton.disabled = selectedProjectSummary?.status !== "archived";
   }
@@ -820,7 +859,9 @@ function renderPlanningPane(status: DesktopStatus): void {
     !hasSelectedProject
       ? "Register a local project to enable planning."
       : activePlanningPaneKey === null
-        ? "Open a project or task Claude session to begin."
+        ? selectedProjectSummary?.status === "active"
+          ? "Project execution is running in the background. Attach a Claude pane to inspect it."
+          : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
         : activeSession
           ? `${activeScope} planning session ${activeSession.status}`
           : `${activeScope} planning session idle`,
@@ -1488,6 +1529,26 @@ projectArchiveButton?.addEventListener("click", async () => {
   renderDesktopStatus(await window.smithlyDesktop.setProjectStatus(projectId, "archived"));
 });
 
+projectPlayButton?.addEventListener("click", async () => {
+  const projectId = currentStatus?.selectedProjectId;
+
+  if (projectId === undefined) {
+    return;
+  }
+
+  renderDesktopStatus(await window.smithlyDesktop.playProject(projectId));
+});
+
+projectPauseButton?.addEventListener("click", async () => {
+  const projectId = currentStatus?.selectedProjectId;
+
+  if (projectId === undefined) {
+    return;
+  }
+
+  renderDesktopStatus(await window.smithlyDesktop.pauseProject(projectId));
+});
+
 projectReactivateButton?.addEventListener("click", async () => {
   const projectId = currentStatus?.selectedProjectId;
 
@@ -1495,7 +1556,7 @@ projectReactivateButton?.addEventListener("click", async () => {
     return;
   }
 
-  renderDesktopStatus(await window.smithlyDesktop.setProjectStatus(projectId, "active"));
+  renderDesktopStatus(await window.smithlyDesktop.setProjectStatus(projectId, "paused"));
 });
 
 projectPlanningButton?.addEventListener("click", () => {

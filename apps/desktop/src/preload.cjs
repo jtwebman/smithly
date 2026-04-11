@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld("smithlyDesktop", {
   setProjectStatus(projectId, status) {
     return ipcRenderer.invoke("smithly:project-set-status", projectId, status);
   },
+  playProject(projectId) {
+    return ipcRenderer.invoke("smithly:project-play", projectId);
+  },
+  pauseProject(projectId) {
+    return ipcRenderer.invoke("smithly:project-pause", projectId);
+  },
   ensurePlanningSession(scope, backlogItemId) {
     return ipcRenderer.invoke("smithly:planning-session:ensure", scope, backlogItemId);
   },

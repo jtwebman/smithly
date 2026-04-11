@@ -55,7 +55,20 @@ async function closeDesktop(
     readonly cleanup?: boolean;
   } = {},
 ): Promise<void> {
-  await electronApp.close();
+  await Promise.race([
+    electronApp.close(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 2_000);
+    }),
+  ]);
+
+  try {
+    await electronApp.evaluate(({ app }) => {
+      app.exit(0);
+    });
+  } catch {
+    // Ignore already-closed app errors.
+  }
 
   if (options.cleanup ?? true) {
     rmSync(dataDirectory, { force: true, recursive: true });
@@ -94,8 +107,9 @@ test("desktop shell can register a local repo path as a managed project", async 
     await expect(window.locator("#project-list")).toContainText(
       "Metadata: owner=jt | stack=electron",
     );
+    await expect(window.locator("#project-list")).toContainText("paused");
     await expect(window.locator("#planning-status")).toContainText(
-      "Open a project or task Claude session to begin.",
+      "Project execution is paused. Click Play to start hidden orchestration",
     );
   } finally {
     rmSync(localRepoDirectory, { force: true, recursive: true });
@@ -143,12 +157,19 @@ test("project dashboard can open, edit, archive, and reactivate a project", asyn
       "Project workspace: Project Alpha Prime",
     );
 
+    await expect(window.locator("#project-play-button")).toBeEnabled();
+    await window.locator("#project-play-button").click();
+    await expect(window.locator("#project-list")).toContainText("active");
+    await expect(window.locator("#project-pause-button")).toBeEnabled();
+    await window.locator("#project-pause-button").click();
+    await expect(window.locator("#project-list")).toContainText("paused");
+
     await window.locator("#project-archive-button").click();
     await expect(window.locator("#project-list")).toContainText("archived");
     await expect(window.locator("#project-reactivate-button")).toBeEnabled();
 
     await window.locator("#project-reactivate-button").click();
-    await expect(window.locator("#project-list")).toContainText("active");
+    await expect(window.locator("#project-list")).toContainText("paused");
   } finally {
     rmSync(firstRepoDirectory, { force: true, recursive: true });
     rmSync(secondRepoDirectory, { force: true, recursive: true });
@@ -196,7 +217,7 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
       "No planning transcript has been recorded yet.",
     );
     await expect(window.locator("#planning-status")).toContainText(
-      "Open a project or task Claude session to begin.",
+      "Project execution is running in the background.",
     );
     await expect(window.locator("#terminal-caption")).toContainText(
       "Open a Claude pane to attach a planning session.",
@@ -223,6 +244,43 @@ test("operator can interact with the project planning TUI through xterm", async 
       "claude ack: Summarize the next v1 planning slice.",
     );
   } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("project play starts hidden orchestration and pause drains it safely", async () => {
+  const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-play-"));
+  mkdirSync(join(localRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await window.locator("#open-project-creator-button").click();
+    await window.locator("#project-registration-path").fill(localRepoDirectory);
+    await window.locator("#project-registration-name").fill("Execution Fixture");
+    await window.locator("#save-project-button").click();
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+
+    await expect(window.locator("#project-play-button")).toBeEnabled();
+    await window.locator("#project-play-button").dispatchEvent("click");
+
+    await expect(window.locator("#project-list")).toContainText("active");
+    await expect(window.locator("#planning-status")).toContainText(
+      "Project execution is running in the background.",
+    );
+
+    await window.locator("#show-orchestration-button").click();
+    await window.locator("#project-planning-button").click();
+    await expect(window.locator("#planning-status")).toContainText(
+      "project planning session running",
+    );
+
+    await window.locator("#project-pause-button").dispatchEvent("click");
+    await expect(window.locator("#project-list")).toContainText("paused");
+    await expect(window.locator("#planning-status")).toContainText(
+      "project planning session exited",
+    );
+  } finally {
+    rmSync(localRepoDirectory, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });

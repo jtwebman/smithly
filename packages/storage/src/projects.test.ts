@@ -51,7 +51,7 @@ describe("project registration", () => {
 
     expect(project.name).toBe("Fixture Repo");
     expect(project.repoPath).toBe(repoDirectory);
-    expect(project.status).toBe("active");
+    expect(project.status).toBe("paused");
     expect(listProjects(context)).toEqual([project]);
     expect(parseProjectMetadata(project)).toEqual({
       approvalPolicy: {

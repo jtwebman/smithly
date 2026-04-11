@@ -33,6 +33,11 @@ reader.on("line", async (line) => {
     process.exit(0);
   }
 
+  if (prompt.startsWith("/pause")) {
+    console.log(`mock claude pausing: ${prompt.slice("/pause".length).trim() || "requested"}`);
+    process.exit(0);
+  }
+
   if (prompt.startsWith("create draft:")) {
     const [titlePart, scopePart] = prompt
       .slice("create draft:".length)

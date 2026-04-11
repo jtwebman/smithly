@@ -72,7 +72,7 @@ export function registerLocalProject(
     }),
     name: normalizedName && normalizedName.length > 0 ? normalizedName : basename(repoPath),
     repoPath,
-    status: "active",
+    status: "paused",
     updatedAt: timestamp,
   };
 
