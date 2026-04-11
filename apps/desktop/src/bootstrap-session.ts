@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as pathDirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { spawn, type IPty } from "node-pty";
 
@@ -40,6 +41,16 @@ interface IBootstrapRuntimeSession {
 interface IBootstrapSessionManagerOptions {
   readonly now?: () => Date;
   readonly spawnPty?: typeof spawn;
+}
+
+interface IMcpServerConfig {
+  readonly mcpServers: {
+    readonly smithly: {
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly env: Record<string, string>;
+    };
+  };
 }
 
 const BOOTSTRAP_TERMINAL_KEY = "planning:bootstrap";
@@ -86,15 +97,17 @@ export class BootstrapSessionManager {
     this.onUpdated();
 
     try {
+      const mcpConfig = this.buildMcpServerConfig();
       const pty = this.spawnPty(
         this.context.config.workers.claude.command,
-        this.buildWorkerArgs(this.context.config.workers.claude.command),
+        this.buildWorkerArgs(this.context.config.workers.claude.command, mcpConfig),
         {
           cols: 120,
           cwd,
           env: {
             ...process.env,
             SMITHLY_BOOTSTRAP_SESSION: "1",
+            SMITHLY_MCP_CONFIG_JSON: JSON.stringify(mcpConfig),
           },
           name: "xterm-256color",
           rows: 32,
@@ -185,12 +198,7 @@ export class BootstrapSessionManager {
   }
 
   public resizeSession(terminalKey: string, cols: number, rows: number): boolean {
-    if (
-      cols <= 0 ||
-      rows <= 0 ||
-      terminalKey !== BOOTSTRAP_TERMINAL_KEY ||
-      this.session === null
-    ) {
+    if (cols <= 0 || rows <= 0 || terminalKey !== BOOTSTRAP_TERMINAL_KEY || this.session === null) {
       return false;
     }
 
@@ -207,14 +215,29 @@ export class BootstrapSessionManager {
     this.session = null;
   }
 
-  private buildWorkerArgs(command: string): string[] {
+  private buildMcpServerConfig(): IMcpServerConfig {
+    return {
+      mcpServers: {
+        smithly: {
+          args: [resolveMcpBridgePath()],
+          command: process.env.SMITHLY_NODE_COMMAND?.trim() || "node",
+          env: {
+            SMITHLY_ATTACH_SCOPE: "global",
+            SMITHLY_DATA_DIRECTORY: this.context.config.storage.dataDirectory,
+          },
+        },
+      },
+    };
+  }
+
+  private buildWorkerArgs(command: string, mcpConfig: IMcpServerConfig): string[] {
     const configuredArgs = [...this.context.config.workers.claude.args];
 
     if (basename(command) !== "claude") {
       return configuredArgs;
     }
 
-    return configuredArgs;
+    return [...configuredArgs, "--mcp-config", JSON.stringify(mcpConfig), "--strict-mcp-config"];
   }
 
   private persistOutput(rawData: string): IBootstrapOutputEntry[] {
@@ -295,4 +318,12 @@ function stripAnsi(value: string): string {
   }
 
   return output;
+}
+
+function resolveMcpBridgePath(): string {
+  return join(dirname(), "../../../packages/mcp-server/src/bridge-main.js");
+}
+
+function dirname(): string {
+  return pathDirname(fileURLToPath(import.meta.url));
 }

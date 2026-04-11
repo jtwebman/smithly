@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
@@ -9,6 +11,7 @@ import {
   type ApprovalRequester,
   type BlockerType,
   type IBacklogItemRecord,
+  type IProjectRecord,
   type MemoryNoteType,
 } from "@smithly/core";
 import {
@@ -17,6 +20,7 @@ import {
   getBacklogItemById,
   getProjectById,
   listProjects,
+  registerLocalProject,
   listApprovalsForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
@@ -33,6 +37,7 @@ import {
   upsertReviewRun,
   upsertTaskRun,
   upsertVerificationRun,
+  updateProjectMetadata,
   type IStorageContext,
 } from "@smithly/storage";
 
@@ -103,6 +108,171 @@ export function createSmithlyMcpServer(
   );
 
   server.registerTool(
+    "inspect_bootstrap_target_folder",
+    {
+      description:
+        "Inspect and normalize a candidate bootstrap target folder before creating or adopting a Smithly project.",
+      inputSchema: {
+        intent: z
+          .enum(["create", "adopt"])
+          .describe("Whether the operator intends to create a new repo or adopt an existing one."),
+        targetFolderPath: z
+          .string()
+          .min(1)
+          .describe("Candidate target folder path chosen during bootstrap."),
+      },
+      outputSchema: {
+        canAdoptProject: z.boolean(),
+        canCreateInParent: z.boolean(),
+        exists: z.boolean(),
+        intent: z.string(),
+        isDirectory: z.boolean(),
+        isEmptyDirectory: z.boolean(),
+        looksLikeGitWorkingTree: z.boolean(),
+        normalizedTargetFolderPath: z.string(),
+        parentDirectoryPath: z.string(),
+        parentExists: z.boolean(),
+      },
+    },
+    async ({ intent, targetFolderPath }) => {
+      const targetFolder = inspectBootstrapTargetFolder(targetFolderPath);
+      const structuredContent = {
+        canAdoptProject: targetFolder.isDirectory && targetFolder.looksLikeGitWorkingTree,
+        canCreateInParent: targetFolder.parentExists,
+        exists: targetFolder.exists,
+        intent,
+        isDirectory: targetFolder.isDirectory,
+        isEmptyDirectory: targetFolder.isEmptyDirectory,
+        looksLikeGitWorkingTree: targetFolder.looksLikeGitWorkingTree,
+        normalizedTargetFolderPath: targetFolder.normalizedTargetFolderPath,
+        parentDirectoryPath: targetFolder.parentDirectoryPath,
+        parentExists: targetFolder.parentExists,
+      };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "create_project_from_bootstrap",
+    {
+      description:
+        "Register a newly created local git repo as a Smithly project after the operator has explicitly confirmed the bootstrap direction.",
+      inputSchema: {
+        defaultBranch: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Optional default branch to persist on the new project record."),
+        name: z.string().min(1).optional().describe("Project name shown in Smithly."),
+        operatorConfirmed: z
+          .boolean()
+          .describe("Must be true before Smithly will persist the project record."),
+        repoPath: z.string().min(1).describe("Path to the newly created local git working tree."),
+        verificationCommands: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Optional pinned verification commands for the new project."),
+      },
+      outputSchema: {
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          repoPath: z.string(),
+          status: z.string(),
+        }),
+      },
+    },
+    async ({ defaultBranch, name, operatorConfirmed, repoPath, verificationCommands }) => {
+      ensureBootstrapConfirmed(operatorConfirmed);
+      const project = registerProjectFromBootstrap(context, {
+        ...(defaultBranch !== undefined ? { defaultBranch } : {}),
+        ...(name !== undefined ? { name } : {}),
+        repoPath,
+        ...(verificationCommands !== undefined ? { verificationCommands } : {}),
+      });
+      const structuredContent = {
+        project: summarizeProject(project),
+      };
+
+      return {
+        content: [
+          {
+            text: `Registered Smithly project ${project.name} (${project.id}) from bootstrap.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "adopt_project_from_bootstrap",
+    {
+      description:
+        "Register an existing local git repo as a Smithly project after the operator has explicitly confirmed adoption.",
+      inputSchema: {
+        defaultBranch: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Optional default branch to persist on the adopted project record."),
+        name: z.string().min(1).optional().describe("Project name shown in Smithly."),
+        operatorConfirmed: z
+          .boolean()
+          .describe("Must be true before Smithly will persist the project record."),
+        repoPath: z
+          .string()
+          .min(1)
+          .describe("Path to the existing local git working tree to adopt."),
+        verificationCommands: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Optional pinned verification commands for the adopted project."),
+      },
+      outputSchema: {
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          repoPath: z.string(),
+          status: z.string(),
+        }),
+      },
+    },
+    async ({ defaultBranch, name, operatorConfirmed, repoPath, verificationCommands }) => {
+      ensureBootstrapConfirmed(operatorConfirmed);
+      const project = registerProjectFromBootstrap(context, {
+        ...(defaultBranch !== undefined ? { defaultBranch } : {}),
+        ...(name !== undefined ? { name } : {}),
+        repoPath,
+        ...(verificationCommands !== undefined ? { verificationCommands } : {}),
+      });
+      const structuredContent = {
+        project: summarizeProject(project),
+      };
+
+      return {
+        content: [
+          {
+            text: `Adopted existing repo ${project.name} (${project.id}) into Smithly.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "list_projects",
     {
       description: "List Smithly projects available to this local control-plane service.",
@@ -118,12 +288,7 @@ export function createSmithlyMcpServer(
       },
     },
     async () => {
-      const projects = listProjects(context).map((project) => ({
-        id: project.id,
-        name: project.name,
-        repoPath: project.repoPath,
-        status: project.status,
-      }));
+      const projects = listProjects(context).map((project) => summarizeProject(project));
       const structuredContent = {
         projects,
       };
@@ -161,12 +326,7 @@ export function createSmithlyMcpServer(
       const resolvedProjectId = projectId ?? requireProjectId(environment);
       const project = requireProject(context, resolvedProjectId);
       const structuredContent = {
-        project: {
-          id: project.id,
-          name: project.name,
-          repoPath: project.repoPath,
-          status: project.status,
-        },
+        project: summarizeProject(project),
       };
 
       return {
@@ -199,11 +359,9 @@ export function createSmithlyMcpServer(
       const project = requireProject(context, projectId);
       const backlogItems = listBacklogItemsForProject(context, projectId);
       const memoryNotes = listMemoryNotesForProject(context, projectId);
-      const planningThreads = listChatThreadsForProject(context, projectId).filter(
-        (thread) => {
-          return thread.kind === "project_planning" || thread.kind === "task_planning";
-        },
-      );
+      const planningThreads = listChatThreadsForProject(context, projectId).filter((thread) => {
+        return thread.kind === "project_planning" || thread.kind === "task_planning";
+      });
       const structuredContent = {
         backlogCount: backlogItems.length,
         memoryNoteCount: memoryNotes.length,
@@ -415,8 +573,11 @@ export function createSmithlyMcpServer(
       const projectId = requireProjectId(environment);
       const taskRun = startCodingTask(context, {
         assignedWorker: "codex",
-        backlogItemId: requireBacklogItem(context, projectId, backlogItemId ?? environment.backlogItemId)
-          .id,
+        backlogItemId: requireBacklogItem(
+          context,
+          projectId,
+          backlogItemId ?? environment.backlogItemId,
+        ).id,
         ...(summaryText !== undefined ? { summaryText } : {}),
       });
       const structuredContent = {
@@ -1104,7 +1265,9 @@ export function resolveSmithlyMcpEnvironment(environment = process.env): ISmithl
   }
 
   if (attachScope === "backlog_item" && (!projectId || !backlogItemId)) {
-    throw new Error("SMITHLY_PROJECT_ID and SMITHLY_BACKLOG_ITEM_ID are required for backlog scope.");
+    throw new Error(
+      "SMITHLY_PROJECT_ID and SMITHLY_BACKLOG_ITEM_ID are required for backlog scope.",
+    );
   }
 
   return {
@@ -1114,6 +1277,23 @@ export function resolveSmithlyMcpEnvironment(environment = process.env): ISmithl
     ...(projectId ? { projectId } : {}),
     ...(threadId ? { threadId } : {}),
   };
+}
+
+interface IBootstrapTargetFolderInspection {
+  readonly exists: boolean;
+  readonly isDirectory: boolean;
+  readonly isEmptyDirectory: boolean;
+  readonly looksLikeGitWorkingTree: boolean;
+  readonly normalizedTargetFolderPath: string;
+  readonly parentDirectoryPath: string;
+  readonly parentExists: boolean;
+}
+
+interface IRegisterProjectFromBootstrapInput {
+  readonly defaultBranch?: string;
+  readonly name?: string;
+  readonly repoPath: string;
+  readonly verificationCommands?: readonly string[];
 }
 
 function buildProjectSnapshot(
@@ -1202,9 +1382,7 @@ function buildBacklogSnapshot(
   };
 }
 
-function resolveAttachScope(
-  environment: NodeJS.ProcessEnv,
-): ISmithlyMcpEnvironment["attachScope"] {
+function resolveAttachScope(environment: NodeJS.ProcessEnv): ISmithlyMcpEnvironment["attachScope"] {
   const attachScope = environment.SMITHLY_ATTACH_SCOPE?.trim();
 
   switch (attachScope) {
@@ -1217,6 +1395,59 @@ function resolveAttachScope(
   }
 }
 
+function inspectBootstrapTargetFolder(targetFolderPath: string): IBootstrapTargetFolderInspection {
+  const normalizedTargetFolderPath = resolve(targetFolderPath.trim());
+  const exists = existsSync(normalizedTargetFolderPath);
+  const isDirectory = exists ? lstatSync(normalizedTargetFolderPath).isDirectory() : false;
+  const parentDirectoryPath = exists
+    ? dirname(realpathSync(normalizedTargetFolderPath))
+    : resolve(dirname(normalizedTargetFolderPath));
+  const parentExists =
+    existsSync(parentDirectoryPath) && lstatSync(parentDirectoryPath).isDirectory();
+
+  return {
+    exists,
+    isDirectory,
+    isEmptyDirectory: isDirectory ? readdirSync(normalizedTargetFolderPath).length === 0 : false,
+    looksLikeGitWorkingTree: isDirectory && existsSync(resolve(normalizedTargetFolderPath, ".git")),
+    normalizedTargetFolderPath: exists
+      ? realpathSync(normalizedTargetFolderPath)
+      : normalizedTargetFolderPath,
+    parentDirectoryPath,
+    parentExists,
+  };
+}
+
+function ensureBootstrapConfirmed(operatorConfirmed: boolean): void {
+  if (!operatorConfirmed) {
+    throw new Error(
+      "Bootstrap project registration requires explicit operator confirmation before Smithly will persist the project.",
+    );
+  }
+}
+
+function registerProjectFromBootstrap(
+  context: IStorageContext,
+  input: IRegisterProjectFromBootstrapInput,
+) {
+  const project = registerLocalProject(context, {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    repoPath: input.repoPath,
+    ...(input.verificationCommands !== undefined
+      ? { verificationCommands: input.verificationCommands }
+      : {}),
+  });
+
+  if (input.defaultBranch === undefined) {
+    return project;
+  }
+
+  return updateProjectMetadata(context, {
+    defaultBranch: input.defaultBranch,
+    projectId: project.id,
+  });
+}
+
 function requireProjectId(environment: ISmithlyMcpEnvironment): string {
   if (environment.projectId === undefined) {
     throw new Error(`This Smithly MCP session is attached with ${environment.attachScope} scope.`);
@@ -1227,7 +1458,9 @@ function requireProjectId(environment: ISmithlyMcpEnvironment): string {
 
 function requireThreadId(environment: ISmithlyMcpEnvironment): string {
   if (environment.threadId === undefined) {
-    throw new Error(`This Smithly MCP session has no planning thread for ${environment.attachScope} scope.`);
+    throw new Error(
+      `This Smithly MCP session has no planning thread for ${environment.attachScope} scope.`,
+    );
   }
 
   return environment.threadId;
@@ -1241,6 +1474,15 @@ function readJsonResource(uri: string, payload: Record<string, unknown>): ReadRe
         uri,
       },
     ],
+  };
+}
+
+function summarizeProject(project: Pick<IProjectRecord, "id" | "name" | "repoPath" | "status">) {
+  return {
+    id: project.id,
+    name: project.name,
+    repoPath: project.repoPath,
+    status: project.status,
   };
 }
 

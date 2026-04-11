@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +14,7 @@ import {
   listBacklogItemsForProject,
   listBlockersForProject,
   listMemoryNotesForProject,
+  listProjects,
   listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
@@ -91,6 +92,170 @@ describe("smithly mcp server", () => {
         name: fixture.project.name,
         repoPath: fixture.project.repoPath,
         status: fixture.project.status,
+      },
+    });
+
+    await close();
+    context.db.close();
+  });
+
+  it("inspects a bootstrap target folder without persisting a project", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-"));
+    const targetParentDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-target-"));
+
+    temporaryDirectories.push(dataDirectory, targetParentDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "global",
+      dataDirectory,
+    });
+    const { client, close } = await connectClient(server);
+    const targetFolderPath = join(targetParentDirectory, "new-project");
+
+    const result = await client.callTool({
+      arguments: {
+        intent: "create",
+        targetFolderPath,
+      },
+      name: "inspect_bootstrap_target_folder",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      canAdoptProject: false,
+      canCreateInParent: true,
+      exists: false,
+      intent: "create",
+      isDirectory: false,
+      looksLikeGitWorkingTree: false,
+      normalizedTargetFolderPath: targetFolderPath,
+      parentDirectoryPath: targetParentDirectory,
+      parentExists: true,
+    });
+    expect(listProjects(context)).toEqual([]);
+
+    await close();
+    context.db.close();
+  });
+
+  it("registers a bootstrap-created repo only after operator confirmation", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-bootstrap-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "global",
+      dataDirectory,
+    });
+    const { client, close } = await connectClient(server);
+
+    const unconfirmedResult = await client.callTool({
+      arguments: {
+        name: "Bootstrap Draft",
+        operatorConfirmed: false,
+        repoPath: repoDirectory,
+      },
+      name: "create_project_from_bootstrap",
+    });
+
+    expect(unconfirmedResult.isError).toBe(true);
+    expect(unconfirmedResult.content).toEqual([
+      expect.objectContaining({
+        text: expect.stringContaining("requires explicit operator confirmation"),
+        type: "text",
+      }),
+    ]);
+
+    const result = await client.callTool({
+      arguments: {
+        defaultBranch: "main",
+        name: "Bootstrap Draft",
+        operatorConfirmed: true,
+        repoPath: repoDirectory,
+        verificationCommands: ["npm run check"],
+      },
+      name: "create_project_from_bootstrap",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      project: {
+        id: expect.any(String),
+        name: "Bootstrap Draft",
+        repoPath: repoDirectory,
+        status: "paused",
+      },
+    });
+    expect(listProjects(context)).toEqual([
+      expect.objectContaining({
+        defaultBranch: "main",
+        name: "Bootstrap Draft",
+        repoPath: repoDirectory,
+        status: "paused",
+      }),
+    ]);
+
+    await close();
+    context.db.close();
+  });
+
+  it("adopts an existing repo from bootstrap after operator confirmation", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-adopt-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-adopt-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "global",
+      dataDirectory,
+    });
+    const { client, close } = await connectClient(server);
+
+    const inspectResult = await client.callTool({
+      arguments: {
+        intent: "adopt",
+        targetFolderPath: repoDirectory,
+      },
+      name: "inspect_bootstrap_target_folder",
+    });
+    const result = await client.callTool({
+      arguments: {
+        name: "Adopted Repo",
+        operatorConfirmed: true,
+        repoPath: repoDirectory,
+      },
+      name: "adopt_project_from_bootstrap",
+    });
+
+    expect(inspectResult.structuredContent).toMatchObject({
+      canAdoptProject: true,
+      exists: true,
+      isDirectory: true,
+      looksLikeGitWorkingTree: true,
+      normalizedTargetFolderPath: repoDirectory,
+    });
+    expect(result.structuredContent).toMatchObject({
+      project: {
+        id: expect.any(String),
+        name: "Adopted Repo",
+        repoPath: repoDirectory,
+        status: "paused",
       },
     });
 

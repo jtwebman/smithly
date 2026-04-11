@@ -159,7 +159,7 @@
 77. `done` Add a stdio MCP bridge so external Claude Code or Codex CLI sessions launched in the operator's own terminal can attach to the live Smithly service
 78. `done` Add scoped MCP attach flows so external sessions can connect with global, project, or backlog-item context safely
 79. `done` Add global MCP discovery tools such as `list_projects` and `get_project_by_id` so external sessions can find and attach to Smithly projects safely
-80. `todo` Add bootstrap-session MCP tools so Claude can create or adopt a project, choose a target folder, and persist the initial Smithly project record only after the operator confirms direction
+80. `done` Add bootstrap-session MCP tools so Claude can create or adopt a project, choose a target folder, and persist the initial Smithly project record only after the operator confirms direction
 81. `todo` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
 82. `todo` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
 83. `todo` Add a `Plan / Approve More` project action that opens a Claude planning session with project context, active task context, and compact backlog/approved-work summaries
@@ -182,7 +182,7 @@
 97. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
 98. `todo` Add quota and credit pause-resume handling
 99. `todo` Add dashboard summaries across all projects plus operator digest views for what changed, what is waiting, what is running, what is next, and what AI proposed
-100. `todo` Add tests for multi-project scheduling behavior, project modes, and backlog-generation loops
+100.  `todo` Add tests for multi-project scheduling behavior, project modes, and backlog-generation loops
 
 ## Future Expansion Notes
 
