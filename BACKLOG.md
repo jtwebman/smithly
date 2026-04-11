@@ -26,7 +26,7 @@
 - Project detail should include a `Plan / Approve More` entry point that opens a Claude planning session with project context, active work context, and compact backlog summaries.
 - Operators should also be able to open a backlog-item-scoped planning chat from any draft or approved item and use that chat to refine, split, add, remove, and reprioritize related work.
 - Claude planning flows should be able to reorder pending work, including draft items and approved-but-not-running items, when the operator wants to change execution order.
-- `ready` and `approved` should be separate task gates; Smithly should only start a task when both are true.
+- `ready` and `approved` should be separate task gates; Smithly should only start a task when it is approved, ready, and all blocking dependencies have been cleared.
 - Tasks should be able to explicitly block other tasks or be blocked by other tasks.
 - Active task scope should be stable; meaningful changes should create a follow-up task or force pause-and-replan instead of silently mutating running work.
 - Task completion should follow an explicit definition of done covering implementation, verification, review, branch/PR state, and required approvals.
@@ -157,7 +157,7 @@
 77. `todo` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
 78. `todo` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
 79. `todo` Add a `Plan / Approve More` project action that opens a Claude planning session with project context, active task context, and compact backlog/approved-work summaries
-80. `todo` Add task readiness state distinct from approval state, and require both `ready` and `approved` before execution can start
+80. `todo` Add task readiness state distinct from approval state, and require `approved`, `ready`, and cleared blocking dependencies before execution can start
 81. `todo` Add MCP and storage support so Claude can reprioritize and reorder pending work safely during planning flows without reordering the active task or completed work
 82. `todo` Add task dependency links so items can explicitly block other tasks or be blocked by them, and reflect those links in readiness and scheduling
 83. `todo` Add active-task protection so planning changes cannot silently mutate the running task scope without pause-and-replan or follow-up task creation

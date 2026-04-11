@@ -165,17 +165,23 @@ Chats are distinct from memory. Chats are conversational interfaces and audit hi
 `ready` and `approved` are separate concepts.
 
 - `approved` means the operator is allowing the work to happen
-- `ready` means the task is sufficiently specified and unblocked for execution
+- `ready` means the task is sufficiently specified for execution
+- blocker and dependency clearance means prerequisite work has been completed and the task is no longer blocked
 
-A task should not start unless both are true.
+A task should not start unless it is approved, ready, and clear of blocking dependencies.
 
 Typical reasons a task is not ready yet:
 
-- dependency work is incomplete
 - acceptance criteria are too vague
 - review mode or risk level is missing
 - the repo target or technical approach is still unclear
-- there is an unresolved blocker
+- the task still needs planning clarification
+
+Typical reasons a task is not yet runnable even if it is ready:
+
+- dependency work is incomplete
+- another task is explicitly blocking it
+- an external blocker is still unresolved
 
 Planning flows should let Claude help the operator:
 
