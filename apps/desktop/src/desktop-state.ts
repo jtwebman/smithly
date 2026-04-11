@@ -93,6 +93,9 @@ export interface IDesktopChatMessage {
 export interface IDesktopBacklogDetail {
   readonly id: string;
   readonly title: string;
+  readonly priority: number;
+  readonly reviewMode: string;
+  readonly riskLevel: string;
   readonly status: string;
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
@@ -208,7 +211,7 @@ function buildSelectedProject(
     backlogItems: backlogItems.map((backlogItem) => ({
       id: backlogItem.id,
       status: backlogItem.status,
-      subtitle: backlogItem.scopeSummary ?? "No scope summary yet.",
+      subtitle: formatBacklogSummary(backlogItem),
       timestamp: backlogItem.updatedAt,
       title: backlogItem.title,
     })),
@@ -305,6 +308,9 @@ function buildSelectedProject(
           selectedBacklogItem: {
             acceptanceCriteria: parseAcceptanceCriteria(selectedBacklogItem.acceptanceCriteriaJson),
             id: selectedBacklogItem.id,
+            priority: selectedBacklogItem.priority,
+            reviewMode: selectedBacklogItem.reviewMode,
+            riskLevel: selectedBacklogItem.riskLevel,
             scopeSummary: selectedBacklogItem.scopeSummary ?? "",
             status: selectedBacklogItem.status,
             title: selectedBacklogItem.title,
@@ -398,4 +404,11 @@ function formatMetadataSummary(metadata: Readonly<Record<string, string>>): stri
   }
 
   return entries.map(([key, value]) => `${key}=${value}`).join(" | ");
+}
+
+function formatBacklogSummary(
+  backlogItem: ReturnType<typeof listBacklogItemsForProject>[number],
+): string {
+  const scopeSummary = backlogItem.scopeSummary ?? "No scope summary yet.";
+  return `${scopeSummary} | priority ${backlogItem.priority} | ${backlogItem.riskLevel} risk | ${backlogItem.reviewMode} review | ${backlogItem.status}`;
 }

@@ -75,7 +75,8 @@ describe("desktop bootstrap", () => {
           {
             id: "backlog-bootstrap-ui",
             status: "approved",
-            subtitle: "Create the first desktop shell and show one managed project.",
+            subtitle:
+              "Create the first desktop shell and show one managed project. | priority 90 | medium risk | human review | approved",
             timestamp: "2026-04-10T07:05:00.000Z",
             title: "Bootstrap the desktop shell",
           },
@@ -131,6 +132,9 @@ describe("desktop bootstrap", () => {
             "state comes from SQLite",
           ],
           id: "backlog-bootstrap-ui",
+          priority: 90,
+          reviewMode: "human",
+          riskLevel: "medium",
           scopeSummary: "Create the first desktop shell and show one managed project.",
           status: "approved",
           title: "Bootstrap the desktop shell",

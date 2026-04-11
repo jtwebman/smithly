@@ -162,6 +162,10 @@ test("desktop shell shows the seeded dashboard and attaches a project planning s
     await expect(window.getByRole("heading", { name: "Completed Work" })).toBeVisible();
     await expect(window.locator("#backlog-list")).toContainText("Bootstrap the desktop shell");
     await expect(window.locator("#backlog-list")).toContainText("taskrun-bootstrap-ui");
+    await expect(window.locator("#backlog-list")).toContainText("priority 90");
+    await expect(window.locator("#selected-backlog-meta")).toHaveText(
+      "priority 90 | medium risk | human review",
+    );
     await expect(window.locator("#task-list")).toContainText(
       "No completed work has been recorded yet.",
     );
@@ -296,12 +300,16 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
     await window
       .locator("#planning-input")
       .fill(
-        "revise task: Use Smithly MCP-backed planning actions for backlog updates. | Claude can revise the task scope through MCP; Acceptance criteria are persisted in SQLite | Track the first revision path through the task planning thread.",
+        "revise task: Use Smithly MCP-backed planning actions for backlog updates. | Claude can revise the task scope through MCP; Acceptance criteria are persisted in SQLite | Track the first revision path through the task planning thread. | approved | 95 | high | ai",
       );
     await window.locator("#planning-input-form button").click();
 
     await expect(window.locator("#selected-backlog-scope")).toHaveText(
       "Use Smithly MCP-backed planning actions for backlog updates.",
+    );
+    await expect(window.locator("#selected-backlog-status")).toHaveText("approved");
+    await expect(window.locator("#selected-backlog-meta")).toHaveText(
+      "priority 95 | high risk | ai review",
     );
     await expect(window.locator("#selected-backlog-criteria")).toContainText(
       "Claude can revise the task scope through MCP",
@@ -310,7 +318,7 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
       "Acceptance criteria are persisted in SQLite",
     );
     await expect(window.locator("#planning-history")).toContainText(
-      'Updated backlog item "Bootstrap the desktop shell" with 2 acceptance criteria.',
+      'Updated backlog item "Bootstrap the desktop shell" with 2 acceptance criteria and status approved.',
     );
     await expect(window.locator("#planning-history")).toContainText(
       "Track the first revision path through the task planning thread.",

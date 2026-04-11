@@ -117,8 +117,12 @@ describe("planning mutations", () => {
       ],
       backlogItemId: fixture.backlogItem.id,
       noteText: "Keep the first write path scoped to backlog metadata only.",
+      priority: 95,
+      reviewMode: "ai",
+      riskLevel: "high",
       scopeSummary: "Use MCP-backed planning actions for backlog creation and revision.",
       sourceThreadId: fixture.taskChatThread.id,
+      status: "approved",
     });
     const storedBacklogItem = getBacklogItemById(context, fixture.backlogItem.id);
     const taskPlanningMessages = listChatMessagesForThread(context, fixture.taskChatThread.id);
@@ -126,6 +130,10 @@ describe("planning mutations", () => {
     expect(revisedBacklogItem.scopeSummary).toBe(
       "Use MCP-backed planning actions for backlog creation and revision.",
     );
+    expect(revisedBacklogItem.priority).toBe(95);
+    expect(revisedBacklogItem.reviewMode).toBe("ai");
+    expect(revisedBacklogItem.riskLevel).toBe("high");
+    expect(revisedBacklogItem.status).toBe("approved");
     expect(storedBacklogItem?.acceptanceCriteriaJson).toBe(
       JSON.stringify([
         "Project planning can create draft backlog items through MCP",

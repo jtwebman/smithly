@@ -5,6 +5,8 @@ import type {
   IChatMessageRecord,
   IChatThreadRecord,
   IContext,
+  ReviewMode,
+  RiskLevel,
 } from "@smithly/core";
 
 import {
@@ -27,7 +29,11 @@ export interface IReviseBacklogItemInput {
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
   readonly noteText?: string;
+  readonly priority?: number;
+  readonly reviewMode?: ReviewMode;
+  readonly riskLevel?: RiskLevel;
   readonly sourceThreadId?: string;
+  readonly status?: IBacklogItemRecord["status"];
 }
 
 export function createDraftBacklogItemFromPlanning(
@@ -106,7 +112,11 @@ export function reviseBacklogItemFromPlanning(
   const revisedBacklogItem: IBacklogItemRecord = {
     ...backlogItem,
     acceptanceCriteriaJson: JSON.stringify(normalizedAcceptanceCriteria),
+    ...(input.priority !== undefined ? { priority: input.priority } : {}),
+    ...(input.reviewMode !== undefined ? { reviewMode: input.reviewMode } : {}),
+    ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel } : {}),
     scopeSummary: input.scopeSummary,
+    ...(input.status !== undefined ? { status: input.status } : {}),
     updatedAt: timestamp,
   };
 
@@ -120,7 +130,7 @@ export function reviseBacklogItemFromPlanning(
       createMessage(
         sourceThread.id,
         "tool",
-        `Updated backlog item "${backlogItem.title}" with ${normalizedAcceptanceCriteria.length} acceptance criteria.`,
+        `Updated backlog item "${backlogItem.title}" with ${normalizedAcceptanceCriteria.length} acceptance criteria and status ${revisedBacklogItem.status}.`,
         timestamp,
       ),
     );

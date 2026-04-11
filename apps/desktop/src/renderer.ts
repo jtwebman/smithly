@@ -92,6 +92,9 @@ interface DesktopChatMessage {
 interface DesktopBacklogDetail {
   readonly id: string;
   readonly title: string;
+  readonly priority: number;
+  readonly reviewMode: string;
+  readonly riskLevel: string;
   readonly status: string;
   readonly scopeSummary: string;
   readonly acceptanceCriteria: readonly string[];
@@ -196,6 +199,7 @@ const taskPlanningButton = document.getElementById(
 ) as HTMLButtonElement | null;
 const selectedBacklogTitleNode = document.getElementById("selected-backlog-title");
 const selectedBacklogStatusNode = document.getElementById("selected-backlog-status");
+const selectedBacklogMetaNode = document.getElementById("selected-backlog-meta");
 const selectedBacklogScopeNode = document.getElementById("selected-backlog-scope");
 const selectedBacklogCriteriaNode = document.getElementById("selected-backlog-criteria");
 
@@ -503,6 +507,12 @@ function renderPlanningHistory(messages: readonly DesktopChatMessage[]): void {
 function renderSelectedBacklog(backlogItem?: DesktopBacklogDetail): void {
   setNodeText(selectedBacklogTitleNode, backlogItem?.title ?? "No backlog item selected");
   setNodeText(selectedBacklogStatusNode, backlogItem?.status ?? "n/a");
+  setNodeText(
+    selectedBacklogMetaNode,
+    backlogItem
+      ? `priority ${backlogItem.priority} | ${backlogItem.riskLevel} risk | ${backlogItem.reviewMode} review`
+      : "No backlog metadata selected",
+  );
   setNodeText(
     selectedBacklogScopeNode,
     backlogItem?.scopeSummary ??

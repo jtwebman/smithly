@@ -60,7 +60,15 @@ reader.on("line", async (line) => {
   }
 
   if (prompt.startsWith("revise task:")) {
-    const [scopeSummary, criteriaPart, notePart] = prompt
+    const [
+      scopeSummary,
+      criteriaPart,
+      notePart,
+      statusPart,
+      priorityPart,
+      riskLevelPart,
+      reviewModePart,
+    ] = prompt
       .slice("revise task:".length)
       .split("|")
       .map((part) => {
@@ -83,6 +91,10 @@ reader.on("line", async (line) => {
       arguments: {
         acceptanceCriteria,
         ...(notePart ? { noteText: notePart } : {}),
+        ...(statusPart ? { status: statusPart } : {}),
+        ...(priorityPart ? { priority: Number(priorityPart) } : {}),
+        ...(riskLevelPart ? { riskLevel: riskLevelPart } : {}),
+        ...(reviewModePart ? { reviewMode: reviewModePart } : {}),
         scopeSummary,
       },
       name: "revise_backlog_item",

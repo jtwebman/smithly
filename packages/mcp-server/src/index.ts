@@ -161,16 +161,34 @@ export function createSmithlyMcpServer(
           .string()
           .optional()
           .describe("Optional operator note to append to the planning thread."),
+        priority: z.number().int().min(0).max(100).optional().describe("Updated backlog priority."),
+        reviewMode: z.enum(["human", "ai"]).optional().describe("Updated review mode."),
+        riskLevel: z.enum(["low", "medium", "high"]).optional().describe("Updated risk level."),
         scopeSummary: z.string().min(1).describe("Revised scope summary for the backlog item."),
+        status: z
+          .enum(["draft", "approved", "in_progress", "blocked", "done", "cancelled"])
+          .optional()
+          .describe("Updated backlog status."),
       },
       outputSchema: {
         acceptanceCriteriaCount: z.number(),
         backlogItemId: z.string(),
+        priority: z.number(),
+        reviewMode: z.string(),
+        riskLevel: z.string(),
         status: z.string(),
         title: z.string(),
       },
     },
-    async ({ acceptanceCriteria, noteText, scopeSummary }) => {
+    async ({
+      acceptanceCriteria,
+      noteText,
+      priority,
+      reviewMode,
+      riskLevel,
+      scopeSummary,
+      status,
+    }) => {
       const backlogItemId = environment.backlogItemId;
 
       if (backlogItemId === undefined) {
@@ -181,12 +199,19 @@ export function createSmithlyMcpServer(
         acceptanceCriteria,
         backlogItemId,
         ...(noteText !== undefined ? { noteText } : {}),
+        ...(priority !== undefined ? { priority } : {}),
+        ...(reviewMode !== undefined ? { reviewMode } : {}),
+        ...(riskLevel !== undefined ? { riskLevel } : {}),
         scopeSummary,
         sourceThreadId: environment.threadId,
+        ...(status !== undefined ? { status } : {}),
       });
       const structuredContent = {
         acceptanceCriteriaCount: acceptanceCriteria.length,
         backlogItemId: revisedBacklogItem.id,
+        priority: revisedBacklogItem.priority,
+        reviewMode: revisedBacklogItem.reviewMode,
+        riskLevel: revisedBacklogItem.riskLevel,
         status: revisedBacklogItem.status,
         title: revisedBacklogItem.title,
       };
@@ -194,7 +219,7 @@ export function createSmithlyMcpServer(
       return {
         content: [
           {
-            text: `Updated backlog item ${revisedBacklogItem.title} with ${acceptanceCriteria.length} acceptance criteria.`,
+            text: `Updated backlog item ${revisedBacklogItem.title} with ${acceptanceCriteria.length} acceptance criteria, status ${revisedBacklogItem.status}, priority ${revisedBacklogItem.priority}, risk ${revisedBacklogItem.riskLevel}, review ${revisedBacklogItem.reviewMode}.`,
             type: "text",
           },
         ],
@@ -242,6 +267,8 @@ function buildProjectSnapshot(
     backlogItems: listBacklogItemsForProject(context, environment.projectId).map((backlogItem) => ({
       id: backlogItem.id,
       priority: backlogItem.priority,
+      reviewMode: backlogItem.reviewMode,
+      riskLevel: backlogItem.riskLevel,
       scopeSummary: backlogItem.scopeSummary ?? "",
       status: backlogItem.status,
       title: backlogItem.title,
