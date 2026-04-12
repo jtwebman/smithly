@@ -592,6 +592,86 @@ test("project planning can create a draft backlog item through Smithly MCP", asy
   }
 });
 
+test("project planning can reprioritize and reorder pending backlog items through Smithly MCP", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-planning-order-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["First pending item exists"]),
+    createdAt: "2026-04-10T07:10:00.000Z",
+    id: "backlog-pending-first",
+    priority: 40,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "First pending planning item.",
+    status: "draft",
+    title: "First pending planning item",
+    updatedAt: "2026-04-10T07:10:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Second pending item exists"]),
+    createdAt: "2026-04-10T07:15:00.000Z",
+    id: "backlog-pending-second",
+    priority: 30,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "ai",
+    riskLevel: "medium",
+    scopeSummary: "Second pending planning item.",
+    status: "draft",
+    title: "Second pending planning item",
+    updatedAt: "2026-04-10T07:15:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window.locator("#project-planning-button").click();
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "reprioritize backlog: backlog-pending-first | 85 | Move this close to the front before reordering.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool reprioritize_backlog_item",
+    );
+
+    await window.keyboard.type(
+      "reorder pending: backlog-pending-second ; backlog-pending-first | Put the second pending item first.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool reorder_pending_backlog_items",
+    );
+    await expect(window.locator("#backlog-list .list-card strong").nth(0)).toHaveText(
+      "Bootstrap the desktop shell",
+    );
+    await expect(window.locator("#backlog-list .list-card strong").nth(1)).toHaveText(
+      "Second pending planning item",
+    );
+    await expect(window.locator("#backlog-list .list-card strong").nth(2)).toHaveText(
+      "First pending planning item",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("operator can switch to task planning and attach a task-scoped Claude session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,

@@ -58,6 +58,20 @@ export interface IStartCodingTaskInput {
   readonly summaryText?: string;
 }
 
+export interface IReprioritizeBacklogItemInput {
+  readonly backlogItemId: string;
+  readonly priority: number;
+  readonly noteText?: string;
+  readonly sourceThreadId?: string;
+}
+
+export interface IReorderPendingBacklogItemsInput {
+  readonly projectId: string;
+  readonly backlogItemIds: readonly string[];
+  readonly noteText?: string;
+  readonly sourceThreadId?: string;
+}
+
 export interface IUpsertBootstrapMvpPlanInput {
   readonly bodyText: string;
   readonly projectId: string;
@@ -83,6 +97,17 @@ export interface IFinalizeBootstrapProjectInput {
 }
 
 const BOOTSTRAP_MVP_PLAN_NOTE_ID_PREFIX = "memory-bootstrap-mvp-plan-";
+const ACTIVE_TASK_RUN_STATUSES = new Set<ITaskRunRecord["status"]>([
+  "queued",
+  "running",
+  "blocked",
+  "awaiting_review",
+]);
+const PLANNING_REORDERABLE_BACKLOG_STATUSES = new Set<IBacklogItemRecord["status"]>([
+  "draft",
+  "approved",
+  "blocked",
+]);
 
 export function createDraftBacklogItemFromPlanning(
   context: IContext,
@@ -242,6 +267,104 @@ export function startCodingTask(context: IContext, input: IStartCodingTaskInput)
   upsertTaskRun(context, taskRun);
 
   return taskRun;
+}
+
+export function reprioritizeBacklogItemForPlanning(
+  context: IContext,
+  input: IReprioritizeBacklogItemInput,
+): IBacklogItemRecord {
+  const backlogItem = requireBacklogItem(context, input.backlogItemId);
+  const reorderableBacklogItems = listPlanningReorderableBacklogItems(context, backlogItem.projectId);
+  const reorderableBacklogItem = reorderableBacklogItems.find((candidate) => candidate.id === backlogItem.id);
+
+  if (reorderableBacklogItem === undefined) {
+    throw new Error(
+      `Backlog item ${backlogItem.id} cannot be reprioritized because it is active or completed.`,
+    );
+  }
+
+  const timestamp = new Date().toISOString();
+  const reprioritizedBacklogItem: IBacklogItemRecord = {
+    ...backlogItem,
+    priority: input.priority,
+    updatedAt: timestamp,
+  };
+
+  upsertBacklogItem(context, reprioritizedBacklogItem);
+  recordPlanningMutation(
+    context,
+    backlogItem.projectId,
+    input.sourceThreadId,
+    `Reprioritized backlog item "${backlogItem.title}" to priority ${input.priority}.`,
+    input.noteText,
+    timestamp,
+  );
+
+  return reprioritizedBacklogItem;
+}
+
+export function reorderPendingBacklogItems(
+  context: IContext,
+  input: IReorderPendingBacklogItemsInput,
+): IBacklogItemRecord[] {
+  if (input.backlogItemIds.length === 0) {
+    throw new Error("Provide at least one pending backlog item to reorder.");
+  }
+
+  requireProject(input.projectId, context);
+
+  const reorderableBacklogItems = listPlanningReorderableBacklogItems(context, input.projectId);
+  const reorderableBacklogItemsById = new Map(
+    reorderableBacklogItems.map((backlogItem) => [backlogItem.id, backlogItem] as const),
+  );
+  const duplicateBacklogItemIds = findDuplicateIds(input.backlogItemIds);
+
+  if (duplicateBacklogItemIds.length > 0) {
+    throw new Error(`Backlog item ids must be unique when reordering: ${duplicateBacklogItemIds.join(", ")}.`);
+  }
+
+  for (const backlogItemId of input.backlogItemIds) {
+    if (!reorderableBacklogItemsById.has(backlogItemId)) {
+      throw new Error(
+        `Backlog item ${backlogItemId} cannot be reordered because it is missing, active, or completed.`,
+      );
+    }
+  }
+
+  const prioritizedBacklogItems = input.backlogItemIds.map((backlogItemId) => {
+    return reorderableBacklogItemsById.get(backlogItemId) as IBacklogItemRecord;
+  });
+  const untouchedBacklogItems = reorderableBacklogItems.filter((backlogItem) => {
+    return !input.backlogItemIds.includes(backlogItem.id);
+  });
+  const reorderedBacklogItems = [...prioritizedBacklogItems, ...untouchedBacklogItems];
+  const timestamp = new Date().toISOString();
+  const startingPriority = reorderedBacklogItems.length * 10;
+
+  const updatedBacklogItems = reorderedBacklogItems.map((backlogItem, index) => {
+    const reprioritizedBacklogItem: IBacklogItemRecord = {
+      ...backlogItem,
+      priority: startingPriority - index * 10,
+      updatedAt: timestamp,
+    };
+
+    upsertBacklogItem(context, reprioritizedBacklogItem);
+    return reprioritizedBacklogItem;
+  });
+
+  recordPlanningMutation(
+    context,
+    input.projectId,
+    input.sourceThreadId,
+    `Reordered pending backlog items: ${updatedBacklogItems
+      .slice(0, input.backlogItemIds.length)
+      .map((backlogItem) => backlogItem.title)
+      .join(" -> ")}.`,
+    input.noteText,
+    timestamp,
+  );
+
+  return updatedBacklogItems;
 }
 
 export function ensureProjectPlanningThread(
@@ -511,6 +634,66 @@ function requireApprovedBootstrapBacklogItems(context: IContext, projectId: stri
   }
 
   return projectBacklogItems;
+}
+
+function recordPlanningMutation(
+  context: IContext,
+  projectId: string,
+  sourceThreadId: string | undefined,
+  toolMessage: string,
+  noteText: string | undefined,
+  timestamp: string,
+): void {
+  if (sourceThreadId === undefined) {
+    return;
+  }
+
+  const sourceThread = requireThreadById(context, projectId, sourceThreadId);
+
+  upsertChatMessage(context, createMessage(sourceThread.id, "tool", toolMessage, timestamp));
+
+  if (noteText?.trim()) {
+    upsertChatMessage(context, createMessage(sourceThread.id, "human", noteText.trim(), timestamp));
+  }
+
+  upsertChatThread(context, {
+    ...sourceThread,
+    updatedAt: timestamp,
+  });
+}
+
+function listPlanningReorderableBacklogItems(
+  context: IContext,
+  projectId: string,
+): IBacklogItemRecord[] {
+  const activeBacklogItemIds = new Set(
+    listTaskRunsForProject(context, projectId)
+      .filter((taskRun) => ACTIVE_TASK_RUN_STATUSES.has(taskRun.status))
+      .map((taskRun) => taskRun.backlogItemId),
+  );
+
+  return listBacklogItemsForProject(context, projectId).filter((backlogItem) => {
+    return (
+      PLANNING_REORDERABLE_BACKLOG_STATUSES.has(backlogItem.status) &&
+      !activeBacklogItemIds.has(backlogItem.id)
+    );
+  });
+}
+
+function findDuplicateIds(ids: readonly string[]): string[] {
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+
+  for (const id of ids) {
+    if (seenIds.has(id)) {
+      duplicateIds.add(id);
+      continue;
+    }
+
+    seenIds.add(id);
+  }
+
+  return [...duplicateIds];
 }
 
 function assertBacklogItemReadyForExecution(

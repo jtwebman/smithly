@@ -23,6 +23,8 @@ import {
   ensureProjectPlanningThread,
   finalizeBootstrapProject,
   getBootstrapMvpPlan,
+  reorderPendingBacklogItems,
+  reprioritizeBacklogItemForPlanning,
   reviseBacklogItemFromPlanning,
   startCodingTask,
   upsertBootstrapMvpPlan,
@@ -257,6 +259,111 @@ describe("planning mutations", () => {
         backlogItemId: createdBacklogItem.id,
       }),
     ).not.toThrow();
+
+    closeContext(context);
+  });
+
+  it("reprioritizes only pending backlog items during planning", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const pendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "This backlog item stays pending.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Pending task",
+    });
+
+    const reprioritizedBacklogItem = reprioritizeBacklogItemForPlanning(context, {
+      backlogItemId: pendingBacklogItem.id,
+      noteText: "Move this closer to the top of the pending queue.",
+      priority: 77,
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+
+    expect(reprioritizedBacklogItem.priority).toBe(77);
+    expect(getBacklogItemById(context, pendingBacklogItem.id)?.priority).toBe(77);
+    expect(
+      listChatMessagesForThread(context, fixture.projectChatThread.id).some((message) => {
+        return message.bodyText.includes('Reprioritized backlog item "Pending task"');
+      }),
+    ).toBe(true);
+    expect(() =>
+      reprioritizeBacklogItemForPlanning(context, {
+        backlogItemId: fixture.backlogItem.id,
+        priority: 99,
+      }),
+    ).toThrow("cannot be reprioritized");
+
+    closeContext(context);
+  });
+
+  it("reorders only pending backlog items and leaves active work untouched", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const firstPendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "First pending task.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "First pending task",
+    });
+    const secondPendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Second pending task.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Second pending task",
+    });
+    const thirdPendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Third pending task.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Third pending task",
+    });
+
+    const reorderedBacklogItems = reorderPendingBacklogItems(context, {
+      backlogItemIds: [thirdPendingBacklogItem.id, firstPendingBacklogItem.id],
+      noteText: "Make the third item next, then keep the first one close behind.",
+      projectId: fixture.project.id,
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+    const pendingBacklogItemIdsInOrder = listBacklogItemsForProject(context, fixture.project.id)
+      .filter((backlogItem) => {
+        return backlogItem.id !== fixture.backlogItem.id;
+      })
+      .map((backlogItem) => backlogItem.id);
+
+    expect(reorderedBacklogItems.map((backlogItem) => backlogItem.id).slice(0, 3)).toEqual([
+      thirdPendingBacklogItem.id,
+      firstPendingBacklogItem.id,
+      secondPendingBacklogItem.id,
+    ]);
+    expect(pendingBacklogItemIdsInOrder).toEqual([
+      thirdPendingBacklogItem.id,
+      firstPendingBacklogItem.id,
+      secondPendingBacklogItem.id,
+    ]);
+    expect(getBacklogItemById(context, fixture.backlogItem.id)?.priority).toBe(fixture.backlogItem.priority);
+    expect(() =>
+      reorderPendingBacklogItems(context, {
+        backlogItemIds: [fixture.backlogItem.id],
+        projectId: fixture.project.id,
+      }),
+    ).toThrow("cannot be reordered");
 
     closeContext(context);
   });

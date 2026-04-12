@@ -36,6 +36,8 @@ import {
   approveBootstrapBacklogItem,
   ensureProjectPlanningThread,
   parseProjectMetadata,
+  reorderPendingBacklogItems,
+  reprioritizeBacklogItemForPlanning,
   upsertApproval,
   upsertBacklogItem,
   upsertBlocker,
@@ -904,6 +906,114 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "reprioritize_backlog_item",
+    {
+      description:
+        "Update the priority of a pending backlog item during planning without mutating active or completed work.",
+      inputSchema: {
+        backlogItemId: z.string().describe("Pending backlog item to reprioritize."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the reprioritization."),
+        priority: z.number().int().describe("New relative priority for the pending backlog item."),
+      },
+      outputSchema: {
+        backlogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          readiness: z.string(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          scopeSummary: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+      },
+    },
+    async ({ backlogItemId, noteText, priority }) => {
+      const projectId = requireProjectId(environment);
+      const backlogItem = reprioritizeBacklogItemForPlanning(context, {
+        backlogItemId: requireBacklogItem(context, projectId, backlogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        priority,
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = {
+        backlogItem: summarizeBacklogItem(backlogItem),
+      };
+
+      return {
+        content: [
+          {
+            text: `Reprioritized backlog item ${backlogItem.title} to priority ${backlogItem.priority}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "reorder_pending_backlog_items",
+    {
+      description:
+        "Reorder pending backlog items during planning without touching the active task or completed work.",
+      inputSchema: {
+        backlogItemIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .describe(
+            "Pending backlog items to move to the front of the pending queue, in the exact desired order.",
+          ),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the reorder action."),
+      },
+      outputSchema: {
+        backlogItems: z.array(
+          z.object({
+            id: z.string(),
+            priority: z.number(),
+            readiness: z.string(),
+            reviewMode: z.string(),
+            riskLevel: z.string(),
+            scopeSummary: z.string(),
+            status: z.string(),
+            title: z.string(),
+          }),
+        ),
+        projectId: z.string(),
+      },
+    },
+    async ({ backlogItemIds, noteText }) => {
+      const projectId = requireProjectId(environment);
+      const backlogItems = reorderPendingBacklogItems(context, {
+        backlogItemIds,
+        ...(noteText !== undefined ? { noteText } : {}),
+        projectId,
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = {
+        backlogItems: backlogItems.map((backlogItem) => summarizeBacklogItem(backlogItem)),
+        projectId,
+      };
+
+      return {
+        content: [
+          {
+            text: `Reordered ${backlogItemIds.length} pending backlog item(s) for project ${projectId}.`,
             type: "text",
           },
         ],

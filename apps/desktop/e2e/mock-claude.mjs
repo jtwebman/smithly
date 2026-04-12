@@ -109,6 +109,67 @@ reader.on("line", async (line) => {
     return;
   }
 
+  if (prompt.startsWith("reprioritize backlog:")) {
+    const [backlogItemId, priorityPart, notePart] = prompt
+      .slice("reprioritize backlog:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!backlogItemId || !priorityPart) {
+      console.log(
+        "claude error: reprioritize format is 'reprioritize backlog: backlog-id | priority | Optional note'",
+      );
+      return;
+    }
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        backlogItemId,
+        ...(notePart ? { noteText: notePart } : {}),
+        priority: Number(priorityPart),
+      },
+      name: "reprioritize_backlog_item",
+    });
+
+    console.log(`claude tool reprioritize_backlog_item: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
+  if (prompt.startsWith("reorder pending:")) {
+    const [idsPart, notePart] = prompt
+      .slice("reorder pending:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!idsPart) {
+      console.log(
+        "claude error: reorder format is 'reorder pending: backlog-a ; backlog-b | Optional note'",
+      );
+      return;
+    }
+
+    const backlogItemIds = idsPart
+      .split(";")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        backlogItemIds,
+        ...(notePart ? { noteText: notePart } : {}),
+      },
+      name: "reorder_pending_backlog_items",
+    });
+
+    console.log(`claude tool reorder_pending_backlog_items: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
   if (prompt.startsWith("hook approval:")) {
     const [title, detail, status = "pending"] = prompt
       .slice("hook approval:".length)

@@ -507,6 +507,85 @@ describe("smithly mcp server", () => {
     context.db.close();
   });
 
+  it("reprioritizes and reorders pending backlog items during project planning", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const firstPendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "First pending item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "First pending item",
+    });
+    const secondPendingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Second pending item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Second pending item",
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "project",
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.projectChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const reprioritizeResult = await client.callTool({
+      arguments: {
+        backlogItemId: firstPendingBacklogItem.id,
+        noteText: "Move this draft higher in the queue.",
+        priority: 88,
+      },
+      name: "reprioritize_backlog_item",
+    });
+    const reorderResult = await client.callTool({
+      arguments: {
+        backlogItemIds: [secondPendingBacklogItem.id, firstPendingBacklogItem.id],
+        noteText: "Put the second item first.",
+      },
+      name: "reorder_pending_backlog_items",
+    });
+
+    expect(reprioritizeResult.structuredContent).toMatchObject({
+      backlogItem: {
+        id: firstPendingBacklogItem.id,
+        priority: 88,
+        readiness: "not_ready",
+        status: "draft",
+        title: "First pending item",
+      },
+    });
+    expect(reorderResult.structuredContent).toMatchObject({
+      backlogItems: [
+        expect.objectContaining({
+          id: secondPendingBacklogItem.id,
+          status: "draft",
+        }),
+        expect.objectContaining({
+          id: firstPendingBacklogItem.id,
+          status: "draft",
+        }),
+      ],
+      projectId: fixture.project.id,
+    });
+    expect(
+      listBacklogItemsForProject(context, fixture.project.id)
+        .filter((backlogItem) => backlogItem.id !== fixture.backlogItem.id)
+        .map((backlogItem) => backlogItem.id),
+    ).toEqual([secondPendingBacklogItem.id, firstPendingBacklogItem.id]);
+
+    await close();
+    context.db.close();
+  });
+
   it("lists backlog items and claims a backlog item into a task run", async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
 
@@ -702,6 +781,45 @@ describe("smithly mcp server", () => {
       expect.arrayContaining([
         expect.objectContaining({
           text: expect.stringContaining("cannot start execution"),
+        }),
+      ]),
+    );
+
+    await close();
+    context.db.close();
+  });
+
+  it("rejects reordering the active backlog item", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "project",
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.projectChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const result = await client.callTool({
+      arguments: {
+        backlogItemIds: [fixture.backlogItem.id],
+      },
+      name: "reorder_pending_backlog_items",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("cannot be reordered"),
         }),
       ]),
     );
