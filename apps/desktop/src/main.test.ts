@@ -26,6 +26,7 @@ import { SmithlyMcpService } from "./mcp-service.ts";
 import {
   recoverOrphanedClaudeSessions,
   recoverProjectExecutionStates,
+  resolveDesktopDataDirectoryForEnvironment,
 } from "./main.ts";
 
 const temporaryDirectories: string[] = [];
@@ -302,6 +303,29 @@ describe("desktop bootstrap", () => {
     expect(resolveDesktopThemeMode("light", true)).toBe("light");
     expect(resolveDesktopThemeMode("system", true)).toBe("dark");
     expect(resolveDesktopThemeMode("system", false)).toBe("light");
+  });
+
+  it("requires an explicit test data directory in desktop test mode", () => {
+    expect(() => {
+      resolveDesktopDataDirectoryForEnvironment(
+        {
+          SMITHLY_TEST_MODE: "1",
+        },
+        "/real/smithly/data",
+      );
+    }).toThrow(
+      "SMITHLY_DATA_DIRECTORY is required in test mode so tests never touch the default Smithly data directory.",
+    );
+
+    expect(
+      resolveDesktopDataDirectoryForEnvironment(
+        {
+          SMITHLY_DATA_DIRECTORY: "/tmp/smithly-test-data",
+          SMITHLY_TEST_MODE: "1",
+        },
+        "/real/smithly/data",
+      ),
+    ).toBe("/tmp/smithly-test-data");
   });
 
   it("returns an empty selected project state when no projects are registered", () => {

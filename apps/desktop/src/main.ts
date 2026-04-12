@@ -474,13 +474,29 @@ function registerDesktopHandlers(context: IStorageContext): void {
 }
 
 function resolveDesktopDataDirectory(): string {
-  const environmentOverride = process.env.SMITHLY_DATA_DIRECTORY?.trim();
+  return resolveDesktopDataDirectoryForEnvironment(
+    process.env,
+    join(app.getPath("userData"), "data"),
+  );
+}
+
+export function resolveDesktopDataDirectoryForEnvironment(
+  environment: NodeJS.ProcessEnv,
+  fallbackDataDirectory: string,
+): string {
+  const environmentOverride = environment.SMITHLY_DATA_DIRECTORY?.trim();
 
   if (environmentOverride) {
     return environmentOverride;
   }
 
-  return join(app.getPath("userData"), "data");
+  if (environment.SMITHLY_TEST_MODE?.trim() === "1") {
+    throw new Error(
+      "SMITHLY_DATA_DIRECTORY is required in test mode so tests never touch the default Smithly data directory.",
+    );
+  }
+
+  return fallbackDataDirectory;
 }
 
 function resolveDesktopThemePreference(): "dark" | "light" | "system" {

@@ -45,6 +45,7 @@ function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light"
     SMITHLY_GH_ARGS_JSON: JSON.stringify([resolve("apps/desktop/e2e/mock-gh.mjs")]),
     SMITHLY_GH_COMMAND: process.execPath,
     SMITHLY_NODE_COMMAND: process.execPath,
+    SMITHLY_TEST_MODE: "1",
     ...(themePreference !== undefined ? { SMITHLY_THEME_PREFERENCE: themePreference } : {}),
   };
 }

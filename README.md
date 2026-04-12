@@ -52,9 +52,13 @@ npm run build
 npm run dev
 ```
 
-`npm run dev` builds the current workspace output and launches the desktop app.
+`npm run dev` builds the current workspace output and launches the desktop app with an isolated temporary `SMITHLY_DATA_DIRECTORY` so local development does not touch your default live Smithly state.
 
-By default, Smithly stores its runtime state in Electron's platform-native user data directory. Set `SMITHLY_DATA_DIRECTORY` to point at a different directory when you want an isolated workspace, a seeded demo run, or test-specific state.
+If you want to keep the data directory stable across a dev session, set `SMITHLY_DATA_DIRECTORY` explicitly before running `npm run dev`.
+
+Use `npm run dev:live` only when you intentionally want Smithly to use Electron's default platform-native user data directory.
+
+Outside that safe dev path, Smithly stores its runtime state in Electron's platform-native user data directory unless `SMITHLY_DATA_DIRECTORY` is set.
 
 ## Claude Code And Smithly MCP
 

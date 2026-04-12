@@ -8,6 +8,9 @@ export default defineConfig({
       include: ["apps/**/*.ts", "packages/**/*.ts"],
       reporter: ["text", "lcov"],
     },
+    env: {
+      SMITHLY_TEST_MODE: "1",
+    },
     include: ["apps/**/*.test.ts", "packages/**/*.test.ts"],
   },
 });
