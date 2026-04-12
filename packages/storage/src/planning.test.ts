@@ -129,24 +129,38 @@ describe("planning mutations", () => {
       }),
     });
     const fixture = seedInitialState(context);
+    const editableBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Editable planning item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Editable planning item",
+    });
+    const editableTaskPlanningThread = listChatThreadsForProject(context, fixture.project.id).find(
+      (thread) => {
+        return thread.kind === "task_planning" && thread.backlogItemId === editableBacklogItem.id;
+      },
+    );
 
     const revisedBacklogItem = reviseBacklogItemFromPlanning(context, {
       acceptanceCriteria: [
         "Project planning can create draft backlog items through MCP",
         "Task planning can revise acceptance criteria through MCP",
       ],
-      backlogItemId: fixture.backlogItem.id,
+      backlogItemId: editableBacklogItem.id,
       noteText: "Keep the first write path scoped to backlog metadata only.",
       priority: 95,
       readiness: "ready",
       reviewMode: "ai",
       riskLevel: "high",
       scopeSummary: "Use MCP-backed planning actions for backlog creation and revision.",
-      sourceThreadId: fixture.taskChatThread.id,
+      sourceThreadId: editableTaskPlanningThread?.id ?? fixture.taskChatThread.id,
       status: "approved",
     });
-    const storedBacklogItem = getBacklogItemById(context, fixture.backlogItem.id);
-    const taskPlanningMessages = listChatMessagesForThread(context, fixture.taskChatThread.id);
+    const storedBacklogItem = getBacklogItemById(context, editableBacklogItem.id);
+    const taskPlanningMessages = listChatMessagesForThread(
+      context,
+      editableTaskPlanningThread?.id ?? fixture.taskChatThread.id,
+    );
 
     expect(revisedBacklogItem.scopeSummary).toBe(
       "Use MCP-backed planning actions for backlog creation and revision.",
@@ -170,6 +184,34 @@ describe("planning mutations", () => {
         return message.bodyText === "Keep the first write path scoped to backlog metadata only.";
       }),
     ).toBe(true);
+
+    closeContext(context);
+  });
+
+  it("blocks planning from silently mutating an active backlog item's scope", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+
+    expect(() =>
+      reviseBacklogItemFromPlanning(context, {
+        acceptanceCriteria: [
+          "Do not silently mutate the active task scope.",
+          "Create a follow-up task instead.",
+        ],
+        backlogItemId: fixture.backlogItem.id,
+        scopeSummary: "Rewrite the active task while Codex is already running.",
+        sourceThreadId: fixture.taskChatThread.id,
+        status: "approved",
+      }),
+    ).toThrow("Pause and replan");
 
     closeContext(context);
   });

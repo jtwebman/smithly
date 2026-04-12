@@ -14,6 +14,7 @@ import {
   listBacklogDependencyLinksForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
+  listChatThreadsForProject,
   listMemoryNotesForProject,
   listProjects,
   listReviewRunsForTask,
@@ -456,12 +457,21 @@ describe("smithly mcp server", () => {
       }),
     });
     const fixture = seedInitialState(context);
+    const editableBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Editable backlog item for task planning.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Editable task planning item",
+    });
     const server = createSmithlyMcpServer(context, {
       attachScope: "backlog_item",
-      backlogItemId: fixture.backlogItem.id,
+      backlogItemId: editableBacklogItem.id,
       dataDirectory,
       projectId: fixture.project.id,
-      threadId: fixture.taskChatThread.id,
+      threadId:
+        listChatThreadsForProject(context, fixture.project.id).find((thread) => {
+          return thread.kind === "task_planning" && thread.backlogItemId === editableBacklogItem.id;
+        })?.id ?? fixture.taskChatThread.id,
     });
     const { client, close } = await connectClient(server);
 
@@ -495,14 +505,56 @@ describe("smithly mcp server", () => {
     );
     expect(reviseResult.structuredContent).toMatchObject({
       acceptanceCriteriaCount: 2,
-      backlogItemId: fixture.backlogItem.id,
+      backlogItemId: editableBacklogItem.id,
       priority: 95,
       readiness: "ready",
       reviewMode: "ai",
       riskLevel: "high",
       status: "approved",
-      title: "Bootstrap the desktop shell",
+      title: "Editable task planning item",
     });
+
+    await close();
+    context.db.close();
+  });
+
+  it("rejects revising the active backlog item through task planning", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
+      backlogItemId: fixture.backlogItem.id,
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.taskChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const result = await client.callTool({
+      arguments: {
+        acceptanceCriteria: ["Try to mutate the active task."],
+        scopeSummary: "Mutate the active task from planning.",
+        status: "approved",
+      },
+      name: "revise_backlog_item",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("Pause and replan"),
+        }),
+      ]),
+    );
 
     await close();
     context.db.close();

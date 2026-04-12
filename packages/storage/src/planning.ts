@@ -201,6 +201,9 @@ export function reviseBacklogItemFromPlanning(
   const normalizedAcceptanceCriteria = input.acceptanceCriteria
     .map((criterion) => criterion.trim())
     .filter((criterion) => criterion.length > 0);
+
+  assertActiveTaskScopeIsStable(context, backlogItem, input, normalizedAcceptanceCriteria);
+
   const revisedBacklogItem: IBacklogItemRecord = {
     ...backlogItem,
     acceptanceCriteriaJson: JSON.stringify(normalizedAcceptanceCriteria),
@@ -782,6 +785,58 @@ function findDuplicateIds(ids: readonly string[]): string[] {
   }
 
   return [...duplicateIds];
+}
+
+function assertActiveTaskScopeIsStable(
+  context: IContext,
+  backlogItem: IBacklogItemRecord,
+  input: IReviseBacklogItemInput,
+  normalizedAcceptanceCriteria: readonly string[],
+): void {
+  if (!hasActiveTaskRunForBacklogItem(context, backlogItem.projectId, backlogItem.id)) {
+    return;
+  }
+
+  const acceptanceCriteriaChanged =
+    backlogItem.acceptanceCriteriaJson !== JSON.stringify(normalizedAcceptanceCriteria);
+  const scopeChanged = (backlogItem.scopeSummary ?? "") !== input.scopeSummary;
+  const priorityChanged =
+    input.priority !== undefined && backlogItem.priority !== input.priority;
+  const readinessChanged =
+    input.readiness !== undefined && backlogItem.readiness !== input.readiness;
+  const reviewModeChanged =
+    input.reviewMode !== undefined && backlogItem.reviewMode !== input.reviewMode;
+  const riskLevelChanged =
+    input.riskLevel !== undefined && backlogItem.riskLevel !== input.riskLevel;
+  const statusChanged = input.status !== undefined && backlogItem.status !== input.status;
+
+  if (
+    !acceptanceCriteriaChanged &&
+    !scopeChanged &&
+    !priorityChanged &&
+    !readinessChanged &&
+    !reviewModeChanged &&
+    !riskLevelChanged &&
+    !statusChanged
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `Backlog item ${backlogItem.id} is actively running. Pause and replan it or create a follow-up task instead of silently mutating the active scope.`,
+  );
+}
+
+function hasActiveTaskRunForBacklogItem(
+  context: IContext,
+  projectId: string,
+  backlogItemId: string,
+): boolean {
+  return listTaskRunsForProject(context, projectId).some((taskRun) => {
+    return (
+      taskRun.backlogItemId === backlogItemId && ACTIVE_TASK_RUN_STATUSES.has(taskRun.status)
+    );
+  });
 }
 
 function assertBacklogItemReadyForExecution(

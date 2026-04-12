@@ -8,6 +8,7 @@ import { _electron as electron } from "playwright";
 import { createConfig } from "@smithly/core";
 import {
   createContext,
+  createDraftBacklogItemFromPlanning,
   createInitialSeedFixture,
   registerLocalProject,
   seedInitialState,
@@ -708,15 +709,36 @@ test("operator can switch to task planning and attach a task-scoped Claude sessi
 });
 
 test("task planning can revise the focused backlog item through Smithly MCP", async () => {
-  const { dataDirectory, electronApp, window } = await launchDesktop({
-    seedInitialState: true,
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-task-planning-editable-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  createDraftBacklogItemFromPlanning(context, {
+    projectId: fixture.project.id,
+    scopeSummary: "Editable task planning item.",
+    sourceThreadId: fixture.projectChatThread.id,
+    title: "Editable task planning item",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
     themePreference: "dark",
   });
 
   try {
     await window.locator("#project-list .project-card button[data-project-id]").first().click();
     await window.locator("#show-orchestration-button").click();
-    await window.locator("#backlog-list .list-card button").first().click();
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Editable task planning item" })
+      .getByRole("button", { name: "Focus" })
+      .click();
     await window.locator("#task-planning-button").click();
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "mock claude ready for task planning",
@@ -727,7 +749,7 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
     );
     await window.keyboard.press("Enter");
 
-    await expect(window.locator("#selected-backlog-scope")).toHaveText(
+    await expect(window.locator("#selected-backlog-scope")).toContainText(
       "Use Smithly MCP-backed planning actions for backlog updates.",
     );
     await expect(window.locator("#selected-backlog-status")).toHaveText("approved");
@@ -742,6 +764,36 @@ test("task planning can revise the focused backlog item through Smithly MCP", as
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "claude tool revise_backlog_item",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("task planning blocks scope changes for the active backlog item", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Bootstrap the desktop shell" })
+      .getByRole("button", { name: "Open Task Chat" })
+      .click();
+    await expect(window.locator("#planning-title")).toHaveText("Task planning");
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "revise task: Mutate the active task. | Change the scope while Codex is already running. |  | approved",
+    );
+    await window.keyboard.press("Enter");
+
+    await expect(window.locator("#terminal .xterm-rows")).toContainText("Pause and replan");
+    await expect(window.locator("#selected-backlog-scope")).toHaveText(
+      "Create the first desktop shell and show one managed project.",
     );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
