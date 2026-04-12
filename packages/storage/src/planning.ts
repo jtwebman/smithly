@@ -42,6 +42,12 @@ export interface ICreateDraftBacklogItemInput {
   readonly scopeSummary: string;
 }
 
+export interface IRemovePendingBacklogItemInput {
+  readonly backlogItemId: string;
+  readonly noteText?: string;
+  readonly sourceThreadId?: string;
+}
+
 export interface IReviseBacklogItemInput {
   readonly backlogItemId: string;
   readonly scopeSummary: string;
@@ -133,8 +139,10 @@ export function createDraftBacklogItemFromPlanning(
 ): IBacklogItemRecord {
   const sourceThread = requireThreadById(context, input.projectId, input.sourceThreadId);
 
-  if (sourceThread.kind !== "project_planning") {
-    throw new Error("Draft backlog items can only be created from a project planning thread.");
+  if (!["project_planning", "task_planning"].includes(sourceThread.kind)) {
+    throw new Error(
+      "Draft backlog items can only be created from a project or task planning thread.",
+    );
   }
 
   const timestamp = new Date().toISOString();
@@ -190,6 +198,41 @@ export function createDraftBacklogItemFromPlanning(
   });
 
   return backlogItem;
+}
+
+export function removePendingBacklogItemFromPlanning(
+  context: IContext,
+  input: IRemovePendingBacklogItemInput,
+): IBacklogItemRecord {
+  const backlogItem = requireBacklogItem(context, input.backlogItemId);
+
+  if (
+    !PLANNING_REORDERABLE_BACKLOG_STATUSES.has(backlogItem.status) ||
+    hasActiveTaskRunForBacklogItem(context, backlogItem.projectId, backlogItem.id)
+  ) {
+    throw new Error(
+      `Backlog item ${backlogItem.id} cannot be removed because it is active or completed.`,
+    );
+  }
+
+  const timestamp = new Date().toISOString();
+  const removedBacklogItem: IBacklogItemRecord = {
+    ...backlogItem,
+    status: "cancelled",
+    updatedAt: timestamp,
+  };
+
+  upsertBacklogItem(context, removedBacklogItem);
+  recordPlanningMutation(
+    context,
+    backlogItem.projectId,
+    input.sourceThreadId,
+    `Removed pending backlog item "${backlogItem.title}" from the active planning set.`,
+    input.noteText,
+    timestamp,
+  );
+
+  return removedBacklogItem;
 }
 
 export function reviseBacklogItemFromPlanning(

@@ -800,6 +800,94 @@ test("task planning blocks scope changes for the active backlog item", async () 
   }
 });
 
+test("task planning can add, reorder, and remove related pending tasks", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-task-planning-related-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Existing related draft exists"]),
+    createdAt: "2026-04-10T07:10:00.000Z",
+    id: "backlog-existing-related-draft",
+    priority: 40,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Existing related draft for task planning reorder coverage.",
+    status: "draft",
+    title: "Existing related draft",
+    updatedAt: "2026-04-10T07:10:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Removable related draft exists"]),
+    createdAt: "2026-04-10T07:15:00.000Z",
+    id: "backlog-removable-related-draft",
+    priority: 30,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "ai",
+    riskLevel: "medium",
+    scopeSummary: "Removable related draft for task planning coverage.",
+    status: "draft",
+    title: "Removable related draft",
+    updatedAt: "2026-04-10T07:15:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Bootstrap the desktop shell" })
+      .getByRole("button", { name: "Open Task Chat" })
+      .click();
+    await expect(window.locator("#planning-title")).toHaveText("Task planning");
+    await window.locator("#terminal .xterm-screen").click();
+
+    await window.keyboard.type(
+      "create draft: New related draft | Follow-up work created from the focused task chat.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool create_draft_backlog_item",
+    );
+    await expect(window.locator("#backlog-list")).toContainText("New related draft");
+
+    await window.keyboard.type(
+      "reorder pending: backlog-existing-related-draft ; backlog-removable-related-draft | Put the existing related draft first.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool reorder_pending_backlog_items",
+    );
+
+    await window.keyboard.type(
+      "remove backlog: backlog-removable-related-draft | This draft is no longer needed.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool remove_pending_backlog_item",
+    );
+
+    await expect(window.locator("#backlog-list")).toContainText("Existing related draft");
+    await expect(window.locator("#backlog-list")).not.toContainText("Removable related draft");
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("operator can keep multiple Claude panes open and switch between them", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,

@@ -25,6 +25,7 @@ import {
   ensureProjectPlanningThread,
   finalizeBootstrapProject,
   getBootstrapMvpPlan,
+  removePendingBacklogItemFromPlanning,
   removeBacklogDependency,
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
@@ -114,6 +115,38 @@ describe("planning mutations", () => {
     expect(createdBacklogItem.title).toBe("Add Smithly MCP draft backlog creation");
     expect(taskPlanningThread?.kind).toBe("task_planning");
     expect(projectPlanningMessages.at(-1)?.bodyText).toContain("Created draft backlog item");
+
+    closeContext(context);
+  });
+
+  it("creates a draft backlog item from a task planning thread", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Split follow-up work from the current task planning chat.",
+      sourceThreadId: fixture.taskChatThread.id,
+      title: "Task planning split draft",
+    });
+
+    expect(createdBacklogItem.status).toBe("draft");
+    expect(listBacklogItemsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: createdBacklogItem.id,
+          title: "Task planning split draft",
+        }),
+      ]),
+    );
 
     closeContext(context);
   });
@@ -489,6 +522,41 @@ describe("planning mutations", () => {
       }),
     ).toBe(true);
     expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([]);
+
+    closeContext(context);
+  });
+
+  it("removes a pending backlog item from task planning without touching active work", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const removableBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Draft that will be removed from planning.",
+      sourceThreadId: fixture.taskChatThread.id,
+      title: "Remove me from planning",
+    });
+
+    const removedBacklogItem = removePendingBacklogItemFromPlanning(context, {
+      backlogItemId: removableBacklogItem.id,
+      noteText: "This split draft is no longer needed.",
+      sourceThreadId: fixture.taskChatThread.id,
+    });
+
+    expect(removedBacklogItem.status).toBe("cancelled");
+    expect(getBacklogItemById(context, removableBacklogItem.id)?.status).toBe("cancelled");
+    expect(() =>
+      removePendingBacklogItemFromPlanning(context, {
+        backlogItemId: fixture.backlogItem.id,
+      }),
+    ).toThrow("cannot be removed");
 
     closeContext(context);
   });

@@ -36,6 +36,7 @@ import {
   listWorkerSessionsForProject,
   parseProjectMetadata,
   registerLocalProject,
+  removePendingBacklogItemFromPlanning,
   removeBacklogDependency,
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
@@ -722,6 +723,54 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: `Created draft backlog item ${createdBacklogItem.title} (${createdBacklogItem.id}).`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "remove_pending_backlog_item",
+    {
+      description:
+        "Remove a pending backlog item from active planning without mutating active or completed work.",
+      inputSchema: {
+        backlogItemId: z.string().describe("Pending backlog item to remove from the backlog."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the removal."),
+      },
+      outputSchema: {
+        backlogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          readiness: z.string(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          scopeSummary: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+      },
+    },
+    async ({ backlogItemId, noteText }) => {
+      const projectId = requireProjectId(environment);
+      const backlogItem = removePendingBacklogItemFromPlanning(context, {
+        backlogItemId: requireBacklogItem(context, projectId, backlogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = {
+        backlogItem: summarizeBacklogItem(backlogItem),
+      };
+
+      return {
+        content: [
+          {
+            text: `Removed pending backlog item ${backlogItem.title} from the active planning set.`,
             type: "text",
           },
         ],

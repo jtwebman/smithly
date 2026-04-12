@@ -446,6 +446,59 @@ describe("smithly mcp server", () => {
     context.db.close();
   });
 
+  it("creates and removes related backlog drafts from task planning", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
+      backlogItemId: fixture.backlogItem.id,
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.taskChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const createResult = await client.callTool({
+      arguments: {
+        scopeSummary: "Create a follow-up from the focused task planning chat.",
+        title: "Task planning follow-up draft",
+      },
+      name: "create_draft_backlog_item",
+    });
+    const createdBacklogItemId = (createResult.structuredContent as { backlogItemId: string })
+      .backlogItemId;
+    const removeResult = await client.callTool({
+      arguments: {
+        backlogItemId: createdBacklogItemId,
+        noteText: "Drop this follow-up draft from the task planning session.",
+      },
+      name: "remove_pending_backlog_item",
+    });
+
+    expect(createResult.structuredContent).toMatchObject({
+      status: "draft",
+      title: "Task planning follow-up draft",
+    });
+    expect(removeResult.structuredContent).toMatchObject({
+      backlogItem: {
+        id: createdBacklogItemId,
+        status: "cancelled",
+        title: "Task planning follow-up draft",
+      },
+    });
+
+    await close();
+    context.db.close();
+  });
+
   it("revises the focused backlog item and exposes project resources", async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
 

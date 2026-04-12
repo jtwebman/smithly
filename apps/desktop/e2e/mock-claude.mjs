@@ -64,6 +64,34 @@ reader.on("line", async (line) => {
     return;
   }
 
+  if (prompt.startsWith("remove backlog:")) {
+    const [backlogItemId, notePart] = prompt
+      .slice("remove backlog:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!backlogItemId) {
+      console.log(
+        "claude error: remove backlog format is 'remove backlog: backlog-id | Optional note'",
+      );
+      return;
+    }
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        backlogItemId,
+        ...(notePart ? { noteText: notePart } : {}),
+      },
+      name: "remove_pending_backlog_item",
+    });
+
+    console.log(`claude tool remove_pending_backlog_item: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
   if (prompt.startsWith("revise task:")) {
     const [
       scopeSummary,
