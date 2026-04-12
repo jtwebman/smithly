@@ -46,6 +46,7 @@ interface DesktopStatus {
   readonly appVersion: string;
   readonly bootstrapSession?: DesktopBootstrapSession;
   readonly dataDirectory: string;
+  readonly dashboardDigest: DesktopDashboardDigest;
   readonly projectCount: number;
   readonly resolvedThemeMode: "dark" | "light";
   readonly selectedBacklogItemId?: string;
@@ -69,6 +70,34 @@ interface DesktopStatus {
     readonly selectedBacklogItemId?: string;
     readonly selectedBacklogItem?: DesktopBacklogDetail;
   };
+}
+
+interface DesktopDashboardDigestSummary {
+  readonly activeProjects: number;
+  readonly archivedProjects: number;
+  readonly pausedProjects: number;
+  readonly readyProjects: number;
+  readonly runningTasks: number;
+  readonly waitingProjects: number;
+}
+
+interface DesktopDashboardDigestItem {
+  readonly id: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly status: string;
+  readonly timestamp: string;
+}
+
+interface DesktopDashboardDigest {
+  readonly summary: DesktopDashboardDigestSummary;
+  readonly changed: readonly DesktopDashboardDigestItem[];
+  readonly waiting: readonly DesktopDashboardDigestItem[];
+  readonly running: readonly DesktopDashboardDigestItem[];
+  readonly next: readonly DesktopDashboardDigestItem[];
+  readonly aiProposed: readonly DesktopDashboardDigestItem[];
 }
 
 interface DesktopListItem {
@@ -281,6 +310,7 @@ const appVersionNode = document.getElementById("app-version");
 const themeNode = document.getElementById("theme-mode");
 const dataDirectoryNode = document.getElementById("data-directory");
 const projectCountNode = document.getElementById("project-count");
+const dashboardDigestNode = document.getElementById("dashboard-digest");
 const projectListNode = document.getElementById("project-list");
 const projectWorkspaceNode = document.getElementById("project-workspace");
 const projectWorkspaceTitleNode = document.getElementById("project-workspace-title");
@@ -539,6 +569,115 @@ function renderProjects(status: DesktopStatus): void {
     });
     projectListNode.append(article);
   }
+}
+
+function renderDashboardDigest(status: DesktopStatus): void {
+  if (dashboardDigestNode === null) {
+    return;
+  }
+
+  if (status.projectCount === 0) {
+    dashboardDigestNode.innerHTML =
+      '<p class="empty-state">Register a project to see cross-project operator digests.</p>';
+    return;
+  }
+
+  const sections: Array<{
+    readonly description: string;
+    readonly id: string;
+    readonly items: readonly DesktopDashboardDigestItem[];
+    readonly title: string;
+  }> = [
+    {
+      description: "Recent changes across all managed projects.",
+      id: "changed",
+      items: status.dashboardDigest.changed,
+      title: "What Changed",
+    },
+    {
+      description: "Projects blocked on approvals, dependencies, or credits.",
+      id: "waiting",
+      items: status.dashboardDigest.waiting,
+      title: "Waiting",
+    },
+    {
+      description: "Projects currently executing hidden work.",
+      id: "running",
+      items: status.dashboardDigest.running,
+      title: "Running",
+    },
+    {
+      description: "The next runnable approved work across projects.",
+      id: "next",
+      items: status.dashboardDigest.next,
+      title: "Next",
+    },
+    {
+      description: "Draft work and approvals currently proposed by AI.",
+      id: "ai-proposed",
+      items: status.dashboardDigest.aiProposed,
+      title: "AI Proposed",
+    },
+  ];
+
+  dashboardDigestNode.innerHTML = `
+    <div id="dashboard-digest-summary" class="dashboard-digest__summary">
+      ${renderDashboardDigestMetric("Active Projects", status.dashboardDigest.summary.activeProjects)}
+      ${renderDashboardDigestMetric("Waiting Projects", status.dashboardDigest.summary.waitingProjects)}
+      ${renderDashboardDigestMetric("Running Tasks", status.dashboardDigest.summary.runningTasks)}
+      ${renderDashboardDigestMetric("Ready Projects", status.dashboardDigest.summary.readyProjects)}
+      ${renderDashboardDigestMetric("Paused Projects", status.dashboardDigest.summary.pausedProjects)}
+      ${renderDashboardDigestMetric("Archived Projects", status.dashboardDigest.summary.archivedProjects)}
+    </div>
+    <div class="dashboard-digest__sections">
+      ${sections
+        .map((section) => {
+          return `
+            <section id="dashboard-digest-${section.id}" class="dashboard-digest__section">
+              <header>
+                <h3>${escapeHtml(section.title)}</h3>
+                <p>${escapeHtml(section.description)}</p>
+              </header>
+              <div class="dashboard-digest__items">
+                ${renderDashboardDigestItems(section.items)}
+              </div>
+            </section>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDashboardDigestMetric(label: string, value: number): string {
+  return `
+    <dl class="dashboard-digest__metric">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${value}</dd>
+    </dl>
+  `;
+}
+
+function renderDashboardDigestItems(items: readonly DesktopDashboardDigestItem[]): string {
+  if (items.length === 0) {
+    return '<p class="empty-state">Nothing to report right now.</p>';
+  }
+
+  return items
+    .map((item) => {
+      return `
+        <article class="list-card" data-dashboard-digest-item="${escapeHtml(item.id)}">
+          <div class="dashboard-digest__item-header">
+            <strong>${escapeHtml(item.title)}</strong>
+            <span class="list-status">${escapeHtml(item.status)}</span>
+          </div>
+          <p class="dashboard-digest__item-project">${escapeHtml(item.projectName)}</p>
+          <p>${escapeHtml(item.detail)}</p>
+          <time>${escapeHtml(item.timestamp)}</time>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function createSessionPaneKey(scope: PlanningScope, backlogItemId?: string): SessionPaneKey {
@@ -1677,6 +1816,7 @@ function renderDesktopStatus(status: DesktopStatus): void {
   setNodeText(themeNode, `${status.themePreference} -> ${status.resolvedThemeMode}`);
   setNodeText(dataDirectoryNode, status.dataDirectory);
   setNodeText(projectCountNode, String(status.projectCount));
+  renderDashboardDigest(status);
   renderProjects(status);
   renderWorkspaceVisibility(status);
   renderSelectedProject(status);

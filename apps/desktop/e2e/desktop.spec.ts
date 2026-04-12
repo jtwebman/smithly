@@ -418,6 +418,99 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
   }
 });
 
+test("dashboard shows cross-project operator digest views", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-dashboard-digest-"));
+  const readyRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-dashboard-ready-"));
+  const proposedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-dashboard-proposed-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  mkdirSync(join(readyRepoDirectory, ".git"));
+  mkdirSync(join(proposedRepoDirectory, ".git"));
+  seedInitialState(context, fixture);
+  const readyProject = registerLocalProject(context, {
+    name: "Project Ready",
+    repoPath: readyRepoDirectory,
+  });
+  const proposedProject = registerLocalProject(context, {
+    name: "Project Proposed",
+    repoPath: proposedRepoDirectory,
+  });
+
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Ready project has runnable work"]),
+    createdAt: "2026-04-10T08:00:00.000Z",
+    id: "backlog-ready-digest",
+    priority: 88,
+    projectId: readyProject.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Ready project should appear in the next-up digest.",
+    status: "approved",
+    title: "Ship the ready project task",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Draft proposal exists"]),
+    createdAt: "2026-04-10T09:00:00.000Z",
+    id: "backlog-ai-proposal-digest",
+    priority: 44,
+    projectId: proposedProject.id,
+    readiness: "not_ready",
+    reviewMode: "ai",
+    riskLevel: "low",
+    scopeSummary: "Draft proposal for the AI proposed digest view.",
+    status: "draft",
+    title: "Draft AI follow-up",
+    updatedAt: "2026-04-10T09:00:00.000Z",
+  });
+  upsertApproval(context, {
+    createdAt: "2026-04-10T09:05:00.000Z",
+    detail: "Approve the AI proposed follow-up.",
+    id: "approval-ai-proposal-digest",
+    projectId: proposedProject.id,
+    requestedBy: "claude",
+    status: "pending",
+    title: "Approve proposed follow-up",
+    updatedAt: "2026-04-10T09:05:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await expect(window.locator("#dashboard-digest-summary")).toContainText("Active Projects");
+    await expect(window.locator("#dashboard-digest-summary")).toContainText("Waiting Projects");
+    await expect(window.locator("#dashboard-digest-summary")).toContainText("Running Tasks");
+    await expect(window.locator("#dashboard-digest-changed")).toContainText(
+      "Approve proposed follow-up",
+    );
+    await expect(window.locator("#dashboard-digest-waiting")).toContainText("Project Proposed");
+    await expect(window.locator("#dashboard-digest-running")).toContainText("Smithly");
+    await expect(window.locator("#dashboard-digest-next")).toContainText(
+      "Ship the ready project task",
+    );
+    await expect(window.locator("#dashboard-digest-ai-proposed")).toContainText(
+      "Draft AI follow-up",
+    );
+    await expect(window.locator("#dashboard-digest-ai-proposed")).toContainText(
+      "Approve proposed follow-up",
+    );
+  } finally {
+    rmSync(readyRepoDirectory, { force: true, recursive: true });
+    rmSync(proposedRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("project editor can manage backlog-generation loops", async () => {
   const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-loops-"));
   mkdirSync(join(localRepoDirectory, ".git"));

@@ -44,10 +44,39 @@ export interface IDesktopProjectSummary {
   readonly backlogCount: number;
 }
 
+export interface IDesktopDashboardDigestSummary {
+  readonly activeProjects: number;
+  readonly archivedProjects: number;
+  readonly pausedProjects: number;
+  readonly readyProjects: number;
+  readonly runningTasks: number;
+  readonly waitingProjects: number;
+}
+
+export interface IDesktopDashboardDigestItem {
+  readonly id: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly status: string;
+  readonly timestamp: string;
+}
+
+export interface IDesktopDashboardDigest {
+  readonly summary: IDesktopDashboardDigestSummary;
+  readonly changed: readonly IDesktopDashboardDigestItem[];
+  readonly waiting: readonly IDesktopDashboardDigestItem[];
+  readonly running: readonly IDesktopDashboardDigestItem[];
+  readonly next: readonly IDesktopDashboardDigestItem[];
+  readonly aiProposed: readonly IDesktopDashboardDigestItem[];
+}
+
 export interface IDesktopStatus {
   readonly appVersion: string;
   readonly bootstrapSession?: IBootstrapSessionSnapshot;
   readonly dataDirectory: string;
+  readonly dashboardDigest: IDesktopDashboardDigest;
   readonly projectCount: number;
   readonly resolvedThemeMode: ThemeMode;
   readonly selectedBacklogItemId?: string;
@@ -157,7 +186,8 @@ export function buildDesktopStatus(
   selectedBacklogItemId?: string,
   bootstrapSession?: IBootstrapSessionSnapshot,
 ): IDesktopStatus {
-  const projects = listProjects(context).map((project) => {
+  const projectRecords = listProjects(context);
+  const projects = projectRecords.map((project) => {
     const metadata = parseProjectMetadata(project);
     const effectiveExecutionState = resolveProjectExecutionState(context, project.id);
     const activeTaskCount = listTaskRunsForProject(context, project.id).filter((taskRun) =>
@@ -206,6 +236,7 @@ export function buildDesktopStatus(
     appVersion: packageJson.version,
     ...(bootstrapSession !== undefined ? { bootstrapSession } : {}),
     dataDirectory: context.config.storage.dataDirectory,
+    dashboardDigest: buildDashboardDigest(context, projects),
     projectCount: projects.length,
     projects,
     resolvedThemeMode,
@@ -218,6 +249,260 @@ export function buildDesktopStatus(
       : {}),
     themePreference: context.config.ui.themePreference,
   };
+}
+
+function buildDashboardDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): IDesktopDashboardDigest {
+  return {
+    aiProposed: buildAiProposedDigest(context, projects),
+    changed: buildChangedDigest(context, projects),
+    next: buildNextDigest(context, projects),
+    running: buildRunningDigest(context, projects),
+    summary: {
+      activeProjects: projects.filter((project) => project.status === "active").length,
+      archivedProjects: projects.filter((project) => project.status === "archived").length,
+      pausedProjects: projects.filter((project) => project.status === "paused").length,
+      readyProjects: projects.filter((project) => project.mode === "ready to execute").length,
+      runningTasks: projects.reduce((total, project) => total + project.activeTaskCount, 0),
+      waitingProjects: projects.filter((project) =>
+        ["blocked on human", "blocked on external dependency", "waiting for credit"].includes(
+          project.mode,
+        ),
+      ).length,
+    },
+    waiting: buildWaitingDigest(context, projects),
+  };
+}
+
+function buildChangedDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): readonly IDesktopDashboardDigestItem[] {
+  return sortDashboardDigestItems(
+    projects.flatMap((project) => {
+      return [
+        ...listBacklogItemsForProject(context, project.id).map((backlogItem) => ({
+          detail: `${project.name} backlog is ${backlogItem.status}`,
+          id: `backlog-${backlogItem.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: backlogItem.status,
+          timestamp: backlogItem.updatedAt,
+          title: backlogItem.title,
+        })),
+        ...listTaskRunsForProject(context, project.id).map((taskRun) => ({
+          detail: `${project.name} ${taskRun.assignedWorker} task is ${taskRun.status}`,
+          id: `task-${taskRun.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: taskRun.status,
+          timestamp: taskRun.updatedAt,
+          title: taskRun.summaryText ?? taskRun.id,
+        })),
+        ...listApprovalsForProject(context, project.id).map((approval) => ({
+          detail: `${project.name} approval requested by ${approval.requestedBy}`,
+          id: `approval-${approval.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: approval.status,
+          timestamp: approval.updatedAt,
+          title: approval.title,
+        })),
+        ...listBlockersForProject(context, project.id).map((blocker) => ({
+          detail: `${project.name} blocker: ${blocker.detail}`,
+          id: `blocker-${blocker.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: blocker.status,
+          timestamp: blocker.updatedAt,
+          title: blocker.title,
+        })),
+        ...listMemoryNotesForProject(context, project.id).map((note) => ({
+          detail: `${project.name} ${note.noteType}`,
+          id: `memory-${note.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: note.noteType,
+          timestamp: note.updatedAt,
+          title: note.title,
+        })),
+      ] satisfies readonly IDesktopDashboardDigestItem[];
+    }),
+  ).slice(0, 8);
+}
+
+function buildWaitingDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): readonly IDesktopDashboardDigestItem[] {
+  return sortDashboardDigestItems(
+    projects.flatMap((project) => {
+      if (
+        !["blocked on human", "blocked on external dependency", "waiting for credit"].includes(
+          project.mode,
+        )
+      ) {
+        return [];
+      }
+
+      const pendingApprovals = listApprovalsForProject(context, project.id).filter((approval) => {
+        return approval.status === "pending";
+      });
+      const openBlockers = listBlockersForProject(context, project.id).filter((blocker) => {
+        return blocker.status === "open";
+      });
+
+      return [
+        {
+          detail: `${pendingApprovals.length} pending approvals | ${openBlockers.length} open blockers`,
+          id: `waiting-${project.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: project.mode,
+          timestamp: latestTimestamp([
+            ...pendingApprovals.map((approval) => approval.updatedAt),
+            ...openBlockers.map((blocker) => blocker.updatedAt),
+          ]),
+          title: project.name,
+        },
+      ] satisfies readonly IDesktopDashboardDigestItem[];
+    }),
+  );
+}
+
+function buildRunningDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): readonly IDesktopDashboardDigestItem[] {
+  return sortDashboardDigestItems(
+    projects.flatMap((project) => {
+      if (project.activeTaskCount === 0 && project.activeSessionCount === 0) {
+        return [];
+      }
+
+      const activeTaskRuns = listTaskRunsForProject(context, project.id).filter((taskRun) => {
+        return ["queued", "running", "awaiting_review"].includes(taskRun.status);
+      });
+      const activeSessions = listWorkerSessionsForProject(context, project.id).filter((session) => {
+        return ["starting", "running", "waiting"].includes(session.status);
+      });
+
+      return [
+        {
+          detail: `${activeTaskRuns.length} active tasks | ${activeSessions.length} active sessions`,
+          id: `running-${project.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: project.mode,
+          timestamp: latestTimestamp([
+            ...activeTaskRuns.map((taskRun) => taskRun.updatedAt),
+            ...activeSessions.map((session) => session.updatedAt),
+          ]),
+          title: project.name,
+        },
+      ] satisfies readonly IDesktopDashboardDigestItem[];
+    }),
+  );
+}
+
+function buildNextDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): readonly IDesktopDashboardDigestItem[] {
+  return sortDashboardDigestItems(
+    projects.flatMap((project) => {
+      if (project.status === "archived") {
+        return [];
+      }
+
+      const nextBacklogItem = selectNextRunnableBacklogItemForProject(context, project.id);
+
+      if (nextBacklogItem === null) {
+        return [];
+      }
+
+      return [
+        {
+          detail: `${project.name} priority ${nextBacklogItem.priority} | ${nextBacklogItem.reviewMode} review`,
+          id: `next-${nextBacklogItem.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: nextBacklogItem.status,
+          timestamp: nextBacklogItem.updatedAt,
+          title: nextBacklogItem.title,
+        },
+      ] satisfies readonly IDesktopDashboardDigestItem[];
+    }),
+  );
+}
+
+function buildAiProposedDigest(
+  context: IStorageContext,
+  projects: readonly IDesktopProjectSummary[],
+): readonly IDesktopDashboardDigestItem[] {
+  return sortDashboardDigestItems(
+    projects.flatMap((project) => {
+      const draftBacklogItems = listBacklogItemsForProject(context, project.id).filter((backlogItem) => {
+        return backlogItem.status === "draft";
+      });
+      const pendingAiApprovals = listApprovalsForProject(context, project.id).filter((approval) => {
+        return approval.status === "pending" && ["claude", "codex"].includes(approval.requestedBy);
+      });
+
+      return [
+        ...draftBacklogItems.map((backlogItem) => ({
+          detail: `${project.name} draft backlog proposal`,
+          id: `proposal-backlog-${backlogItem.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: backlogItem.reviewMode,
+          timestamp: backlogItem.updatedAt,
+          title: backlogItem.title,
+        })),
+        ...pendingAiApprovals.map((approval) => ({
+          detail: `${project.name} approval requested by ${approval.requestedBy}`,
+          id: `proposal-approval-${approval.id}`,
+          projectId: project.id,
+          projectName: project.name,
+          status: approval.status,
+          timestamp: approval.updatedAt,
+          title: approval.title,
+        })),
+      ] satisfies readonly IDesktopDashboardDigestItem[];
+    }),
+  ).slice(0, 8);
+}
+
+function sortDashboardDigestItems(
+  items: readonly IDesktopDashboardDigestItem[],
+): readonly IDesktopDashboardDigestItem[] {
+  return [...items].sort((left, right) => {
+    const timestampComparison = right.timestamp.localeCompare(left.timestamp);
+
+    if (timestampComparison !== 0) {
+      return timestampComparison;
+    }
+
+    const projectComparison = left.projectName.localeCompare(right.projectName);
+
+    if (projectComparison !== 0) {
+      return projectComparison;
+    }
+
+    const titleComparison = left.title.localeCompare(right.title);
+
+    if (titleComparison !== 0) {
+      return titleComparison;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function latestTimestamp(timestamps: readonly string[]): string {
+  return [...timestamps].sort((left, right) => right.localeCompare(left))[0] ?? "";
 }
 
 export function resolveProjectMode(

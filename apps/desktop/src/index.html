@@ -294,6 +294,75 @@
         margin: 18px 0 0;
       }
 
+      .dashboard-digest {
+        display: grid;
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .dashboard-digest__summary,
+      .dashboard-digest__sections {
+        display: grid;
+        gap: 14px;
+      }
+
+      .dashboard-digest__summary {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+
+      .dashboard-digest__sections {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+
+      .dashboard-digest__metric,
+      .dashboard-digest__section {
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel-strong);
+      }
+
+      .dashboard-digest__metric dt,
+      .dashboard-digest__section h3 {
+        margin: 0;
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .dashboard-digest__metric dd {
+        margin: 8px 0 0;
+        font-size: 1.35rem;
+      }
+
+      .dashboard-digest__section {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+
+      .dashboard-digest__section p {
+        margin: 4px 0 0;
+        font-size: 0.88rem;
+      }
+
+      .dashboard-digest__items {
+        display: grid;
+        gap: 10px;
+      }
+
+      .dashboard-digest__item-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .dashboard-digest__item-project {
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
       #terminal,
       #codex-terminal {
         aspect-ratio: 16 / 10;
@@ -501,6 +570,8 @@
       }
 
       @media (max-width: 1280px) {
+        .dashboard-digest__summary,
+        .dashboard-digest__sections,
         .workspace-tertiary {
           grid-template-columns: 1fr;
         }
@@ -550,6 +621,7 @@
             </button>
           </div>
         </div>
+        <div id="dashboard-digest" class="dashboard-digest"></div>
         <div id="project-list" class="project-list"></div>
       </section>
 

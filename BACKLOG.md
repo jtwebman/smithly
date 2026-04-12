@@ -181,7 +181,7 @@
 96. `done` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
 97. `done` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
 98. `done` Add quota and credit pause-resume handling
-99. `todo` Add dashboard summaries across all projects plus operator digest views for what changed, what is waiting, what is running, what is next, and what AI proposed
+99. `done` Add dashboard summaries across all projects plus operator digest views for what changed, what is waiting, what is running, what is next, and what AI proposed
 100.  `todo` Add tests for multi-project scheduling behavior, project modes, and backlog-generation loops
 
 ## Future Expansion Notes

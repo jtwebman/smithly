@@ -15,6 +15,7 @@ import {
   listWorkerSessionsForProject,
   registerLocalProject,
   seedInitialState,
+  upsertApproval,
   upsertBacklogItem,
   upsertWorkerSession,
   updateProjectMetadata,
@@ -51,9 +52,74 @@ describe("desktop bootstrap", () => {
 
     seedInitialState(context, fixture);
 
-    expect(buildDesktopStatus(context, "dark")).toEqual({
+    expect(buildDesktopStatus(context, "dark")).toEqual(
+      expect.objectContaining({
       appVersion: "0.1.0",
       dataDirectory,
+      dashboardDigest: {
+        aiProposed: [
+          {
+            detail: "Smithly approval requested by claude",
+            id: "proposal-approval-approval-bootstrap-ui",
+            projectId: "project-smithly",
+            projectName: "Smithly",
+            status: "pending",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Approve shell bootstrap work",
+          },
+        ],
+        changed: expect.arrayContaining([
+          {
+            detail: "Smithly codex task is running",
+            id: "task-taskrun-bootstrap-ui",
+            projectId: "project-smithly",
+            projectName: "Smithly",
+            status: "running",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Scaffold the first desktop shell with one project dashboard card.",
+          },
+          {
+            detail: "Smithly approval requested by claude",
+            id: "approval-approval-bootstrap-ui",
+            projectId: "project-smithly",
+            projectName: "Smithly",
+            status: "pending",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Approve shell bootstrap work",
+          },
+        ]),
+        next: [],
+        running: [
+          {
+            detail: "1 active tasks | 1 active sessions",
+            id: "running-project-smithly",
+            projectId: "project-smithly",
+            projectName: "Smithly",
+            status: "blocked on human",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Smithly",
+          },
+        ],
+        summary: {
+          activeProjects: 1,
+          archivedProjects: 0,
+          pausedProjects: 0,
+          readyProjects: 0,
+          runningTasks: 1,
+          waitingProjects: 1,
+        },
+        waiting: [
+          {
+            detail: "1 pending approvals | 1 open blockers",
+            id: "waiting-project-smithly",
+            projectId: "project-smithly",
+            projectName: "Smithly",
+            status: "blocked on human",
+            timestamp: "2026-04-10T07:05:00.000Z",
+            title: "Smithly",
+          },
+        ],
+      },
       projectCount: 1,
       projects: [
         {
@@ -225,7 +291,8 @@ describe("desktop bootstrap", () => {
       },
       resolvedThemeMode: "dark",
       themePreference: "dark",
-    });
+      }),
+    );
 
     context.db.close();
   });
@@ -252,6 +319,21 @@ describe("desktop bootstrap", () => {
     expect(buildDesktopStatus(context, "light")).toEqual({
       appVersion: "0.1.0",
       dataDirectory,
+      dashboardDigest: {
+        aiProposed: [],
+        changed: [],
+        next: [],
+        running: [],
+        summary: {
+          activeProjects: 0,
+          archivedProjects: 0,
+          pausedProjects: 0,
+          readyProjects: 0,
+          runningTasks: 0,
+          waitingProjects: 0,
+        },
+        waiting: [],
+      },
       projectCount: 0,
       projects: [],
       resolvedThemeMode: "light",
@@ -288,6 +370,148 @@ describe("desktop bootstrap", () => {
 
     expect(status.selectedProjectId).toBe(secondProject.id);
     expect(status.selectedProject?.projectId).toBe(secondProject.id);
+
+    context.db.close();
+  });
+
+  it("builds cross-project dashboard digests for waiting, running, next, and AI proposals", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-digest-"));
+    const readyRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-ready-repo-"));
+    const proposedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-proposed-repo-"));
+
+    temporaryDirectories.push(dataDirectory, readyRepoDirectory, proposedRepoDirectory);
+    mkdirSync(join(readyRepoDirectory, ".git"));
+    mkdirSync(join(proposedRepoDirectory, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, fixture);
+    const readyProject = registerLocalProject(context, {
+      name: "Project Ready",
+      repoPath: readyRepoDirectory,
+    });
+    const proposedProject = registerLocalProject(context, {
+      name: "Project Proposed",
+      repoPath: proposedRepoDirectory,
+    });
+
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Ready project has a runnable task"]),
+      createdAt: "2026-04-10T08:00:00.000Z",
+      id: "backlog-ready-next",
+      priority: 88,
+      projectId: readyProject.id,
+      readiness: "ready",
+      reviewMode: "human",
+      riskLevel: "medium",
+      scopeSummary: "Ready project should surface in the next-up digest.",
+      status: "approved",
+      title: "Ship the ready project task",
+      updatedAt: "2026-04-10T08:00:00.000Z",
+    });
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Draft proposal exists"]),
+      createdAt: "2026-04-10T09:00:00.000Z",
+      id: "backlog-proposed-draft",
+      priority: 42,
+      projectId: proposedProject.id,
+      readiness: "not_ready",
+      reviewMode: "ai",
+      riskLevel: "low",
+      scopeSummary: "Draft work proposed while the project is waiting on review.",
+      status: "draft",
+      title: "Draft AI follow-up",
+      updatedAt: "2026-04-10T09:00:00.000Z",
+    });
+    upsertApproval(context, {
+      createdAt: "2026-04-10T09:05:00.000Z",
+      detail: "Approve the AI proposed follow-up.",
+      id: "approval-proposed-ai",
+      projectId: proposedProject.id,
+      requestedBy: "claude",
+      status: "pending",
+      title: "Approve proposed follow-up",
+      updatedAt: "2026-04-10T09:05:00.000Z",
+    });
+
+    const status = buildDesktopStatus(context, "dark");
+
+    expect(status.dashboardDigest.summary).toEqual({
+      activeProjects: 1,
+      archivedProjects: 0,
+      pausedProjects: 2,
+      readyProjects: 1,
+      runningTasks: 1,
+      waitingProjects: 2,
+    });
+    expect(status.dashboardDigest.waiting).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectId: fixture.project.id,
+          status: "blocked on human",
+          title: "Smithly",
+        }),
+        expect.objectContaining({
+          projectId: proposedProject.id,
+          status: "blocked on human",
+          title: "Project Proposed",
+        }),
+      ]),
+    );
+    expect(status.dashboardDigest.running).toEqual([
+      expect.objectContaining({
+        projectId: fixture.project.id,
+        status: "blocked on human",
+        title: "Smithly",
+      }),
+    ]);
+    expect(status.dashboardDigest.next).toEqual([
+      {
+        detail: "Project Ready priority 88 | human review",
+        id: "next-backlog-ready-next",
+        projectId: readyProject.id,
+        projectName: "Project Ready",
+        status: "approved",
+        timestamp: "2026-04-10T08:00:00.000Z",
+        title: "Ship the ready project task",
+      },
+    ]);
+    expect(status.dashboardDigest.aiProposed).toEqual(
+      expect.arrayContaining([
+        {
+          detail: "Project Proposed approval requested by claude",
+          id: "proposal-approval-approval-proposed-ai",
+          projectId: proposedProject.id,
+          projectName: "Project Proposed",
+          status: "pending",
+          timestamp: "2026-04-10T09:05:00.000Z",
+          title: "Approve proposed follow-up",
+        },
+        {
+          detail: "Project Proposed draft backlog proposal",
+          id: "proposal-backlog-backlog-proposed-draft",
+          projectId: proposedProject.id,
+          projectName: "Project Proposed",
+          status: "ai",
+          timestamp: "2026-04-10T09:00:00.000Z",
+          title: "Draft AI follow-up",
+        },
+      ]),
+    );
+    expect(status.dashboardDigest.changed[0]).toEqual({
+      detail: "Project Proposed approval requested by claude",
+      id: "approval-approval-proposed-ai",
+      projectId: proposedProject.id,
+      projectName: "Project Proposed",
+      status: "pending",
+      timestamp: "2026-04-10T09:05:00.000Z",
+      title: "Approve proposed follow-up",
+    });
 
     context.db.close();
   });
