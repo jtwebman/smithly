@@ -66,11 +66,13 @@ describe("desktop bootstrap", () => {
           },
           approvalPolicySummary: "new backlog, scope changes, high risk",
           backlogCount: 1,
+          executionState: "waiting_for_human",
           id: "project-smithly",
           metadataEntries: {
             themePreference: "system",
           },
           metadataSummary: "themePreference=system",
+          mode: "blocked on human",
           name: "Smithly",
           repoPath: "/home/jt/projects/smithly",
           status: "active",
@@ -483,7 +485,9 @@ describe("desktop bootstrap", () => {
     expect(buildDesktopStatus(context, "dark").projects).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          executionState: "paused",
           id: fixture.project.id,
+          mode: "blocked on human",
           status: "paused",
         }),
       ]),

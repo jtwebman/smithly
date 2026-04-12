@@ -34,7 +34,11 @@ export class BlockerRoutingManager {
           continue;
         }
 
-        const classifiedType = classifyBlocker(blocker.title, blocker.detail);
+        const classifiedType = classifyBlocker(
+          blocker.title,
+          blocker.detail,
+          blocker.blockerType,
+        );
 
         if (blocker.blockerType !== classifiedType) {
           upsertBlocker(this.context, {
@@ -79,7 +83,12 @@ export class BlockerRoutingManager {
 export function classifyBlocker(
   title: string,
   detail: string,
-): "policy" | "helper_model" | "human" {
+  existingType?: "policy" | "helper_model" | "human" | "system",
+): "policy" | "helper_model" | "human" | "system" {
+  if (existingType === "system") {
+    return "system";
+  }
+
   const normalizedText = `${title}\n${detail}`.toLowerCase();
 
   if (

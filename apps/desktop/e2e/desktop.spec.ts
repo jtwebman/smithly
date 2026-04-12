@@ -15,10 +15,13 @@ import {
   createInitialSeedFixture,
   registerLocalProject,
   seedInitialState,
+  upsertApproval,
   upsertBacklogItem,
+  upsertBlocker,
   upsertChatMessage,
   upsertChatThread,
   upsertMemoryNote,
+  upsertTaskRun,
   updateProjectMetadata,
 } from "@smithly/storage";
 
@@ -294,9 +297,9 @@ test("desktop shell can register a local repo path as a managed project", async 
     await expect(window.locator("#project-list")).toContainText(
       "Metadata: owner=jt | stack=electron",
     );
-    await expect(window.locator("#project-list")).toContainText("paused");
+    await expect(window.locator("#project-list")).toContainText("blocked on human");
     await expect(window.locator("#planning-status")).toContainText(
-      "Project execution is paused. Click Play to start hidden orchestration",
+      "Project execution is waiting on human input or approval before work can continue.",
     );
   } finally {
     rmSync(localRepoDirectory, { force: true, recursive: true });
@@ -405,12 +408,187 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
     );
     await expect(window.locator("#project-list")).toContainText("paused");
     await expect(window.locator("#planning-status")).toContainText(
-      "Project execution is paused. Click Play to start hidden orchestration",
+      "Project execution is waiting on human input or approval before work can continue.",
     );
     await expect(window.locator("#terminal-caption")).toContainText(
       "Open a Claude pane to attach a planning session.",
     );
   } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("dashboard shows operator-friendly project modes", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-modes-ui-"));
+  const blockedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-blocked-"));
+  const readyRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-ready-"));
+  const planningRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-planning-"));
+  const activeRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-active-"));
+  const pausedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-paused-"));
+  const creditRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-credit-"));
+
+  mkdirSync(join(blockedRepoDirectory, ".git"));
+  mkdirSync(join(readyRepoDirectory, ".git"));
+  mkdirSync(join(planningRepoDirectory, ".git"));
+  mkdirSync(join(activeRepoDirectory, ".git"));
+  mkdirSync(join(pausedRepoDirectory, ".git"));
+  mkdirSync(join(creditRepoDirectory, ".git"));
+
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const blockedProject = registerLocalProject(context, {
+    name: "Blocked External",
+    repoPath: blockedRepoDirectory,
+  });
+  const readyProject = registerLocalProject(context, {
+    name: "Ready Project",
+    repoPath: readyRepoDirectory,
+  });
+  const planningProject = registerLocalProject(context, {
+    name: "Planning Project",
+    repoPath: planningRepoDirectory,
+  });
+  const activeProject = registerLocalProject(context, {
+    name: "Executing Project",
+    repoPath: activeRepoDirectory,
+  });
+  const pausedProject = registerLocalProject(context, {
+    name: "Paused Project",
+    repoPath: pausedRepoDirectory,
+  });
+  const creditProject = registerLocalProject(context, {
+    name: "Credit Wait Project",
+    repoPath: creditRepoDirectory,
+  });
+
+  updateProjectMetadata(context, {
+    projectId: blockedProject.id,
+    status: "active",
+  });
+  upsertBlocker(context, {
+    blockerType: "system",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    detail: "External dependency is still unresolved.",
+    id: "blocker-project-mode-external",
+    projectId: blockedProject.id,
+    status: "open",
+    title: "External dependency wait",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+  });
+
+  updateProjectMetadata(context, {
+    projectId: readyProject.id,
+    status: "active",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Approved and ready work exists"]),
+    createdAt: "2026-04-10T08:05:00.000Z",
+    id: "backlog-project-mode-ready",
+    priority: 80,
+    projectId: readyProject.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Approved and ready work for mode coverage.",
+    status: "approved",
+    title: "Ready work",
+    updatedAt: "2026-04-10T08:05:00.000Z",
+  });
+
+  updateProjectMetadata(context, {
+    projectId: planningProject.id,
+    status: "active",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Draft planning work exists"]),
+    createdAt: "2026-04-10T08:10:00.000Z",
+    id: "backlog-project-mode-planning",
+    priority: 50,
+    projectId: planningProject.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Planning-only draft work.",
+    status: "draft",
+    title: "Planning draft",
+    updatedAt: "2026-04-10T08:10:00.000Z",
+  });
+
+  updateProjectMetadata(context, {
+    projectId: activeProject.id,
+    status: "active",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Running task exists"]),
+    createdAt: "2026-04-10T08:15:00.000Z",
+    id: "backlog-project-mode-active",
+    priority: 85,
+    projectId: activeProject.id,
+    readiness: "ready",
+    reviewMode: "ai",
+    riskLevel: "medium",
+    scopeSummary: "Backlog item for active execution mode.",
+    status: "in_progress",
+    title: "Running work",
+    updatedAt: "2026-04-10T08:15:00.000Z",
+  });
+  upsertTaskRun(context, {
+    assignedWorker: "codex",
+    backlogItemId: "backlog-project-mode-active",
+    createdAt: "2026-04-10T08:16:00.000Z",
+    id: "taskrun-project-mode-active",
+    projectId: activeProject.id,
+    startedAt: "2026-04-10T08:16:00.000Z",
+    status: "running",
+    summaryText: "Running Codex work for mode coverage.",
+    updatedAt: "2026-04-10T08:16:00.000Z",
+  });
+
+  updateProjectMetadata(context, {
+    projectId: creditProject.id,
+    executionState: "waiting_for_credit",
+    status: "active",
+  });
+
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await expect(window.locator("#project-list")).toContainText("Blocked External");
+    await expect(window.locator("#project-list")).toContainText("blocked on external dependency");
+    await expect(window.locator("#project-list")).toContainText("Ready Project");
+    await expect(window.locator("#project-list")).toContainText("ready to execute");
+    await expect(window.locator("#project-list")).toContainText("Planning Project");
+    await expect(window.locator("#project-list")).toContainText("planning");
+    await expect(window.locator("#project-list")).toContainText("Executing Project");
+    await expect(window.locator("#project-list")).toContainText("actively executing");
+    await expect(window.locator("#project-list")).toContainText("Paused Project");
+    await expect(window.locator("#project-list")).toContainText("paused");
+    await expect(window.locator("#project-list")).toContainText("Credit Wait Project");
+    await expect(window.locator("#project-list")).toContainText("paused");
+
+    await window
+      .locator("#project-list .project-card")
+      .filter({ hasText: "Blocked External" })
+      .getByRole("button", { name: "Open Workspace" })
+      .click();
+    await expect(window.locator("#planning-status")).toContainText(
+      "blocked on an external dependency or system blocker",
+    );
+  } finally {
+    rmSync(blockedRepoDirectory, { force: true, recursive: true });
+    rmSync(readyRepoDirectory, { force: true, recursive: true });
+    rmSync(planningRepoDirectory, { force: true, recursive: true });
+    rmSync(activeRepoDirectory, { force: true, recursive: true });
+    rmSync(pausedRepoDirectory, { force: true, recursive: true });
+    rmSync(creditRepoDirectory, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });
@@ -475,8 +653,9 @@ test("project play starts hidden orchestration and pause drains it safely", asyn
     await window.locator("#project-play-button").dispatchEvent("click");
 
     await expect(window.locator("#project-list")).toContainText("active");
+    await expect(window.locator("#project-list")).toContainText("planning");
     await expect(window.locator("#planning-status")).toContainText(
-      "Project execution is running in the background.",
+      "Project is in planning mode. Open a Claude pane to refine backlog work before execution.",
     );
 
     await window.locator("#show-orchestration-button").click();

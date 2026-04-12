@@ -34,6 +34,9 @@ describe("BlockerRoutingManager", () => {
     expect(classifyBlocker("Need policy answer", "Is operator approval required?")).toBe("policy");
     expect(classifyBlocker("Need command", "What command runs verification?")).toBe("helper_model");
     expect(classifyBlocker("Need design direction", "Choose the product tradeoff.")).toBe("human");
+    expect(
+      classifyBlocker("External dependency wait", "Third-party service is still down.", "system"),
+    ).toBe("system");
   });
 
   it("auto-resolves helper-model blockers with a concrete answer", () => {

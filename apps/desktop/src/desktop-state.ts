@@ -9,6 +9,7 @@ import {
   listProjects,
   parseProjectMetadata,
   listReviewRunsForTask,
+  selectNextRunnableBacklogItemForProject,
   listTaskRunsForProject,
   listVerificationRunsForTask,
   listWorkerSessionsForProject,
@@ -17,6 +18,7 @@ import {
 import packageJson from "../../../package.json" with { type: "json" };
 import type { IBootstrapSessionSnapshot } from "./bootstrap-session.ts";
 
+import { resolveProjectExecutionState } from "./project-execution.ts";
 import { parseTaskGitState } from "./task-git-manager.ts";
 
 export interface IDesktopProjectSummary {
@@ -30,6 +32,7 @@ export interface IDesktopProjectSummary {
   readonly id: string;
   readonly metadataEntries: Readonly<Record<string, string>>;
   readonly metadataSummary: string;
+  readonly mode: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
@@ -145,6 +148,7 @@ export function buildDesktopStatus(
 ): IDesktopStatus {
   const projects = listProjects(context).map((project) => {
     const metadata = parseProjectMetadata(project);
+    const effectiveExecutionState = resolveProjectExecutionState(context, project.id);
     const activeTaskCount = listTaskRunsForProject(context, project.id).filter((taskRun) =>
       ["queued", "running", "awaiting_review"].includes(taskRun.status),
     ).length;
@@ -159,10 +163,17 @@ export function buildDesktopStatus(
       approvalPolicy: metadata.approvalPolicy,
       approvalPolicySummary: formatApprovalPolicySummary(metadata.approvalPolicy),
       backlogCount,
-      executionState: metadata.executionState,
+      executionState: effectiveExecutionState,
       id: project.id,
       metadataEntries: metadata.metadata,
       metadataSummary: formatMetadataSummary(metadata.metadata),
+      mode: resolveProjectMode(
+        context,
+        project.id,
+        project.status,
+        effectiveExecutionState,
+        activeTaskCount,
+      ),
       name: project.name,
       repoPath: project.repoPath,
       status: project.status,
@@ -196,6 +207,69 @@ export function buildDesktopStatus(
       : {}),
     themePreference: context.config.ui.themePreference,
   };
+}
+
+export function resolveProjectMode(
+  context: IStorageContext,
+  projectId: string,
+  projectStatus: string,
+  executionState: string,
+  activeTaskCount: number,
+): string {
+  const backlogItems = listBacklogItemsForProject(context, projectId);
+  const pendingApprovals = listApprovalsForProject(context, projectId).filter((approval) => {
+    return approval.status === "pending";
+  });
+  const openBlockers = listBlockersForProject(context, projectId).filter((blocker) => {
+    return blocker.status === "open";
+  });
+
+  if (projectStatus === "archived") {
+    return "archived";
+  }
+
+  if (executionState === "waiting_for_credit") {
+    return "waiting for credit";
+  }
+
+  if (
+    openBlockers.some((blocker) => {
+      return blocker.blockerType === "helper_model" || blocker.blockerType === "system";
+    })
+  ) {
+    return "blocked on external dependency";
+  }
+
+  if (
+    pendingApprovals.length > 0 ||
+    openBlockers.some((blocker) => {
+      return blocker.blockerType === "human" || blocker.blockerType === "policy";
+    })
+  ) {
+    return "blocked on human";
+  }
+
+  if (activeTaskCount > 0) {
+    return "actively executing";
+  }
+
+  if (selectNextRunnableBacklogItemForProject(context, projectId) !== null) {
+    return "ready to execute";
+  }
+
+  if (
+    backlogItems.some((backlogItem) => {
+      return ["draft", "approved", "in_progress"].includes(backlogItem.status);
+    })
+  ) {
+    return "planning";
+  }
+
+  if (projectStatus === "paused" || executionState === "paused") {
+    return "paused";
+  }
+
+  return "planning";
 }
 
 export function resolveDesktopThemeMode(

@@ -14,9 +14,11 @@ interface DesktopProjectSummary {
     readonly requireApprovalForScopeChanges: boolean;
   };
   readonly approvalPolicySummary: string;
+  readonly executionState: string;
   readonly id: string;
   readonly metadataEntries: Readonly<Record<string, string>>;
   readonly metadataSummary: string;
+  readonly mode: string;
   readonly name: string;
   readonly repoPath: string;
   readonly status: string;
@@ -420,16 +422,17 @@ function renderProjects(status: DesktopStatus): void {
         <div>
           <h3>${escapeHtml(project.name)}</h3>
           <p>${escapeHtml(project.repoPath)}</p>
+          <p class="project-card__meta">Lifecycle: ${escapeHtml(project.status)}</p>
           <p class="project-card__meta">Verification: ${escapeHtml(project.verificationSummary)}</p>
           <p class="project-card__meta">Approval: ${escapeHtml(project.approvalPolicySummary)}</p>
           <p class="project-card__meta">Metadata: ${escapeHtml(project.metadataSummary)}</p>
         </div>
-        <span class="project-status" data-status="${escapeHtml(project.status)}">${escapeHtml(project.status)}</span>
+        <span class="project-status" data-status="${escapeHtml(project.mode)}">${escapeHtml(project.mode)}</span>
       </header>
       <dl class="project-metrics">
         <div>
-          <dt>Active Tasks</dt>
-          <dd>${project.activeTaskCount}</dd>
+          <dt>Mode</dt>
+          <dd>${escapeHtml(project.mode)}</dd>
         </div>
         <div>
           <dt>Active Sessions</dt>
@@ -893,11 +896,9 @@ function renderPlanningPane(status: DesktopStatus): void {
           ? `bootstrap session ${activeSession.status} in ${status.bootstrapSession?.cwd ?? "~"}`
           : "bootstrap session idle"
         : activePlanningPaneKey === null
-          ? selectedProjectSummary?.status === "active"
-            ? "Project execution is running in the background. Attach a Claude pane to inspect it."
-            : hasBootstrapSession
-              ? "Project bootstrap is available. Attach the Claude pane to continue shaping a new project."
-              : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
+          ? hasBootstrapSession
+            ? "Project bootstrap is available. Attach the Claude pane to continue shaping a new project."
+            : describeProjectMode(selectedProjectSummary?.mode)
           : activeSession
             ? `${activeScope} planning session ${activeSession.status}`
             : `${activeScope} planning session idle`,
@@ -921,6 +922,26 @@ function renderPlanningPane(status: DesktopStatus): void {
   );
   renderSelectedBacklog(selectedBacklogItem);
   syncTerminalPane(status);
+}
+
+function describeProjectMode(mode: string | undefined): string {
+  switch (mode) {
+    case "actively executing":
+      return "Project execution is running in the background. Attach a Claude pane to inspect it.";
+    case "blocked on human":
+      return "Project execution is waiting on human input or approval before work can continue.";
+    case "blocked on external dependency":
+      return "Project execution is blocked on an external dependency or system blocker.";
+    case "waiting for credit":
+      return "Project execution is waiting for credits before Smithly can continue.";
+    case "ready to execute":
+      return "Project has approved and ready work queued for execution.";
+    case "planning":
+      return "Project is in planning mode. Open a Claude pane to refine backlog work before execution.";
+    case "paused":
+    default:
+      return "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually.";
+  }
 }
 
 function renderCodexPane(status: DesktopStatus): void {
