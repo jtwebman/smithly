@@ -9,13 +9,18 @@ import { createConfig } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
+  ensureProjectPlanningThread,
+  getProjectById,
   listChatThreadsForProject,
   listProjects,
   listReviewRunsForTask,
   listTaskRunsForProject,
   listWorkerSessionsForProject,
+  parseProjectMetadata,
   registerLocalProject,
   seedInitialState,
+  upsertChatMessage,
+  upsertChatThread,
   upsertMemoryNote,
   upsertWorkerSession,
   updateProjectMetadata,
@@ -28,6 +33,7 @@ import {
   type IDesktopStatus,
 } from "./desktop-state.ts";
 import { BootstrapSessionManager } from "./bootstrap-session.ts";
+import type { IBootstrapSessionSnapshot } from "./bootstrap-session.ts";
 import { BlockerRoutingManager } from "./blocker-routing-manager.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { SmithlyMcpService } from "./mcp-service.ts";
@@ -623,13 +629,92 @@ function requireTaskMergeManager(): TaskMergeManager {
 }
 
 function buildCurrentDesktopStatus(context: IStorageContext): IDesktopStatus {
+  const bootstrapSnapshot = requireBootstrapSessionManager().getSnapshot();
+
+  syncBootstrapTranscriptToManagedProject(context, bootstrapSnapshot);
+  maybeSelectBootstrapHandoffProject(context);
+
   return buildDesktopStatus(
     context,
     resolveDesktopThemeMode(context.config.ui.themePreference, nativeTheme.shouldUseDarkColors),
     selectedProjectId,
     selectedBacklogItemId,
-    requireBootstrapSessionManager().getSnapshot(),
+    bootstrapSnapshot,
   );
+}
+
+function syncBootstrapTranscriptToManagedProject(
+  context: IStorageContext,
+  bootstrapSnapshot?: IBootstrapSessionSnapshot,
+): void {
+  if (bootstrapSnapshot === undefined || bootstrapSnapshot.messages.length === 0) {
+    return;
+  }
+
+  const bootstrapProject = findLatestBootstrapProject(context, ["planning", "ready_for_dashboard"]);
+
+  if (bootstrapProject === undefined) {
+    return;
+  }
+
+  const planningThread = ensureProjectPlanningThread(context, bootstrapProject.id);
+  let threadUpdatedAt = planningThread.updatedAt;
+
+  for (const message of bootstrapSnapshot.messages) {
+    upsertChatMessage(context, {
+      bodyText: message.bodyText,
+      createdAt: message.createdAt,
+      id: message.id,
+      metadataJson: JSON.stringify({
+        source: "bootstrap_session",
+        terminalKey: bootstrapSnapshot.terminalKey,
+      }),
+      role: message.role,
+      threadId: planningThread.id,
+    });
+
+    if (message.createdAt > threadUpdatedAt) {
+      threadUpdatedAt = message.createdAt;
+    }
+  }
+
+  if (threadUpdatedAt !== planningThread.updatedAt) {
+    upsertChatThread(context, {
+      ...planningThread,
+      updatedAt: threadUpdatedAt,
+    });
+  }
+}
+
+function maybeSelectBootstrapHandoffProject(context: IStorageContext): void {
+  if (selectedProjectId !== undefined && getProjectById(context, selectedProjectId) !== null) {
+    return;
+  }
+
+  const handoffProject = findLatestBootstrapProject(context, ["ready_for_dashboard"]);
+
+  if (handoffProject === undefined) {
+    return;
+  }
+
+  selectedProjectId = handoffProject.id;
+  selectedBacklogItemId = undefined;
+}
+
+function findLatestBootstrapProject(context: IStorageContext, bootstrapStates: readonly string[]) {
+  return listProjects(context)
+    .filter((project) => {
+      const metadata = parseProjectMetadata(project).metadata;
+
+      return (
+        (metadata.bootstrapOrigin === "adopt" || metadata.bootstrapOrigin === "create") &&
+        bootstrapStates.includes(metadata.bootstrapState ?? "")
+      );
+    })
+    .sort((leftProject, rightProject) =>
+      rightProject.updatedAt.localeCompare(leftProject.updatedAt),
+    )
+    .at(0);
 }
 
 function requireSelectedProjectId(context: IStorageContext): string {
