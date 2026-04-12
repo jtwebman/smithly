@@ -554,14 +554,22 @@ function createProjectExecutionManager(context: IStorageContext): ProjectExecuti
 }
 
 function createProjectSchedulingManager(context: IStorageContext): ProjectSchedulingManager {
-  return new ProjectSchedulingManager(context, {
-    ensureSession(taskRunId) {
-      requireCodexSessionManager().ensureSession(taskRunId);
+  return new ProjectSchedulingManager(
+    context,
+    {
+      ensureSession(taskRunId) {
+        requireCodexSessionManager().ensureSession(taskRunId);
+      },
+      startSession(input) {
+        return requireCodexSessionManager().startSession(input);
+      },
     },
-    startSession(input) {
-      return requireCodexSessionManager().startSession(input);
+    {
+      submitInput(input) {
+        requirePlanningSessionManager().submitInput(input);
+      },
     },
-  });
+  );
 }
 
 function createReviewManager(context: IStorageContext): ReviewManager {
