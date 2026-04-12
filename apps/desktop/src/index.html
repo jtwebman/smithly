@@ -439,6 +439,51 @@
         font-size: 0.92rem;
       }
 
+      .project-loop-editor {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+      }
+
+      .project-loop-editor__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .project-loop-editor__header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .project-loop-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .project-loop-card {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.12);
+      }
+
+      .project-loop-card__header,
+      .project-loop-card__actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       .project-creator-form__actions {
         display: flex;
         justify-content: space-between;
@@ -779,6 +824,22 @@
             />
             Require approval for high-risk tasks
           </label>
+          <section class="project-loop-editor">
+            <div class="project-loop-editor__header">
+              <div>
+                <strong>Backlog-generation loops</strong>
+                <p>Enable, edit, reorder, or add custom planning loops for idle project time.</p>
+              </div>
+              <button
+                id="add-project-planning-loop-button"
+                class="secondary-button"
+                type="button"
+              >
+                Add Custom Loop
+              </button>
+            </div>
+            <div id="project-planning-loop-list" class="project-loop-list"></div>
+          </section>
           <p id="project-registration-status" class="project-registration__status"></p>
           <div class="project-creator-form__actions">
             <button id="close-project-creator-button" class="secondary-button" type="button">

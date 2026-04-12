@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createConfig } from "@smithly/core";
+import { createConfig, DEFAULT_PROJECT_PLANNING_LOOPS } from "@smithly/core";
 
 import { closeContext, createContext } from "./context.ts";
 import { listProjects } from "./data.ts";
@@ -63,6 +63,7 @@ describe("project registration", () => {
       metadata: {
         owner: "jt",
       },
+      planningLoops: DEFAULT_PROJECT_PLANNING_LOOPS,
       verificationCommands: ["npm run check", "npm run test"],
     });
 
@@ -159,9 +160,63 @@ describe("project registration", () => {
         owner: "jt",
         runtime: "desktop",
       },
+      planningLoops: DEFAULT_PROJECT_PLANNING_LOOPS,
       verificationCommands: ["npm run lint"],
     });
     expect(updatedProject.defaultBranch).toBe("main");
+
+    closeContext(context);
+  });
+
+  it("persists reordered and custom planning loops in project metadata", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-data-"));
+    const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoDirectory);
+    mkdirSync(join(repoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      repoPath: repoDirectory,
+    });
+    const idleLoop = DEFAULT_PROJECT_PLANNING_LOOPS[0]!;
+
+    const updatedProject = updateProjectMetadata(context, {
+      planningLoops: [
+        {
+          enabled: true,
+          id: "loop-custom-market-scan",
+          kind: "custom",
+          prompt: "Run a market scan loop and draft human-reviewed backlog items.",
+          title: "Market scan",
+          trigger: "idle",
+        },
+        {
+          ...idleLoop,
+          enabled: false,
+        },
+      ],
+      projectId: project.id,
+    });
+
+    expect(parseProjectMetadata(updatedProject).planningLoops).toEqual([
+      {
+        enabled: true,
+        id: "loop-custom-market-scan",
+        kind: "custom",
+        prompt: "Run a market scan loop and draft human-reviewed backlog items.",
+        title: "Market scan",
+        trigger: "idle",
+      },
+      {
+        ...idleLoop,
+        enabled: false,
+      },
+    ]);
 
     closeContext(context);
   });
@@ -211,6 +266,7 @@ describe("project registration", () => {
       metadata: {
         themePreference: "system",
       },
+      planningLoops: DEFAULT_PROJECT_PLANNING_LOOPS,
       verificationCommands: ["npm run check"],
     });
   });
@@ -229,6 +285,7 @@ describe("project registration", () => {
       },
       executionState: "active",
       metadata: {},
+      planningLoops: DEFAULT_PROJECT_PLANNING_LOOPS,
       verificationCommands: ["npm run check"],
     });
   });

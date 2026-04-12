@@ -418,6 +418,79 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
   }
 });
 
+test("project editor can manage backlog-generation loops", async () => {
+  const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-managed-project-loops-"));
+  mkdirSync(join(localRepoDirectory, ".git"));
+  const { dataDirectory, electronApp, window } = await launchDesktop({ themePreference: "dark" });
+
+  try {
+    await window.locator("#open-manual-project-creator-button").click();
+    await window.locator("#project-registration-path").fill(localRepoDirectory);
+    await window.locator("#project-registration-name").fill("Loop Fixture");
+    await expect(window.locator("#project-planning-loop-list [data-loop-card]")).toHaveCount(3);
+
+    await window
+      .locator('#project-planning-loop-list [data-loop-card]')
+      .nth(1)
+      .locator('input[data-loop-field="enabled"]')
+      .uncheck();
+    await window.locator("#add-project-planning-loop-button").click();
+    await expect(window.locator("#project-planning-loop-list [data-loop-card]")).toHaveCount(4);
+
+    const customLoopCard = window.locator("#project-planning-loop-list [data-loop-card]").nth(3);
+    await customLoopCard.locator('input[data-loop-field="title"]').fill("Market scan");
+    await customLoopCard
+      .locator('textarea[data-loop-field="prompt"]')
+      .fill("Run a market scan loop and draft human-reviewed backlog items.");
+    await customLoopCard.locator('select[data-loop-field="trigger"]').selectOption("blocked_or_waiting");
+    await customLoopCard.locator('button[data-loop-action="move-up"]').click();
+    await window
+      .locator("#project-planning-loop-list [data-loop-card]")
+      .nth(2)
+      .locator('button[data-loop-action="move-up"]')
+      .click();
+    await window.locator("#save-project-button").click();
+
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window.locator("#project-edit-button").click();
+    await expect(window.locator("#project-planning-loop-list [data-loop-card]")).toHaveCount(4);
+    await expect(
+      window
+        .locator("#project-planning-loop-list [data-loop-card]")
+        .nth(0)
+        .locator('input[data-loop-field="title"]'),
+    ).toHaveValue("Idle backlog generation");
+    await expect(
+      window
+        .locator("#project-planning-loop-list [data-loop-card]")
+        .nth(1)
+        .locator('input[data-loop-field="title"]'),
+    ).toHaveValue("Market scan");
+    await expect(
+      window
+        .locator("#project-planning-loop-list [data-loop-card]")
+        .nth(1)
+        .locator('select[data-loop-field="trigger"]'),
+    ).toHaveValue("blocked_or_waiting");
+    await expect(
+      window
+        .locator("#project-planning-loop-list [data-loop-card]")
+        .nth(2)
+        .locator('input[data-loop-field="title"]'),
+    ).toHaveValue("Security audit");
+    await expect(
+      window
+        .locator("#project-planning-loop-list [data-loop-card]")
+        .nth(2)
+        .locator('input[data-loop-field="enabled"]'),
+    ).not.toBeChecked();
+  } finally {
+    rmSync(localRepoDirectory, { force: true, recursive: true });
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("dashboard shows operator-friendly project modes", async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-modes-ui-"));
   const blockedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-mode-blocked-"));

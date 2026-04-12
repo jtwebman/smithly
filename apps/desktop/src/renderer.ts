@@ -37,6 +37,7 @@ interface DesktopProjectRegistrationInput {
   };
   readonly metadata: Readonly<Record<string, string>>;
   readonly name?: string;
+  readonly planningLoops: readonly DesktopPlanningLoop[];
   readonly repoPath: string;
   readonly verificationCommands: readonly string[];
 }
@@ -60,6 +61,7 @@ interface DesktopStatus {
     readonly blockers: readonly DesktopListItem[];
     readonly events: readonly DesktopEventItem[];
     readonly memoryNotes: readonly DesktopMemoryNoteItem[];
+    readonly planningLoops: readonly DesktopPlanningLoop[];
     readonly projectPlanningChat?: DesktopChatThread;
     readonly projectPlanningSession?: DesktopPlanningSession;
     readonly taskPlanningChat?: DesktopChatThread;
@@ -119,6 +121,63 @@ interface DesktopBacklogDetail {
   readonly acceptanceCriteria: readonly string[];
   readonly verificationHistory: readonly DesktopListItem[];
 }
+
+interface DesktopPlanningLoop {
+  readonly enabled: boolean;
+  readonly id: string;
+  readonly kind: "idle_backlog_generation" | "security_audit" | "best_practices" | "custom";
+  readonly prompt: string;
+  readonly title: string;
+  readonly trigger: "idle" | "blocked_or_waiting";
+}
+
+const DEFAULT_PROJECT_PLANNING_LOOPS: readonly DesktopPlanningLoop[] = [
+  {
+    enabled: true,
+    id: "loop-idle-backlog-generation",
+    kind: "idle_backlog_generation",
+    prompt: [
+      "Run the default idle backlog-generation loop for this project.",
+      "The project is blocked or waiting on something external before coding can resume.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Instead, identify a small set of useful draft backlog items or draft refinements that can move the project forward while execution is waiting.",
+      "Prefer reviewable work that reduces risk, prepares follow-on execution, or addresses likely unblockers.",
+      "Use Smithly MCP tools to record the drafted work and explain briefly why each item helps.",
+    ].join(" "),
+    title: "Idle backlog generation",
+    trigger: "blocked_or_waiting",
+  },
+  {
+    enabled: true,
+    id: "loop-security-audit",
+    kind: "security_audit",
+    prompt: [
+      "Run the default security-audit loop for this project.",
+      "Review the full codebase for concrete security weaknesses, insecure defaults, secrets handling risks, authorization gaps, dependency exposure, and unsafe operational assumptions.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-value security follow-ups you find.",
+      "Each draft should explain the risk, the likely impact, and the smallest pragmatic remediation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
+    ].join(" "),
+    title: "Security audit",
+    trigger: "idle",
+  },
+  {
+    enabled: true,
+    id: "loop-best-practices-2026",
+    kind: "best_practices",
+    prompt: [
+      "Run the default pragmatic 2026 best-practices loop for this project.",
+      "Review the current codebase against pragmatic 2026 engineering practices, including maintainability, testing depth, developer ergonomics, operational resilience, dependency hygiene, and workflow clarity.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-leverage improvements you find.",
+      "Each draft should explain the current gap, the practical benefit of fixing it in 2026, and the smallest useful implementation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
+    ].join(" "),
+    title: "Pragmatic 2026 best practices",
+    trigger: "idle",
+  },
+];
 
 interface DesktopPlanningSession {
   readonly workerSessionId: string;
@@ -273,6 +332,10 @@ const projectRegistrationApprovalScopeNode = document.getElementById(
 const projectRegistrationApprovalHighRiskNode = document.getElementById(
   "project-registration-approval-high-risk",
 ) as HTMLInputElement | null;
+const projectPlanningLoopListNode = document.getElementById("project-planning-loop-list");
+const addProjectPlanningLoopButton = document.getElementById(
+  "add-project-planning-loop-button",
+) as HTMLButtonElement | null;
 const projectRegistrationStatusNode = document.getElementById("project-registration-status");
 const memoryPanelNode = document.getElementById("memory-list");
 const memoryComposerModalNode = document.getElementById("memory-composer-modal");
@@ -352,6 +415,9 @@ let codexTerminal: Terminal | null = null;
 let codexFitAddon: FitAddon | null = null;
 let currentCodexTerminalSignature = "";
 let editingProjectId: string | null = null;
+let projectPlanningLoopDrafts: DesktopPlanningLoop[] = clonePlanningLoops(
+  DEFAULT_PROJECT_PLANNING_LOOPS,
+);
 let activePlanningPaneKey: SessionPaneKey | null = null;
 let openPlanningPaneKeys: SessionPaneKey[] = [];
 let activeCodexTaskRunId: string | null = null;
@@ -499,6 +565,157 @@ function setMemoryComposerModalOpen(isOpen: boolean): void {
   memoryComposerModalNode?.toggleAttribute("hidden", !isOpen);
 }
 
+function clonePlanningLoops(loops: readonly DesktopPlanningLoop[]): DesktopPlanningLoop[] {
+  return loops.map((planningLoop) => ({ ...planningLoop }));
+}
+
+function renderPlanningLoopEditor(): void {
+  if (projectPlanningLoopListNode === null) {
+    return;
+  }
+
+  projectPlanningLoopListNode.innerHTML = projectPlanningLoopDrafts
+    .map((planningLoop, index) => {
+      const moveUpDisabled = index === 0 ? "disabled" : "";
+      const moveDownDisabled = index === projectPlanningLoopDrafts.length - 1 ? "disabled" : "";
+      const deleteButton =
+        planningLoop.kind === "custom"
+          ? `<button type="button" data-loop-action="delete" data-loop-id="${escapeHtml(planningLoop.id)}">Delete</button>`
+          : "";
+
+      return `
+        <article class="project-loop-card" data-loop-card data-loop-id="${escapeHtml(planningLoop.id)}">
+          <div class="project-loop-card__header">
+            <label>
+              <input type="checkbox" data-loop-field="enabled" data-loop-id="${escapeHtml(planningLoop.id)}" ${
+                planningLoop.enabled ? "checked" : ""
+              } />
+              Enabled
+            </label>
+            <div class="project-loop-card__actions">
+              <button type="button" data-loop-action="move-up" data-loop-id="${escapeHtml(planningLoop.id)}" ${moveUpDisabled}>Up</button>
+              <button type="button" data-loop-action="move-down" data-loop-id="${escapeHtml(planningLoop.id)}" ${moveDownDisabled}>Down</button>
+              ${deleteButton}
+            </div>
+          </div>
+          <label>
+            Loop title
+            <input type="text" data-loop-field="title" data-loop-id="${escapeHtml(planningLoop.id)}" value="${escapeHtml(planningLoop.title)}" />
+          </label>
+          <label>
+            Trigger
+            <select data-loop-field="trigger" data-loop-id="${escapeHtml(planningLoop.id)}">
+              <option value="idle" ${planningLoop.trigger === "idle" ? "selected" : ""}>Idle project</option>
+              <option value="blocked_or_waiting" ${
+                planningLoop.trigger === "blocked_or_waiting" ? "selected" : ""
+              }>Blocked or waiting</option>
+            </select>
+          </label>
+          <label>
+            Prompt
+            <textarea rows="4" data-loop-field="prompt" data-loop-id="${escapeHtml(planningLoop.id)}">${escapeHtml(planningLoop.prompt)}</textarea>
+          </label>
+        </article>
+      `;
+    })
+    .join("");
+
+  projectPlanningLoopListNode
+    .querySelectorAll<HTMLInputElement>('input[data-loop-field="enabled"]')
+    .forEach((node) => {
+      node.addEventListener("change", () => {
+        updatePlanningLoopDraft(node.dataset.loopId ?? "", {
+          enabled: node.checked,
+        });
+      });
+    });
+  projectPlanningLoopListNode
+    .querySelectorAll<HTMLInputElement>('input[data-loop-field="title"]')
+    .forEach((node) => {
+      node.addEventListener("input", () => {
+        updatePlanningLoopDraft(node.dataset.loopId ?? "", {
+          title: node.value,
+        });
+      });
+    });
+  projectPlanningLoopListNode
+    .querySelectorAll<HTMLSelectElement>('select[data-loop-field="trigger"]')
+    .forEach((node) => {
+      node.addEventListener("change", () => {
+        updatePlanningLoopDraft(node.dataset.loopId ?? "", {
+          trigger: node.value as DesktopPlanningLoop["trigger"],
+        });
+      });
+    });
+  projectPlanningLoopListNode
+    .querySelectorAll<HTMLTextAreaElement>('textarea[data-loop-field="prompt"]')
+    .forEach((node) => {
+      node.addEventListener("input", () => {
+        updatePlanningLoopDraft(node.dataset.loopId ?? "", {
+          prompt: node.value,
+        });
+      });
+    });
+  projectPlanningLoopListNode.querySelectorAll<HTMLButtonElement>("button[data-loop-action]").forEach(
+    (node) => {
+      node.addEventListener("click", () => {
+        const loopId = node.dataset.loopId ?? "";
+
+        switch (node.dataset.loopAction) {
+          case "move-up":
+            reorderPlanningLoopDraft(loopId, -1);
+            break;
+          case "move-down":
+            reorderPlanningLoopDraft(loopId, 1);
+            break;
+          case "delete":
+            deletePlanningLoopDraft(loopId);
+            break;
+          default:
+            break;
+        }
+      });
+    },
+  );
+}
+
+function updatePlanningLoopDraft(
+  loopId: string,
+  patch: Partial<Pick<DesktopPlanningLoop, "enabled" | "prompt" | "title" | "trigger">>,
+): void {
+  projectPlanningLoopDrafts = projectPlanningLoopDrafts.map((planningLoop) => {
+    return planningLoop.id === loopId ? { ...planningLoop, ...patch } : planningLoop;
+  });
+}
+
+function reorderPlanningLoopDraft(loopId: string, direction: -1 | 1): void {
+  const loopIndex = projectPlanningLoopDrafts.findIndex((planningLoop) => planningLoop.id === loopId);
+
+  if (loopIndex < 0) {
+    return;
+  }
+
+  const nextIndex = loopIndex + direction;
+
+  if (nextIndex < 0 || nextIndex >= projectPlanningLoopDrafts.length) {
+    return;
+  }
+
+  const reorderedLoops = [...projectPlanningLoopDrafts];
+  const [planningLoop] = reorderedLoops.splice(loopIndex, 1);
+
+  reorderedLoops.splice(nextIndex, 0, planningLoop!);
+  projectPlanningLoopDrafts = reorderedLoops;
+  renderPlanningLoopEditor();
+}
+
+function deletePlanningLoopDraft(loopId: string): void {
+  projectPlanningLoopDrafts = projectPlanningLoopDrafts.filter((planningLoop) => {
+    return planningLoop.id !== loopId || planningLoop.kind !== "custom";
+  });
+  renderPlanningLoopEditor();
+}
+
 function resetProjectRegistrationForm(): void {
   editingProjectId = null;
 
@@ -530,6 +747,8 @@ function resetProjectRegistrationForm(): void {
     projectRegistrationApprovalHighRiskNode.checked = true;
   }
 
+  projectPlanningLoopDrafts = clonePlanningLoops(DEFAULT_PROJECT_PLANNING_LOOPS);
+  renderPlanningLoopEditor();
   setNodeText(projectCreatorTitleNode, "Create project");
   renderProjectRegistrationStatus("");
 }
@@ -1573,9 +1792,24 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
   const projectName = projectRegistrationNameNode?.value.trim() ?? "";
   const verificationCommands = parseMultilineList(projectRegistrationVerificationNode?.value ?? "");
   const metadata = parseMetadataEntries(projectRegistrationMetadataNode?.value ?? "");
+  const planningLoops = projectPlanningLoopDrafts.map((planningLoop) => ({
+    ...planningLoop,
+    prompt: planningLoop.prompt.trim(),
+    title: planningLoop.title.trim(),
+  }));
 
   if (repoPath.length === 0) {
     renderProjectRegistrationStatus("Local repo path is required.");
+    return;
+  }
+
+  if (planningLoops.some((planningLoop) => planningLoop.title.length === 0)) {
+    renderProjectRegistrationStatus("Each backlog-generation loop needs a title.");
+    return;
+  }
+
+  if (planningLoops.some((planningLoop) => planningLoop.prompt.length === 0)) {
+    renderProjectRegistrationStatus("Each backlog-generation loop needs a prompt.");
     return;
   }
 
@@ -1594,6 +1828,7 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
       },
       metadata,
       ...(projectName.length > 0 ? { name: projectName } : {}),
+      planningLoops,
       repoPath,
       verificationCommands,
     } satisfies DesktopProjectRegistrationInput;
@@ -1621,6 +1856,22 @@ projectRegistrationForm?.addEventListener("submit", async (event) => {
   } catch (error: unknown) {
     renderProjectRegistrationStatus(error instanceof Error ? error.message : String(error));
   }
+});
+
+addProjectPlanningLoopButton?.addEventListener("click", () => {
+  projectPlanningLoopDrafts = [
+    ...projectPlanningLoopDrafts,
+    {
+      enabled: true,
+      id: `loop-custom-${window.crypto.randomUUID()}`,
+      kind: "custom",
+      prompt:
+        "Run this custom backlog-generation loop for the project. Review the codebase and draft human-reviewed backlog items for the selected theme.",
+      title: "Custom loop",
+      trigger: "idle",
+    },
+  ];
+  renderPlanningLoopEditor();
 });
 
 projectEditButton?.addEventListener("click", () => {
@@ -1666,6 +1917,12 @@ projectEditButton?.addEventListener("click", () => {
     projectRegistrationApprovalHighRiskNode.checked =
       selectedProject.approvalPolicy.requireApprovalForHighRiskTasks;
   }
+
+  projectPlanningLoopDrafts = clonePlanningLoops(currentStatus?.selectedProject?.planningLoops ?? []);
+  if (projectPlanningLoopDrafts.length === 0) {
+    projectPlanningLoopDrafts = clonePlanningLoops(DEFAULT_PROJECT_PLANNING_LOOPS);
+  }
+  renderPlanningLoopEditor();
   renderProjectRegistrationStatus(`Editing ${selectedProject.name}. Submit the form to save.`);
   setProjectCreatorModalOpen(true);
 });

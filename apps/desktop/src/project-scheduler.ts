@@ -7,6 +7,7 @@ import {
   listChatMessagesForThread,
   listProjects,
   listTaskRunsForProject,
+  parseProjectMetadata,
   selectNextRunnableBacklogItemForProject,
   type IStorageContext,
 } from "@smithly/storage";
@@ -145,23 +146,37 @@ export class ProjectSchedulingManager {
     projectId: string,
     executionState: "active" | "blocked" | "waiting_for_credit" | "waiting_for_human" | "paused",
   ): readonly string[] {
-    const prompts: string[] = [];
+    const project = getProjectById(this.context, projectId);
 
-    if (["blocked", "waiting_for_credit", "waiting_for_human"].includes(executionState)) {
-      prompts.push(
-        this.buildIdleBacklogGenerationPrompt(
-          projectId,
-          executionState as "blocked" | "waiting_for_credit" | "waiting_for_human",
-        ),
-      );
+    if (project === null) {
+      return [];
     }
 
-    prompts.push(this.buildSecurityAuditPrompt());
-    prompts.push(this.buildBestPracticesPrompt());
-    return prompts;
+    return parseProjectMetadata(project).planningLoops.flatMap((planningLoop) => {
+      if (!planningLoop.enabled) {
+        return [];
+      }
+
+      if (planningLoop.trigger === "blocked_or_waiting") {
+        if (!["blocked", "waiting_for_credit", "waiting_for_human"].includes(executionState)) {
+          return [];
+        }
+
+        return [
+          this.buildBlockedOrWaitingPlanningPrompt(
+            planningLoop.prompt,
+            projectId,
+            executionState as "blocked" | "waiting_for_credit" | "waiting_for_human",
+          ),
+        ];
+      }
+
+      return [planningLoop.prompt];
+    });
   }
 
-  private buildIdleBacklogGenerationPrompt(
+  private buildBlockedOrWaitingPlanningPrompt(
+    basePrompt: string,
     projectId: string,
     executionState: "blocked" | "waiting_for_credit" | "waiting_for_human",
   ): string {
@@ -189,35 +204,6 @@ export class ProjectSchedulingManager {
           ? "The project is waiting on provider credits or quota before coding can resume."
           : `The project is waiting on human input or approval. Pending approvals: ${approvalTitles}.`;
 
-    return [
-      "Run the default idle backlog-generation loop for this project.",
-      reasonSummary,
-      "Do not mutate approved backlog items or the scope of any active task.",
-      "Instead, identify a small set of useful draft backlog items or draft refinements that can move the project forward while execution is waiting.",
-      "Prefer reviewable work that reduces risk, prepares follow-on execution, or addresses likely unblockers.",
-      "Use Smithly MCP tools to record the drafted work and explain briefly why each item helps.",
-    ].join(" ");
-  }
-
-  private buildSecurityAuditPrompt(): string {
-    return [
-      "Run the default security-audit loop for this project.",
-      "Review the full codebase for concrete security weaknesses, insecure defaults, secrets handling risks, authorization gaps, dependency exposure, and unsafe operational assumptions.",
-      "Do not mutate approved backlog items or the scope of any active task.",
-      "Draft a small set of human-reviewed backlog items for the highest-value security follow-ups you find.",
-      "Each draft should explain the risk, the likely impact, and the smallest pragmatic remediation slice.",
-      "Use Smithly MCP tools to record the backlog items with human review mode.",
-    ].join(" ");
-  }
-
-  private buildBestPracticesPrompt(): string {
-    return [
-      "Run the default pragmatic 2026 best-practices loop for this project.",
-      "Review the current codebase against pragmatic 2026 engineering practices, including maintainability, testing depth, developer ergonomics, operational resilience, dependency hygiene, and workflow clarity.",
-      "Do not mutate approved backlog items or the scope of any active task.",
-      "Draft a small set of human-reviewed backlog items for the highest-leverage improvements you find.",
-      "Each draft should explain the current gap, the practical benefit of fixing it in 2026, and the smallest useful implementation slice.",
-      "Use Smithly MCP tools to record the backlog items with human review mode.",
-    ].join(" ");
+    return [basePrompt, reasonSummary].join(" ");
   }
 }

@@ -7,7 +7,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createConfig } from "@smithly/core";
+import { createConfig, DEFAULT_PROJECT_PLANNING_LOOPS } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
@@ -137,6 +137,7 @@ describe("desktop bootstrap", () => {
             title: "Desktop shell stays local-first",
           },
         ],
+        planningLoops: DEFAULT_PROJECT_PLANNING_LOOPS,
         projectId: "project-smithly",
         projectPlanningChat: {
           kind: "project_planning",

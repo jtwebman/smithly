@@ -1,5 +1,6 @@
 import type { ThemeMode, ThemePreference } from "@smithly/core";
 import {
+  getProjectById,
   listApprovalsForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
@@ -58,6 +59,7 @@ export interface IDesktopStatus {
 
 export interface IDesktopSelectedProject {
   readonly projectId: string;
+  readonly planningLoops: readonly IDesktopPlanningLoop[];
   readonly backlogItems: readonly IDesktopListItem[];
   readonly taskRuns: readonly IDesktopListItem[];
   readonly codexSessions: readonly IDesktopCodexSession[];
@@ -128,6 +130,15 @@ export interface IDesktopPlanningSession {
   readonly workerSessionId: string;
   readonly terminalKey: string;
   readonly status: string;
+}
+
+export interface IDesktopPlanningLoop {
+  readonly enabled: boolean;
+  readonly id: string;
+  readonly kind: string;
+  readonly prompt: string;
+  readonly title: string;
+  readonly trigger: string;
 }
 
 export interface IDesktopCodexSession {
@@ -292,6 +303,7 @@ function buildSelectedProject(
   projectId: string,
   selectedBacklogItemId?: string,
 ): IDesktopSelectedProject {
+  const project = getProjectById(context, projectId);
   const backlogItems = listBacklogItemsForProject(context, projectId);
   const taskRuns = listTaskRunsForProject(context, projectId);
   const approvals = listApprovalsForProject(context, projectId);
@@ -440,6 +452,7 @@ function buildSelectedProject(
         title: note.title,
       }))
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    planningLoops: project === null ? [] : parseProjectMetadata(project).planningLoops,
     projectId,
     ...(selectedBacklogItem !== undefined ? { selectedBacklogItemId: selectedBacklogItem.id } : {}),
     ...(projectPlanningThread !== undefined

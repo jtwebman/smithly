@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
-import type {
-  IContext,
-  IProjectApprovalPolicy,
-  IProjectMetadata,
-  IProjectRecord,
-  ProjectExecutionState,
+import {
+  DEFAULT_PROJECT_PLANNING_LOOPS,
+  type IContext,
+  type IProjectApprovalPolicy,
+  type IProjectMetadata,
+  type IProjectPlanningLoop,
+  type IProjectRecord,
+  type ProjectPlanningLoopKind,
+  type ProjectPlanningLoopTrigger,
+  type ProjectExecutionState,
 } from "@smithly/core";
 
 import { getProjectById, listProjects, upsertProject } from "./data.ts";
@@ -16,6 +20,7 @@ export interface IRegisterLocalProjectInput {
   readonly approvalPolicy?: Partial<IProjectApprovalPolicy>;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly name?: string;
+  readonly planningLoops?: readonly IProjectPlanningLoop[];
   readonly repoPath: string;
   readonly verificationCommands?: readonly string[];
 }
@@ -26,6 +31,7 @@ export interface IUpdateProjectMetadataInput {
   readonly executionState?: ProjectExecutionState;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly name?: string;
+  readonly planningLoops?: readonly IProjectPlanningLoop[];
   readonly projectId: string;
   readonly repoPath?: string;
   readonly status?: IProjectRecord["status"];
@@ -73,6 +79,7 @@ export function registerLocalProject(
       approvalPolicy: normalizeApprovalPolicy(input.approvalPolicy),
       executionState: DEFAULT_PROJECT_EXECUTION_STATE,
       metadata: normalizeMetadataEntries(input.metadata),
+      planningLoops: normalizePlanningLoops(input.planningLoops),
       verificationCommands: normalizeVerificationCommands(input.verificationCommands),
     }),
     name: normalizedName && normalizedName.length > 0 ? normalizedName : basename(repoPath),
@@ -108,6 +115,7 @@ export function parseProjectMetadata(
       project.status !== undefined ? { status: project.status } : undefined,
     ),
     metadata: normalizeMetadataEntries(metadataSource),
+    planningLoops: normalizePlanningLoops(parsedJson.planningLoops),
     verificationCommands,
   };
 }
@@ -117,6 +125,7 @@ export function serializeProjectMetadata(metadata: IProjectMetadata): string {
     approvalPolicy: normalizeApprovalPolicy(metadata.approvalPolicy),
     executionState: normalizeExecutionState(metadata.executionState),
     metadata: normalizeMetadataEntries(metadata.metadata),
+    planningLoops: normalizePlanningLoops(metadata.planningLoops),
     verificationCommands: normalizeVerificationCommands(metadata.verificationCommands),
   });
 }
@@ -159,6 +168,9 @@ export function updateProjectMetadata(
       executionState:
         input.executionState ?? parseProjectMetadata(project).executionState,
       metadata: normalizeMetadataEntries(input.metadata ?? parseProjectMetadata(project).metadata),
+      planningLoops: normalizePlanningLoops(
+        input.planningLoops ?? parseProjectMetadata(project).planningLoops,
+      ),
       verificationCommands: normalizeVerificationCommands(
         input.verificationCommands ?? parseProjectMetadata(project).verificationCommands,
       ),
@@ -269,12 +281,80 @@ function normalizeMetadataEntries(
   );
 }
 
+function normalizePlanningLoops(
+  planningLoops: readonly IProjectPlanningLoop[] | unknown,
+): IProjectPlanningLoop[] {
+  if (!Array.isArray(planningLoops)) {
+    return cloneDefaultProjectPlanningLoops();
+  }
+
+  const normalizedLoops = planningLoops.flatMap((planningLoop, index) => {
+    if (!isObjectRecord(planningLoop)) {
+      return [];
+    }
+
+    const prompt =
+      typeof planningLoop.prompt === "string" ? planningLoop.prompt.trim() : "";
+
+    if (prompt.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        enabled: typeof planningLoop.enabled === "boolean" ? planningLoop.enabled : true,
+        id:
+          typeof planningLoop.id === "string" && planningLoop.id.trim().length > 0
+            ? planningLoop.id.trim()
+            : `loop-${index + 1}`,
+        kind: normalizePlanningLoopKind(planningLoop.kind),
+        prompt,
+        title:
+          typeof planningLoop.title === "string" && planningLoop.title.trim().length > 0
+            ? planningLoop.title.trim()
+            : `Loop ${index + 1}`,
+        trigger: normalizePlanningLoopTrigger(planningLoop.trigger),
+      } satisfies IProjectPlanningLoop,
+    ];
+  });
+
+  return normalizedLoops.length > 0 ? normalizedLoops : cloneDefaultProjectPlanningLoops();
+}
+
+function normalizePlanningLoopKind(kind: unknown): ProjectPlanningLoopKind {
+  switch (kind) {
+    case "idle_backlog_generation":
+    case "security_audit":
+    case "best_practices":
+    case "custom":
+      return kind;
+    default:
+      return "custom";
+  }
+}
+
+function normalizePlanningLoopTrigger(trigger: unknown): ProjectPlanningLoopTrigger {
+  switch (trigger) {
+    case "blocked_or_waiting":
+    case "idle":
+      return trigger;
+    default:
+      return "idle";
+  }
+}
+
+function cloneDefaultProjectPlanningLoops(): IProjectPlanningLoop[] {
+  return DEFAULT_PROJECT_PLANNING_LOOPS.map((planningLoop) => ({ ...planningLoop }));
+}
+
 function collectLegacyMetadata(metadataJson: Record<string, unknown>): Record<string, string> {
   const metadataEntries: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(metadataJson)) {
     if (
       key === "approvalPolicy" ||
+      key === "executionState" ||
+      key === "planningLoops" ||
       key === "verificationCommand" ||
       key === "verificationCommands"
     ) {

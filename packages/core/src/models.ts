@@ -5,6 +5,12 @@ export type ProjectExecutionState =
   | "blocked"
   | "waiting_for_credit"
   | "waiting_for_human";
+export type ProjectPlanningLoopKind =
+  | "idle_backlog_generation"
+  | "security_audit"
+  | "best_practices"
+  | "custom";
+export type ProjectPlanningLoopTrigger = "idle" | "blocked_or_waiting";
 export type BacklogItemStatus =
   | "draft"
   | "approved"
@@ -52,12 +58,70 @@ export interface IProjectApprovalPolicy {
   readonly requireApprovalForScopeChanges: boolean;
 }
 
+export interface IProjectPlanningLoop {
+  readonly enabled: boolean;
+  readonly id: string;
+  readonly kind: ProjectPlanningLoopKind;
+  readonly prompt: string;
+  readonly title: string;
+  readonly trigger: ProjectPlanningLoopTrigger;
+}
+
 export interface IProjectMetadata {
   readonly approvalPolicy: IProjectApprovalPolicy;
   readonly executionState: ProjectExecutionState;
   readonly metadata: Readonly<Record<string, string>>;
+  readonly planningLoops: readonly IProjectPlanningLoop[];
   readonly verificationCommands: readonly string[];
 }
+
+export const DEFAULT_PROJECT_PLANNING_LOOPS: readonly IProjectPlanningLoop[] = [
+  {
+    enabled: true,
+    id: "loop-idle-backlog-generation",
+    kind: "idle_backlog_generation",
+    prompt: [
+      "Run the default idle backlog-generation loop for this project.",
+      "The project is blocked or waiting on something external before coding can resume.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Instead, identify a small set of useful draft backlog items or draft refinements that can move the project forward while execution is waiting.",
+      "Prefer reviewable work that reduces risk, prepares follow-on execution, or addresses likely unblockers.",
+      "Use Smithly MCP tools to record the drafted work and explain briefly why each item helps.",
+    ].join(" "),
+    title: "Idle backlog generation",
+    trigger: "blocked_or_waiting",
+  },
+  {
+    enabled: true,
+    id: "loop-security-audit",
+    kind: "security_audit",
+    prompt: [
+      "Run the default security-audit loop for this project.",
+      "Review the full codebase for concrete security weaknesses, insecure defaults, secrets handling risks, authorization gaps, dependency exposure, and unsafe operational assumptions.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-value security follow-ups you find.",
+      "Each draft should explain the risk, the likely impact, and the smallest pragmatic remediation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
+    ].join(" "),
+    title: "Security audit",
+    trigger: "idle",
+  },
+  {
+    enabled: true,
+    id: "loop-best-practices-2026",
+    kind: "best_practices",
+    prompt: [
+      "Run the default pragmatic 2026 best-practices loop for this project.",
+      "Review the current codebase against pragmatic 2026 engineering practices, including maintainability, testing depth, developer ergonomics, operational resilience, dependency hygiene, and workflow clarity.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-leverage improvements you find.",
+      "Each draft should explain the current gap, the practical benefit of fixing it in 2026, and the smallest useful implementation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
+    ].join(" "),
+    title: "Pragmatic 2026 best practices",
+    trigger: "idle",
+  },
+];
 
 export interface IProjectRecord {
   readonly id: string;

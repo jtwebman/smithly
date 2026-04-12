@@ -173,6 +173,14 @@ function registerDesktopHandlers(context: IStorageContext): void {
         };
         readonly metadata?: Readonly<Record<string, string>>;
         readonly name?: string;
+        readonly planningLoops?: readonly {
+          readonly enabled: boolean;
+          readonly id: string;
+          readonly kind: "idle_backlog_generation" | "security_audit" | "best_practices" | "custom";
+          readonly prompt: string;
+          readonly title: string;
+          readonly trigger: "idle" | "blocked_or_waiting";
+        }[];
         readonly repoPath: string;
         readonly verificationCommands?: readonly string[];
       },
@@ -210,6 +218,14 @@ function registerDesktopHandlers(context: IStorageContext): void {
         };
         readonly metadata?: Readonly<Record<string, string>>;
         readonly name?: string;
+        readonly planningLoops?: readonly {
+          readonly enabled: boolean;
+          readonly id: string;
+          readonly kind: "idle_backlog_generation" | "security_audit" | "best_practices" | "custom";
+          readonly prompt: string;
+          readonly title: string;
+          readonly trigger: "idle" | "blocked_or_waiting";
+        }[];
         readonly projectId: string;
         readonly repoPath: string;
         readonly verificationCommands?: readonly string[];
