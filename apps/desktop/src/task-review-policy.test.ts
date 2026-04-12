@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConfig } from "@smithly/core";
 import {
+  addBacklogDependency,
   createContext,
   createDraftBacklogItemFromPlanning,
   createInitialSeedFixture,
@@ -312,10 +313,9 @@ describe("task review policy", () => {
       scopeSummary: "Child work depends on the parent merge.",
       status: "approved",
     });
-    upsertBacklogItem(context, {
-      ...(getBacklogItemById(context, childBacklogItem.id) ?? childBacklogItem),
-      parentBacklogItemId: parentBacklogItem.id,
-      updatedAt: "2026-04-10T14:55:00.000Z",
+    addBacklogDependency(context, {
+      blockedBacklogItemId: childBacklogItem.id,
+      blockingBacklogItemId: parentBacklogItem.id,
     });
 
     const parentTaskRun = startCodingTask(context, {

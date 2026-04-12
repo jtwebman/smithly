@@ -11,6 +11,7 @@ import {
   createDraftBacklogItemFromPlanning,
   createContext,
   listApprovalsForProject,
+  listBacklogDependencyLinksForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
   listMemoryNotesForProject,
@@ -581,6 +582,83 @@ describe("smithly mcp server", () => {
         .filter((backlogItem) => backlogItem.id !== fixture.backlogItem.id)
         .map((backlogItem) => backlogItem.id),
     ).toEqual([secondPendingBacklogItem.id, firstPendingBacklogItem.id]);
+
+    await close();
+    context.db.close();
+  });
+
+  it("adds, lists, and removes explicit backlog dependency links", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const blockingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Blocking item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocking item",
+    });
+    const blockedBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Blocked item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocked item",
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "project",
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.projectChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const addResult = await client.callTool({
+      arguments: {
+        blockedBacklogItemId: blockedBacklogItem.id,
+        blockingBacklogItemId: blockingBacklogItem.id,
+        noteText: "Link the blocked item to the blocking item.",
+      },
+      name: "add_backlog_dependency",
+    });
+    const listResult = await client.callTool({
+      arguments: {
+        backlogItemId: blockedBacklogItem.id,
+      },
+      name: "list_backlog_dependencies",
+    });
+    const removeResult = await client.callTool({
+      arguments: {
+        blockedBacklogItemId: blockedBacklogItem.id,
+        blockingBacklogItemId: blockingBacklogItem.id,
+      },
+      name: "remove_backlog_dependency",
+    });
+
+    expect(addResult.structuredContent).toMatchObject({
+      dependency: {
+        blockedBacklogItemId: blockedBacklogItem.id,
+        blockingBacklogItemId: blockingBacklogItem.id,
+        projectId: fixture.project.id,
+      },
+    });
+    expect(listResult.structuredContent).toMatchObject({
+      dependencies: [
+        expect.objectContaining({
+          blockedBacklogItemId: blockedBacklogItem.id,
+          blockingBacklogItemId: blockingBacklogItem.id,
+        }),
+      ],
+    });
+    expect(removeResult.structuredContent).toMatchObject({
+      removed: true,
+    });
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([]);
 
     await close();
     context.db.close();

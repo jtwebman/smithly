@@ -3,20 +3,23 @@ import { randomUUID } from "node:crypto";
 import type {
   IApprovalRecord,
   IBacklogItemRecord,
+  IBacklogDependencyRecord,
+  IBlockerRecord,
   IChatMessageRecord,
   IChatThreadRecord,
   IContext,
   IMemoryNoteRecord,
   ITaskRunRecord,
-  IBlockerRecord,
   ReviewMode,
   RiskLevel,
   WorkerKind,
 } from "@smithly/core";
 
 import {
+  deleteBacklogDependencyLink,
   getBacklogItemById,
   getProjectById,
+  listBacklogDependencyLinksForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
   listChatThreadsForProject,
@@ -24,6 +27,7 @@ import {
   listTaskRunsForProject,
   upsertApproval,
   upsertBacklogItem,
+  upsertBacklogDependencyLink,
   upsertChatMessage,
   upsertChatThread,
   upsertMemoryNote,
@@ -68,6 +72,20 @@ export interface IReprioritizeBacklogItemInput {
 export interface IReorderPendingBacklogItemsInput {
   readonly projectId: string;
   readonly backlogItemIds: readonly string[];
+  readonly noteText?: string;
+  readonly sourceThreadId?: string;
+}
+
+export interface IAddBacklogDependencyInput {
+  readonly blockingBacklogItemId: string;
+  readonly blockedBacklogItemId: string;
+  readonly noteText?: string;
+  readonly sourceThreadId?: string;
+}
+
+export interface IRemoveBacklogDependencyInput {
+  readonly blockingBacklogItemId: string;
+  readonly blockedBacklogItemId: string;
   readonly noteText?: string;
   readonly sourceThreadId?: string;
 }
@@ -365,6 +383,76 @@ export function reorderPendingBacklogItems(
   );
 
   return updatedBacklogItems;
+}
+
+export function addBacklogDependency(
+  context: IContext,
+  input: IAddBacklogDependencyInput,
+): IBacklogDependencyRecord {
+  if (input.blockingBacklogItemId === input.blockedBacklogItemId) {
+    throw new Error("A backlog item cannot depend on itself.");
+  }
+
+  const blockingBacklogItem = requireBacklogItem(context, input.blockingBacklogItemId);
+  const blockedBacklogItem = requireBacklogItem(context, input.blockedBacklogItemId);
+
+  if (blockingBacklogItem.projectId !== blockedBacklogItem.projectId) {
+    throw new Error("Dependency links must stay within the same project.");
+  }
+
+  const timestamp = new Date().toISOString();
+  const dependencyRecord: IBacklogDependencyRecord = {
+    blockedBacklogItemId: blockedBacklogItem.id,
+    blockingBacklogItemId: blockingBacklogItem.id,
+    createdAt: timestamp,
+    projectId: blockingBacklogItem.projectId,
+    updatedAt: timestamp,
+  };
+
+  upsertBacklogDependencyLink(context, dependencyRecord);
+  recordPlanningMutation(
+    context,
+    blockingBacklogItem.projectId,
+    input.sourceThreadId,
+    `Linked dependency: "${blockedBacklogItem.title}" is blocked by "${blockingBacklogItem.title}".`,
+    input.noteText,
+    timestamp,
+  );
+
+  return dependencyRecord;
+}
+
+export function removeBacklogDependency(
+  context: IContext,
+  input: IRemoveBacklogDependencyInput,
+): boolean {
+  const blockingBacklogItem = requireBacklogItem(context, input.blockingBacklogItemId);
+  const blockedBacklogItem = requireBacklogItem(context, input.blockedBacklogItemId);
+
+  if (blockingBacklogItem.projectId !== blockedBacklogItem.projectId) {
+    throw new Error("Dependency links must stay within the same project.");
+  }
+
+  const removed = deleteBacklogDependencyLink(
+    context,
+    input.blockingBacklogItemId,
+    input.blockedBacklogItemId,
+  );
+
+  if (!removed) {
+    return false;
+  }
+
+  recordPlanningMutation(
+    context,
+    blockingBacklogItem.projectId,
+    input.sourceThreadId,
+    `Removed dependency: "${blockedBacklogItem.title}" is no longer blocked by "${blockingBacklogItem.title}".`,
+    input.noteText,
+    new Date().toISOString(),
+  );
+
+  return true;
 }
 
 export function ensureProjectPlanningThread(
@@ -718,6 +806,17 @@ function assertBacklogItemReadyForExecution(
     );
   }
 
+  const unclearedDependencies = listUnclearedDependencyLinks(context, backlogItem);
+
+  if (unclearedDependencies.length > 0) {
+    const blockingTitles = unclearedDependencies
+      .map((dependency) => getBacklogItemById(context, dependency.blockingBacklogItemId)?.title)
+      .filter((title): title is string => title !== undefined);
+    blockingReasons.push(
+      `dependencies are not cleared${blockingTitles.length > 0 ? ` (${blockingTitles.join(", ")})` : ""}`,
+    );
+  }
+
   if (blockingReasons.length > 0) {
     throw new Error(
       `Backlog item ${backlogItem.id} cannot start execution until ${blockingReasons.join(", ")}.`,
@@ -740,4 +839,21 @@ function listExecutionBlockers(
 
     return blocker.backlogItemId === undefined || blocker.backlogItemId === backlogItem.id;
   });
+}
+
+function listUnclearedDependencyLinks(
+  context: IContext,
+  backlogItem: IBacklogItemRecord,
+): IBacklogDependencyRecord[] {
+  return listBacklogDependencyLinksForProject(context, backlogItem.projectId).filter(
+    (dependency) => {
+      if (dependency.blockedBacklogItemId !== backlogItem.id) {
+        return false;
+      }
+
+      const blockingBacklogItem = getBacklogItemById(context, dependency.blockingBacklogItemId);
+
+      return blockingBacklogItem?.status !== "done";
+    },
+  );
 }

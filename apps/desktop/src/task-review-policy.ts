@@ -10,10 +10,10 @@ import type {
 import {
   getBacklogItemById,
   type IStorageContext,
+  listBacklogDependencyLinksForProject,
   listMemoryNotesForProject,
-  listProjects,
-  listBacklogItemsForProject,
   listBlockersForProject,
+  listProjects,
   listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
@@ -213,9 +213,12 @@ function syncDependentMergeBlockers(
   isMerged: boolean,
   timestamp: string,
 ): void {
-  const dependentItems = listBacklogItemsForProject(context, backlogItem.projectId).filter(
-    (candidate) => candidate.parentBacklogItemId === backlogItem.id,
-  );
+  const dependentItems = listBacklogDependencyLinksForProject(context, backlogItem.projectId)
+    .filter((dependency) => dependency.blockingBacklogItemId === backlogItem.id)
+    .flatMap((dependency) => {
+      const dependentItem = getBacklogItemById(context, dependency.blockedBacklogItemId);
+      return dependentItem === null ? [] : [dependentItem];
+    });
 
   for (const dependentItem of dependentItems) {
     const blockerId = `blocker-merge-dependency-${taskRun.id}-${dependentItem.id}`;

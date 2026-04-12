@@ -1,6 +1,6 @@
 import { getBacklogItemById } from "@smithly/storage";
 import {
-  listBacklogItemsForProject,
+  listBacklogDependencyLinksForProject,
   listBlockersForProject,
   listProjects,
   listTaskRunsForProject,
@@ -50,9 +50,15 @@ export class TaskMergeManager {
     const taskGitState = this.taskGitManager.getTaskGitState(taskRunId);
     const isMerged = taskGitState?.status === "merged";
     const timestamp = this.now().toISOString();
-    const dependentItems = listBacklogItemsForProject(this.context, backlogItem.projectId).filter(
-      (candidate) => candidate.parentBacklogItemId === backlogItem.id,
-    );
+    const dependentItems = listBacklogDependencyLinksForProject(
+      this.context,
+      backlogItem.projectId,
+    )
+      .filter((dependency) => dependency.blockingBacklogItemId === backlogItem.id)
+      .flatMap((dependency) => {
+        const dependentItem = getBacklogItemById(this.context, dependency.blockedBacklogItemId);
+        return dependentItem === null ? [] : [dependentItem];
+      });
 
     for (const dependentItem of dependentItems) {
       const blockerId = buildDependentMergeBlockerId(taskRunId, dependentItem.id);

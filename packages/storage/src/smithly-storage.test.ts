@@ -83,10 +83,15 @@ describe("ensureDatabase", () => {
         name: "add_backlog_readiness",
         version: 260411000000,
       },
+      {
+        appliedAt: expect.any(String),
+        name: "add_backlog_dependencies",
+        version: 260411100000,
+      },
     ]);
   });
 
-  it("migrates existing backlog items onto the readiness field", () => {
+  it("migrates legacy backlog readiness and dependency links forward", () => {
     const tempDirectory = mkdtempSync(join(tmpdir(), "smithly-db-"));
     const databasePath = join(tempDirectory, "smithly.sqlite");
 
@@ -185,7 +190,7 @@ describe("ensureDatabase", () => {
         .run(
           "backlog-draft",
           "project-migration",
-          null,
+          "backlog-approved",
           "Draft work",
           "draft",
           10,
@@ -217,6 +222,21 @@ describe("ensureDatabase", () => {
           .prepare("SELECT readiness FROM backlog_items WHERE id = ?")
           .get("backlog-draft"),
       ).toEqual({ readiness: "not_ready" });
+      expect(
+        migrated
+          .prepare(
+            `
+              SELECT blocking_backlog_item_id AS blockingBacklogItemId, blocked_backlog_item_id AS blockedBacklogItemId
+              FROM backlog_dependencies
+            `,
+          )
+          .all(),
+      ).toEqual([
+        {
+          blockedBacklogItemId: "backlog-draft",
+          blockingBacklogItemId: "backlog-approved",
+        },
+      ]);
     } finally {
       migrated.close();
     }
@@ -228,7 +248,7 @@ describe("ensureDatabase", () => {
     const failingMigration: MigrationDefinition = {
       name: "broken",
       sqlFile: "packages/storage/migrations/260410000001_broken.sql",
-      version: 260411000001,
+      version: 260411100001,
     };
 
     temporaryDirectories.push(tempDirectory);
@@ -250,6 +270,6 @@ describe("ensureDatabase", () => {
     ).toThrow(SmithlyMigrationError);
 
     expect(readDatabaseVersion(databasePath)).toBe(CURRENT_DATABASE_VERSION);
-    expect(listAppliedMigrations(databasePath)).toHaveLength(2);
+    expect(listAppliedMigrations(databasePath)).toHaveLength(3);
   });
 });

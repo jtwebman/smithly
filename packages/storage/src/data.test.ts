@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConfig } from "@smithly/core";
 
 import {
+  deleteBacklogDependencyLink,
   deleteProjectById,
   getBacklogItemById,
   getProjectById,
   listApprovalsForProject,
+  listBacklogDependencyLinksForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
   listChatMessagesForThread,
@@ -21,6 +23,8 @@ import {
   listTaskRunsForProject,
   listVerificationRunsForTask,
   listWorkerSessionsForProject,
+  upsertBacklogItem,
+  upsertBacklogDependencyLink,
   upsertProject,
 } from "./data.ts";
 import { closeContext, createContext } from "./context.ts";
@@ -100,6 +104,53 @@ describe("storage data layer", () => {
     expect(listProjects(context)).toEqual([]);
     expect(listBacklogItemsForProject(context, fixture.project.id)).toEqual([]);
     expect(listTaskRunsForProject(context, fixture.project.id)).toEqual([]);
+
+    closeContext(context);
+  });
+
+  it("persists backlog dependency links and cascades them with project deletion", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-data-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const dependentFixture = {
+      ...fixture.backlogItem,
+      createdAt: "2026-04-10T07:10:00.000Z",
+      id: "backlog-dependent",
+      priority: 40,
+      status: "draft" as const,
+      title: "Dependent item",
+      updatedAt: "2026-04-10T07:10:00.000Z",
+    };
+
+    upsertBacklogItem(context, dependentFixture);
+    upsertBacklogDependencyLink(context, {
+      blockedBacklogItemId: dependentFixture.id,
+      blockingBacklogItemId: fixture.backlogItem.id,
+      createdAt: "2026-04-10T07:10:00.000Z",
+      projectId: fixture.project.id,
+      updatedAt: "2026-04-10T07:10:00.000Z",
+    });
+
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([
+      {
+        blockedBacklogItemId: dependentFixture.id,
+        blockingBacklogItemId: fixture.backlogItem.id,
+        createdAt: "2026-04-10T07:10:00.000Z",
+        projectId: fixture.project.id,
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+    ]);
+    expect(deleteBacklogDependencyLink(context, fixture.backlogItem.id, dependentFixture.id)).toBe(
+      true,
+    );
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([]);
 
     closeContext(context);
   });

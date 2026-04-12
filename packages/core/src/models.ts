@@ -79,6 +79,14 @@ export interface IBacklogItemRecord {
   readonly updatedAt: string;
 }
 
+export interface IBacklogDependencyRecord {
+  readonly projectId: string;
+  readonly blockingBacklogItemId: string;
+  readonly blockedBacklogItemId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface IWorkerSessionRecord {
   readonly id: string;
   readonly projectId: string;

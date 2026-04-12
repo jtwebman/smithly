@@ -11,7 +11,7 @@ describe("storage bootstrap", () => {
   });
 
   it("exposes the checked-in migration set", () => {
-    expect(CURRENT_DATABASE_VERSION).toBe(260411000000);
-    expect(MIGRATIONS).toHaveLength(2);
+    expect(CURRENT_DATABASE_VERSION).toBe(260411100000);
+    expect(MIGRATIONS).toHaveLength(3);
   });
 });

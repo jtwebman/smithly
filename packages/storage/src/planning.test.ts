@@ -9,6 +9,7 @@ import { createConfig } from "@smithly/core";
 import { createContext, closeContext } from "./context.ts";
 import {
   listApprovalsForProject,
+  listBacklogDependencyLinksForProject,
   getBacklogItemById,
   listBacklogItemsForProject,
   listChatMessagesForThread,
@@ -17,12 +18,14 @@ import {
   listTaskRunsForProject,
 } from "./data.ts";
 import {
+  addBacklogDependency,
   approveBootstrapBacklogItem,
   createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
   ensureProjectPlanningThread,
   finalizeBootstrapProject,
   getBootstrapMvpPlan,
+  removeBacklogDependency,
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
   reviseBacklogItemFromPlanning,
@@ -364,6 +367,86 @@ describe("planning mutations", () => {
         projectId: fixture.project.id,
       }),
     ).toThrow("cannot be reordered");
+
+    closeContext(context);
+  });
+
+  it("links dependencies and blocks execution until the dependency is done", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const blockingBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Finish this task first.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocking task",
+    });
+    const blockedBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "This task depends on the first one.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocked task",
+    });
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This task must complete before the dependent task can start."],
+      backlogItemId: blockingBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Finish this task first.",
+      status: "approved",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This task waits for the blocking task."],
+      backlogItemId: blockedBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "This task depends on the first one.",
+      status: "approved",
+    });
+
+    const dependencyRecord = addBacklogDependency(context, {
+      blockedBacklogItemId: blockedBacklogItem.id,
+      blockingBacklogItemId: blockingBacklogItem.id,
+      noteText: "Do not start the blocked task until the first one is done.",
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([
+      dependencyRecord,
+    ]);
+    expect(() =>
+      startCodingTask(context, {
+        backlogItemId: blockedBacklogItem.id,
+      }),
+    ).toThrow("dependencies are not cleared");
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This task must complete before the dependent task can start."],
+      backlogItemId: blockingBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Finish this task first.",
+      status: "done",
+    });
+
+    expect(() =>
+      startCodingTask(context, {
+        backlogItemId: blockedBacklogItem.id,
+      }),
+    ).not.toThrow();
+    expect(
+      removeBacklogDependency(context, {
+        blockedBacklogItemId: blockedBacklogItem.id,
+        blockingBacklogItemId: blockingBacklogItem.id,
+        sourceThreadId: fixture.projectChatThread.id,
+      }),
+    ).toBe(true);
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual([]);
 
     closeContext(context);
   });

@@ -1,6 +1,7 @@
 import type {
   IApprovalRecord,
   IBacklogItemRecord,
+  IBacklogDependencyRecord,
   IBlockerRecord,
   IChatMessageRecord,
   IChatThreadRecord,
@@ -144,6 +145,73 @@ export function getBacklogItemById(
     [backlogItemId],
     mapBacklogItem,
   );
+}
+
+export function listBacklogDependencyLinksForProject(
+  context: IContext,
+  projectId: string,
+): IBacklogDependencyRecord[] {
+  return context.db.many(
+    `
+      SELECT
+        project_id AS projectId,
+        blocking_backlog_item_id AS blockingBacklogItemId,
+        blocked_backlog_item_id AS blockedBacklogItemId,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM backlog_dependencies
+      WHERE project_id = ?
+      ORDER BY created_at ASC, blocking_backlog_item_id ASC, blocked_backlog_item_id ASC
+    `,
+    [projectId],
+    mapBacklogDependency,
+  );
+}
+
+export function upsertBacklogDependencyLink(
+  context: IContext,
+  backlogDependency: IBacklogDependencyRecord,
+): void {
+  context.db.run(
+    `
+      INSERT INTO backlog_dependencies (
+        project_id,
+        blocking_backlog_item_id,
+        blocked_backlog_item_id,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(blocking_backlog_item_id, blocked_backlog_item_id) DO UPDATE SET
+        project_id = excluded.project_id,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+    `,
+    [
+      backlogDependency.projectId,
+      backlogDependency.blockingBacklogItemId,
+      backlogDependency.blockedBacklogItemId,
+      backlogDependency.createdAt,
+      backlogDependency.updatedAt,
+    ],
+  );
+}
+
+export function deleteBacklogDependencyLink(
+  context: IContext,
+  blockingBacklogItemId: string,
+  blockedBacklogItemId: string,
+): boolean {
+  const result = context.db.run(
+    `
+      DELETE FROM backlog_dependencies
+      WHERE blocking_backlog_item_id = ?
+        AND blocked_backlog_item_id = ?
+    `,
+    [blockingBacklogItemId, blockedBacklogItemId],
+  );
+
+  return result.changes > 0;
 }
 
 export function upsertBacklogItem(context: IContext, backlogItem: IBacklogItemRecord): void {
@@ -858,6 +926,16 @@ function mapBacklogItem(row: Record<string, unknown>): IBacklogItemRecord {
       ? { parentBacklogItemId: row.parentBacklogItemId }
       : {}),
     ...(typeof row.scopeSummary === "string" ? { scopeSummary: row.scopeSummary } : {}),
+  };
+}
+
+function mapBacklogDependency(row: Record<string, unknown>): IBacklogDependencyRecord {
+  return {
+    blockedBacklogItemId: stringFromRow(row.blockedBacklogItemId, "blockedBacklogItemId"),
+    blockingBacklogItemId: stringFromRow(row.blockingBacklogItemId, "blockingBacklogItemId"),
+    createdAt: stringFromRow(row.createdAt, "createdAt"),
+    projectId: stringFromRow(row.projectId, "projectId"),
+    updatedAt: stringFromRow(row.updatedAt, "updatedAt"),
   };
 }
 

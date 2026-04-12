@@ -15,29 +15,32 @@ import {
   type MemoryNoteType,
 } from "@smithly/core";
 import {
+  addBacklogDependency,
+  approveBootstrapBacklogItem,
   createContext,
   createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
+  ensureProjectPlanningThread,
   finalizeBootstrapProject,
   getBacklogItemById,
   getBootstrapMvpPlan,
   getProjectById,
-  listProjects,
-  registerLocalProject,
   listApprovalsForProject,
+  listBacklogDependencyLinksForProject,
   listBacklogItemsForProject,
   listBlockersForProject,
   listChatThreadsForProject,
   listMemoryNotesForProject,
+  listProjects,
   listTaskRunsForProject,
   listWorkerSessionsForProject,
-  reviseBacklogItemFromPlanning,
-  startCodingTask,
-  approveBootstrapBacklogItem,
-  ensureProjectPlanningThread,
   parseProjectMetadata,
+  registerLocalProject,
+  removeBacklogDependency,
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
+  reviseBacklogItemFromPlanning,
+  startCodingTask,
   upsertApproval,
   upsertBacklogItem,
   upsertBlocker,
@@ -915,6 +918,137 @@ export function createSmithlyMcpServer(
   );
 
   server.registerTool(
+    "list_backlog_dependencies",
+    {
+      description: "List explicit backlog dependency links for the current project.",
+      inputSchema: {
+        backlogItemId: z
+          .string()
+          .optional()
+          .describe("Optional backlog item filter for blocking or blocked links."),
+      },
+      outputSchema: {
+        dependencies: z.array(
+          z.object({
+            blockedBacklogItemId: z.string(),
+            blockingBacklogItemId: z.string(),
+            createdAt: z.string(),
+            projectId: z.string(),
+            updatedAt: z.string(),
+          }),
+        ),
+      },
+    },
+    async ({ backlogItemId }) => {
+      const projectId = requireProjectId(environment);
+      const dependencies = listBacklogDependencyLinksForProject(context, projectId).filter(
+        (dependency) => {
+          return (
+            backlogItemId === undefined ||
+            dependency.blockedBacklogItemId === backlogItemId ||
+            dependency.blockingBacklogItemId === backlogItemId
+          );
+        },
+      );
+      const structuredContent = { dependencies };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(structuredContent, null, 2),
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "add_backlog_dependency",
+    {
+      description: "Record that one backlog item explicitly blocks another within the same project.",
+      inputSchema: {
+        blockedBacklogItemId: z.string().describe("Backlog item that must wait."),
+        blockingBacklogItemId: z.string().describe("Backlog item that must finish first."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the dependency link."),
+      },
+      outputSchema: {
+        dependency: z.object({
+          blockedBacklogItemId: z.string(),
+          blockingBacklogItemId: z.string(),
+          createdAt: z.string(),
+          projectId: z.string(),
+          updatedAt: z.string(),
+        }),
+      },
+    },
+    async ({ blockedBacklogItemId, blockingBacklogItemId, noteText }) => {
+      const projectId = requireProjectId(environment);
+      const dependency = addBacklogDependency(context, {
+        blockedBacklogItemId: requireBacklogItem(context, projectId, blockedBacklogItemId).id,
+        blockingBacklogItemId: requireBacklogItem(context, projectId, blockingBacklogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = { dependency };
+
+      return {
+        content: [
+          {
+            text: `Linked backlog dependency ${blockingBacklogItemId} -> ${blockedBacklogItemId}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "remove_backlog_dependency",
+    {
+      description: "Remove an explicit backlog dependency link from the current project.",
+      inputSchema: {
+        blockedBacklogItemId: z.string().describe("Backlog item that was waiting."),
+        blockingBacklogItemId: z.string().describe("Backlog item that was blocking it."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the dependency removal."),
+      },
+      outputSchema: {
+        removed: z.boolean(),
+      },
+    },
+    async ({ blockedBacklogItemId, blockingBacklogItemId, noteText }) => {
+      const projectId = requireProjectId(environment);
+      const removed = removeBacklogDependency(context, {
+        blockedBacklogItemId: requireBacklogItem(context, projectId, blockedBacklogItemId).id,
+        blockingBacklogItemId: requireBacklogItem(context, projectId, blockingBacklogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = { removed };
+
+      return {
+        content: [
+          {
+            text: removed
+              ? `Removed backlog dependency ${blockingBacklogItemId} -> ${blockedBacklogItemId}.`
+              : `No backlog dependency existed for ${blockingBacklogItemId} -> ${blockedBacklogItemId}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "reprioritize_backlog_item",
     {
       description:
@@ -1663,6 +1797,7 @@ function buildProjectSnapshot(
   const project = requireProject(context, environment.projectId);
   const backlogItems = listBacklogItemsForProject(context, environment.projectId);
   const approvals = listApprovalsForProject(context, environment.projectId);
+  const dependencies = listBacklogDependencyLinksForProject(context, environment.projectId);
   const blockers = listBlockersForProject(context, environment.projectId);
   const taskRuns = listTaskRunsForProject(context, environment.projectId);
 
@@ -1675,6 +1810,7 @@ function buildProjectSnapshot(
         title: approval.title,
       })),
     backlogItems: backlogItems.map((backlogItem) => summarizeBacklogItem(backlogItem)),
+    dependencies,
     blockers: blockers
       .filter((blocker) => blocker.status === "open")
       .map((blocker) => ({
