@@ -54,6 +54,7 @@ export interface IPlanningOutputEvent {
   readonly projectId: string;
   readonly rawData: string;
   readonly entries: readonly IPlanningOutputEntry[];
+  readonly storageUpdated: boolean;
 }
 
 export interface IEnsurePlanningSessionInput {
@@ -436,11 +437,12 @@ export class PlanningSessionManager {
       pty.onData((rawData) => {
         this.appendSessionLog(runtimeSession.logFilePath, rawData);
         this.touchWorkerSession(runtimeSession, "running");
-        const entries = this.persistOutput(runtimeSession, rawData);
+        const output = this.persistOutput(runtimeSession, rawData);
         this.emitOutput({
-          entries,
+          entries: output.entries,
           projectId: runtimeSession.projectId,
           rawData,
+          storageUpdated: output.storageUpdated,
           terminalKey,
         });
       });
@@ -457,7 +459,7 @@ export class PlanningSessionManager {
         this.touchWorkerSession(closedSession, status);
         this.appendSessionLog(closedSession.logFilePath, `${message}\n`);
         this.emitOutput({
-          entries: this.persistOutput(closedSession, `${message}\n`, "system"),
+          ...this.persistOutput(closedSession, `${message}\n`, "system"),
           projectId: closedSession.projectId,
           rawData: `\r\n${message}\r\n`,
           terminalKey,
@@ -485,9 +487,10 @@ export class PlanningSessionManager {
       );
       this.appendSessionLog(logFilePath, `${failureMessage}\n`);
       this.emitOutput({
-        entries: this.persistStaticMessage(thread.id, workerSessionId, failureMessage, "system"),
+        ...this.persistStaticMessage(thread.id, workerSessionId, failureMessage, "system"),
         projectId: input.projectId,
         rawData: `${failureMessage}\r\n`,
+        storageUpdated: true,
         terminalKey,
       });
       this.upsertSessionSummary(
@@ -656,7 +659,10 @@ export class PlanningSessionManager {
     >,
     rawData: string,
     role: ChatMessageRole = "claude",
-  ): IPlanningOutputEntry[] {
+  ): {
+    readonly entries: readonly IPlanningOutputEntry[];
+    readonly storageUpdated: boolean;
+  } {
     const sanitizedData = stripAnsi(rawData).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 
     session.lineBuffer += sanitizedData;
@@ -665,13 +671,32 @@ export class PlanningSessionManager {
 
     session.lineBuffer = completeLines.pop() ?? "";
 
-    return completeLines.flatMap((line) => {
+    const entries: IPlanningOutputEntry[] = [];
+    let storageUpdated = false;
+
+    for (const line of completeLines) {
       if (this.applyHookLine(session, line)) {
-        return [];
+        storageUpdated = true;
+        continue;
       }
 
-      return this.persistStaticMessage(session.threadId, session.workerSessionId, line, role);
-    });
+      if (role !== "claude") {
+        const persisted = this.persistStaticMessage(
+          session.threadId,
+          session.workerSessionId,
+          line,
+          role,
+        );
+
+        entries.push(...persisted.entries);
+        storageUpdated = storageUpdated || persisted.storageUpdated;
+      }
+    }
+
+    return {
+      entries,
+      storageUpdated,
+    };
   }
 
   private persistStaticMessage(
@@ -679,11 +704,17 @@ export class PlanningSessionManager {
     workerSessionId: string,
     bodyText: string,
     role: ChatMessageRole,
-  ): IPlanningOutputEntry[] {
+  ): {
+    readonly entries: readonly IPlanningOutputEntry[];
+    readonly storageUpdated: boolean;
+  } {
     const normalizedBodyText = bodyText.trim();
 
     if (normalizedBodyText.length === 0) {
-      return [];
+      return {
+        entries: [],
+        storageUpdated: false,
+      };
     }
 
     const timestamp = this.now().toISOString();
@@ -700,14 +731,17 @@ export class PlanningSessionManager {
 
     upsertChatMessage(this.context, message);
 
-    return [
-      {
-        bodyText: message.bodyText,
-        createdAt: message.createdAt,
-        id: message.id,
-        role: message.role,
-      },
-    ];
+    return {
+      entries: [
+        {
+          bodyText: message.bodyText,
+          createdAt: message.createdAt,
+          id: message.id,
+          role: message.role,
+        },
+      ],
+      storageUpdated: true,
+    };
   }
 
   private applyHookLine(

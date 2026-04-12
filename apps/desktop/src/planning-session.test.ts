@@ -108,8 +108,8 @@ describe("PlanningSessionManager", () => {
     expect(completedSession?.status).toBe("exited");
     expect(completedSummary?.bodyText).toContain("status: exited");
     expect(completedSummary?.bodyText).toContain("- human: Summarize the latest planning state.");
-    expect(completedSummary?.bodyText).toContain(
-      "- claude: claude ack: Summarize the latest planning state.",
+    expect(completedSummary?.bodyText).not.toContain(
+      "claude ack: Summarize the latest planning state.",
     );
     expect(logFilePath).toBeDefined();
     expect(readFileSync(logFilePath ?? "", "utf8")).toContain(
@@ -118,6 +118,19 @@ describe("PlanningSessionManager", () => {
     expect(readFileSync(logFilePath ?? "", "utf8")).toContain(
       "claude ack: Summarize the latest planning state.",
     );
+    expect(listChatMessagesForThread(context, projectThread?.id ?? "")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bodyText: "Summarize the latest planning state.",
+          role: "human",
+        }),
+      ]),
+    );
+    expect(
+      listChatMessagesForThread(context, projectThread?.id ?? "").some((message) => {
+        return message.bodyText.includes("claude ack: Summarize the latest planning state.");
+      }),
+    ).toBe(false);
 
     manager.dispose();
     context.db.close();

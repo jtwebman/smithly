@@ -536,10 +536,12 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
         });
     }
 
-    broadcastDesktopStatus(context);
-    blockerRoutingManager?.processOpenBlockers();
-    verificationManager?.processQueuedRuns();
-    reviewManager?.processQueuedRuns();
+    if (event.storageUpdated) {
+      broadcastDesktopStatus(context);
+      blockerRoutingManager?.processOpenBlockers();
+      verificationManager?.processQueuedRuns();
+      reviewManager?.processQueuedRuns();
+    }
   });
 }
 
@@ -715,7 +717,6 @@ function requireTaskMergeManager(): TaskMergeManager {
 function buildCurrentDesktopStatus(context: IStorageContext): IDesktopStatus {
   const bootstrapSnapshot = requireBootstrapSessionManager().getSnapshot();
 
-  syncBootstrapTranscriptToManagedProject(context, bootstrapSnapshot);
   maybeSelectBootstrapHandoffProject(context);
 
   return buildDesktopStatus(
@@ -725,49 +726,6 @@ function buildCurrentDesktopStatus(context: IStorageContext): IDesktopStatus {
     selectedBacklogItemId,
     bootstrapSnapshot,
   );
-}
-
-function syncBootstrapTranscriptToManagedProject(
-  context: IStorageContext,
-  bootstrapSnapshot?: IBootstrapSessionSnapshot,
-): void {
-  if (bootstrapSnapshot === undefined || bootstrapSnapshot.messages.length === 0) {
-    return;
-  }
-
-  const bootstrapProject = findLatestBootstrapProject(context, ["planning", "ready_for_dashboard"]);
-
-  if (bootstrapProject === undefined) {
-    return;
-  }
-
-  const planningThread = ensureProjectPlanningThread(context, bootstrapProject.id);
-  let threadUpdatedAt = planningThread.updatedAt;
-
-  for (const message of bootstrapSnapshot.messages) {
-    upsertChatMessage(context, {
-      bodyText: message.bodyText,
-      createdAt: message.createdAt,
-      id: message.id,
-      metadataJson: JSON.stringify({
-        source: "bootstrap_session",
-        terminalKey: bootstrapSnapshot.terminalKey,
-      }),
-      role: message.role,
-      threadId: planningThread.id,
-    });
-
-    if (message.createdAt > threadUpdatedAt) {
-      threadUpdatedAt = message.createdAt;
-    }
-  }
-
-  if (threadUpdatedAt !== planningThread.updatedAt) {
-    upsertChatThread(context, {
-      ...planningThread,
-      updatedAt: threadUpdatedAt,
-    });
-  }
 }
 
 function maybeSelectBootstrapHandoffProject(context: IStorageContext): void {

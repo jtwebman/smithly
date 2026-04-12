@@ -234,6 +234,7 @@ interface PlanningOutputEvent {
   readonly terminalKey: string;
   readonly rawData: string;
   readonly entries: readonly DesktopChatMessage[];
+  readonly storageUpdated: boolean;
 }
 
 interface CodexOutputEvent {
@@ -480,7 +481,9 @@ window.smithlyDesktop.onPlanningOutput((payload) => {
     terminal?.write(payload.rawData);
   }
 
-  void pollStatus(6, 250);
+  if (payload.storageUpdated) {
+    void pollStatus(2, 150);
+  }
 });
 
 window.smithlyDesktop.onCodexOutput((payload) => {
@@ -495,7 +498,7 @@ window.smithlyDesktop.onCodexOutput((payload) => {
     codexTerminal?.write(payload.rawData);
   }
 
-  void pollStatus(6, 250);
+  void pollStatus(2, 150);
 });
 
 window.smithlyDesktop.onStatusUpdate((status) => {
