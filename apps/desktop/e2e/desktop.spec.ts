@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -9,8 +9,13 @@ import { createConfig } from "@smithly/core";
 import {
   createContext,
   createInitialSeedFixture,
+  registerLocalProject,
   seedInitialState,
+  upsertBacklogItem,
+  upsertChatMessage,
+  upsertChatThread,
   upsertMemoryNote,
+  updateProjectMetadata,
 } from "@smithly/storage";
 
 function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light" | "system") {
@@ -95,7 +100,9 @@ test("add project opens a bootstrap Claude session rooted at the operator home d
 
     await expect(window.locator("#project-workspace")).toBeVisible();
     await expect(window.locator("#orchestration-shell")).toBeVisible();
-    await expect(window.locator("#project-workspace-title")).toHaveText("Project bootstrap workspace");
+    await expect(window.locator("#project-workspace-title")).toHaveText(
+      "Project bootstrap workspace",
+    );
     await expect(window.locator("#project-detail-title")).toHaveText("Project bootstrap");
     await expect(window.locator("#planning-title")).toHaveText("Project bootstrap");
     await expect(window.locator("#planning-status")).toContainText("bootstrap session running");
@@ -110,6 +117,117 @@ test("add project opens a bootstrap Claude session rooted at the operator home d
       "claude ack: I want to build a new product planning tool.",
     );
   } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("completed bootstrap state restores into the managed project workspace with planning history", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-bootstrap-handoff-"));
+  const repoDirectory = mkdtempSync(join(tmpdir(), "smithly-bootstrap-handoff-repo-"));
+
+  mkdirSync(join(repoDirectory, ".git"));
+
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const project = registerLocalProject(context, {
+    name: "Bootstrap Handoff",
+    repoPath: repoDirectory,
+  });
+  const finalizedProject = updateProjectMetadata(context, {
+    metadata: {
+      bootstrapApprovedBacklogCount: "1",
+      bootstrapCompletedAt: "2026-04-11T18:00:00.000Z",
+      bootstrapOrigin: "create",
+      bootstrapState: "ready_for_dashboard",
+    },
+    projectId: project.id,
+  });
+
+  upsertChatThread(context, {
+    createdAt: "2026-04-11T17:40:00.000Z",
+    id: "thread-project-bootstrap-handoff",
+    kind: "project_planning",
+    projectId: finalizedProject.id,
+    status: "open",
+    title: "Project planning",
+    updatedAt: "2026-04-11T18:00:00.000Z",
+  });
+  upsertChatMessage(context, {
+    bodyText: "We should keep the MVP narrow and operator-first.",
+    createdAt: "2026-04-11T17:42:00.000Z",
+    id: "message-bootstrap-handoff-1",
+    metadataJson: '{"source":"bootstrap_session"}',
+    role: "human",
+    threadId: "thread-project-bootstrap-handoff",
+  });
+  upsertChatMessage(context, {
+    bodyText:
+      "Start with an MVP plan, initial backlog drafts, and operator approval before execution.",
+    createdAt: "2026-04-11T17:45:00.000Z",
+    id: "message-bootstrap-handoff-2",
+    metadataJson: '{"source":"bootstrap_session"}',
+    role: "claude",
+    threadId: "thread-project-bootstrap-handoff",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify([
+      "Bootstrap planning history is visible in the managed workspace",
+      "The first approved task is ready before execution begins",
+    ]),
+    createdAt: "2026-04-11T17:50:00.000Z",
+    id: "backlog-bootstrap-handoff",
+    priority: 80,
+    projectId: finalizedProject.id,
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Carry the finalized bootstrap plan into the normal project workspace.",
+    status: "approved",
+    title: "Finalize bootstrap handoff",
+    updatedAt: "2026-04-11T18:00:00.000Z",
+  });
+  writeFileSync(
+    join(dataDirectory, "desktop-ui-state.json"),
+    JSON.stringify({
+      activePlanningPaneKey: "bootstrap",
+      isOrchestrationVisible: true,
+      isProjectWorkspaceOpen: true,
+      openPlanningPaneKeys: ["bootstrap"],
+    }),
+  );
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await expect(window.locator("#project-workspace")).toBeVisible();
+    await expect(window.locator("#project-workspace-title")).toHaveText(
+      "Project workspace: Bootstrap Handoff",
+    );
+    await expect(window.locator("#project-detail-title")).toHaveText(
+      "Project orchestration: Bootstrap Handoff",
+    );
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
+    await expect(window.locator("#planning-status")).toContainText(
+      "project planning session running",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      "We should keep the MVP narrow and operator-first.",
+    );
+    await expect(window.locator("#planning-history")).toContainText(
+      "Start with an MVP plan, initial backlog drafts, and operator approval before execution.",
+    );
+    await expect(window.locator("#backlog-list")).toContainText("Finalize bootstrap handoff");
+    await expect(window.locator("#selected-backlog-title")).toHaveText(
+      "Finalize bootstrap handoff",
+    );
+  } finally {
+    rmSync(repoDirectory, { force: true, recursive: true });
     await closeDesktop(electronApp, dataDirectory);
   }
 });

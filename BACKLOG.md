@@ -161,7 +161,7 @@
 79. `done` Add global MCP discovery tools such as `list_projects` and `get_project_by_id` so external sessions can find and attach to Smithly projects safely
 80. `done` Add bootstrap-session MCP tools so Claude can create or adopt a project, choose a target folder, and persist the initial Smithly project record only after the operator confirms direction
 81. `done` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
-82. `todo` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
+82. `done` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
 83. `todo` Add a `Plan / Approve More` project action that opens a Claude planning session with project context, active task context, and compact backlog/approved-work summaries
 84. `todo` Add task readiness state distinct from approval state, and require `approved`, `ready`, and cleared blocking dependencies before execution can start
 85. `todo` Add MCP and storage support so Claude can reprioritize and reorder pending work safely during planning flows without reordering the active task or completed work

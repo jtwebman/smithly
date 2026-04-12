@@ -892,15 +892,15 @@ function renderPlanningPane(status: DesktopStatus): void {
         ? activeSession
           ? `bootstrap session ${activeSession.status} in ${status.bootstrapSession?.cwd ?? "~"}`
           : "bootstrap session idle"
-      : activePlanningPaneKey === null
-        ? selectedProjectSummary?.status === "active"
-          ? "Project execution is running in the background. Attach a Claude pane to inspect it."
-          : hasBootstrapSession
-            ? "Project bootstrap is available. Attach the Claude pane to continue shaping a new project."
-            : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
-        : activeSession
-          ? `${activeScope} planning session ${activeSession.status}`
-          : `${activeScope} planning session idle`,
+        : activePlanningPaneKey === null
+          ? selectedProjectSummary?.status === "active"
+            ? "Project execution is running in the background. Attach a Claude pane to inspect it."
+            : hasBootstrapSession
+              ? "Project bootstrap is available. Attach the Claude pane to continue shaping a new project."
+              : "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually."
+          : activeSession
+            ? `${activeScope} planning session ${activeSession.status}`
+            : `${activeScope} planning session idle`,
   );
   setNodeText(shellStatusNode, activeSession ? `${activeScope} TUI attached` : "Shell ready");
   setNodeText(
@@ -909,15 +909,15 @@ function renderPlanningPane(status: DesktopStatus): void {
       ? "Add Project opens Claude in your home directory so you can talk through the new project first."
       : activePlanningPaneKey === "bootstrap"
         ? "Use Claude to discuss the idea, choose a name, pick a folder, and shape the first plan."
-      : activeThread
-        ? "Type directly into the attached Claude TUI when you need to interact."
-        : "Open a Claude pane to attach a planning session.",
+        : activeThread
+          ? "Type directly into the attached Claude TUI when you need to interact."
+          : "Open a Claude pane to attach a planning session.",
   );
 
   renderPlanningHistory(
     activePlanningPaneKey === "bootstrap"
-      ? status.bootstrapSession?.messages ?? []
-      : activeThread?.messages ?? [],
+      ? (status.bootstrapSession?.messages ?? [])
+      : (activeThread?.messages ?? []),
   );
   renderSelectedBacklog(selectedBacklogItem);
   syncTerminalPane(status);
@@ -1429,6 +1429,7 @@ function renderError(message: string): void {
 }
 
 function renderDesktopStatus(status: DesktopStatus): void {
+  reconcileBootstrapWorkspaceState(status);
   currentStatus = status;
   applyTheme(status.resolvedThemeMode);
   updateTerminalTheme(status.resolvedThemeMode);
@@ -1500,6 +1501,35 @@ function getActiveCodexSession(
   }
 
   return status.selectedProject.codexSessions.find((session) => session.taskRunId === taskRunId);
+}
+
+function getBootstrapHandoffProject(status: DesktopStatus): DesktopProjectSummary | undefined {
+  return status.projects.find((project) => {
+    return (
+      project.id === status.selectedProjectId &&
+      project.metadataEntries.bootstrapState === "ready_for_dashboard"
+    );
+  });
+}
+
+function reconcileBootstrapWorkspaceState(status: DesktopStatus): void {
+  const handoffProject = getBootstrapHandoffProject(status);
+
+  if (handoffProject === undefined || !openPlanningPaneKeys.includes("bootstrap")) {
+    return;
+  }
+
+  const projectPaneKey = `project:${handoffProject.id}` as SessionPaneKey;
+
+  openPlanningPaneKeys = openPlanningPaneKeys.map((paneKey) => {
+    return paneKey === "bootstrap" ? projectPaneKey : paneKey;
+  });
+  openPlanningPaneKeys = [...new Set(openPlanningPaneKeys)] as SessionPaneKey[];
+
+  if (activePlanningPaneKey === "bootstrap") {
+    activePlanningPaneKey = projectPaneKey;
+    currentTerminalSignature = "";
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -1864,6 +1894,8 @@ async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promis
     ? savedUiState.activePlanningPaneKey
     : (openPlanningPaneKeys.at(-1) ?? null);
   activeCodexTaskRunId = savedUiState.activeCodexTaskRunId ?? openCodexTaskRunIds.at(-1) ?? null;
+
+  reconcileBootstrapWorkspaceState(status);
 
   for (const paneKey of openPlanningPaneKeys) {
     if (paneKey === "bootstrap") {
