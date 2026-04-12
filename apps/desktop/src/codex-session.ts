@@ -37,6 +37,7 @@ import { TaskGitManager } from "./task-git-manager.ts";
 import { queueRequiredReviewRun, reconcileTaskReviewState } from "./task-review-policy.ts";
 
 export interface ICodexOutputEvent {
+  readonly projectId: string;
   readonly terminalKey: string;
   readonly rawData: string;
 }
@@ -242,6 +243,7 @@ export class CodexSessionManager {
         this.touchWorkerSession(runtimeSession, "running");
         this.persistOutput(runtimeSession, rawData);
         this.emitOutput({
+          projectId,
           rawData,
           terminalKey,
         });
@@ -271,6 +273,7 @@ export class CodexSessionManager {
         this.touchTaskRun(closedSession, currentTaskRun, nextTaskStatus);
         this.appendSessionLog(closedSession.logFilePath, `${message}\n`);
         this.emitOutput({
+          projectId: closedSession.projectId,
           rawData: `\r\n${message}\r\n`,
           terminalKey,
         });
@@ -305,6 +308,7 @@ export class CodexSessionManager {
       );
       this.appendSessionLog(logFilePath, `${failureMessage}\n`);
       this.emitOutput({
+        projectId,
         rawData: `${failureMessage}\r\n`,
         terminalKey,
       });

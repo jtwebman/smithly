@@ -17,7 +17,11 @@ import {
   upsertBlocker,
 } from "@smithly/storage";
 
-import { ProjectExecutionManager, resolveProjectExecutionState } from "./project-execution.ts";
+import {
+  detectCreditPauseReason,
+  ProjectExecutionManager,
+  resolveProjectExecutionState,
+} from "./project-execution.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -266,6 +270,89 @@ describe("ProjectExecutionManager", () => {
     expect(parseProjectMetadata(waitingForCreditProject).executionState).toBe("waiting_for_credit");
 
     context.db.close();
+  });
+
+  it("clears waiting-for-credit state when the operator presses play again", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-exec-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-exec-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      repoPath,
+    });
+    const ensureSession = vi.fn();
+    const manager = new ProjectExecutionManager(context, {
+      ensureSession,
+      requestProjectPause: vi.fn(async () => undefined),
+    });
+
+    manager.playProject(project.id);
+    updateProjectMetadata(context, {
+      executionState: "waiting_for_credit",
+      projectId: project.id,
+      status: "active",
+    });
+
+    const resumedProject = manager.playProject(project.id);
+
+    expect(parseProjectMetadata(resumedProject).executionState).toBe("active");
+    expect(ensureSession).toHaveBeenLastCalledWith({
+      projectId: project.id,
+      scope: "project",
+    });
+
+    context.db.close();
+  });
+
+  it("pauses active projects when a worker reports a credit or quota issue", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-exec-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-exec-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      repoPath,
+    });
+    const requestProjectPause = vi.fn(async () => undefined);
+    const manager = new ProjectExecutionManager(context, {
+      ensureSession: vi.fn(),
+      requestProjectPause,
+    });
+
+    manager.playProject(project.id);
+    const pausedProject = await manager.pauseProjectForCredit(
+      project.id,
+      "Smithly paused project execution because a worker reported a credits or quota issue: rate limit exceeded",
+    );
+
+    expect(pausedProject.status).toBe("active");
+    expect(parseProjectMetadata(pausedProject).executionState).toBe("waiting_for_credit");
+    expect(requestProjectPause).toHaveBeenCalledWith(
+      project.id,
+      "Smithly paused project execution because a worker reported a credits or quota issue: rate limit exceeded",
+    );
+
+    context.db.close();
+  });
+
+  it("detects credit and quota exhaustion from worker output", () => {
+    expect(
+      detectCreditPauseReason("Error: rate limit exceeded for the current billing period"),
+    ).toContain("rate limit exceeded for the current billing period");
+    expect(detectCreditPauseReason("normal progress output")).toBeNull();
   });
 
   it("reconciles stored execution state when blockers or approvals change", () => {

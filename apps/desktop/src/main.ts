@@ -38,7 +38,7 @@ import { BlockerRoutingManager } from "./blocker-routing-manager.ts";
 import { CodexSessionManager } from "./codex-session.ts";
 import { SmithlyMcpService } from "./mcp-service.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
-import { ProjectExecutionManager } from "./project-execution.ts";
+import { detectCreditPauseReason, ProjectExecutionManager } from "./project-execution.ts";
 import { ProjectSchedulingManager } from "./project-scheduler.ts";
 import { ReviewManager } from "./review-manager.ts";
 import { TaskMergeManager } from "./task-merge-manager.ts";
@@ -510,6 +510,16 @@ function createPlanningSessionManager(context: IStorageContext): PlanningSession
       window.webContents.send("smithly:planning-output", event);
     }
 
+    const creditPauseReason = detectCreditPauseReason(event.rawData);
+
+    if (creditPauseReason !== null) {
+      void projectExecutionManager
+        ?.pauseProjectForCredit(event.projectId, creditPauseReason)
+        .then(() => {
+          broadcastDesktopStatus(context);
+        });
+    }
+
     broadcastDesktopStatus(context);
     blockerRoutingManager?.processOpenBlockers();
     verificationManager?.processQueuedRuns();
@@ -537,6 +547,16 @@ function createCodexSessionManager(context: IStorageContext): CodexSessionManage
   return new CodexSessionManager(context, (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("smithly:codex-output", event);
+    }
+
+    const creditPauseReason = detectCreditPauseReason(event.rawData);
+
+    if (creditPauseReason !== null) {
+      void projectExecutionManager
+        ?.pauseProjectForCredit(event.projectId, creditPauseReason)
+        .then(() => {
+          broadcastDesktopStatus(context);
+        });
     }
 
     broadcastDesktopStatus(context);

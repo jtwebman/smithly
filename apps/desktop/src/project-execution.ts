@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 import type { IApprovalRecord, IBlockerRecord, IProjectRecord, ProjectExecutionState } from "@smithly/core";
 import {
   getProjectById,
   listApprovalsForProject,
   listBlockersForProject,
+  upsertMemoryNote,
   listProjects,
   parseProjectMetadata,
   updateProjectMetadata,
@@ -22,13 +25,14 @@ export class ProjectExecutionManager {
 
   public playProject(projectId: string): IProjectRecord {
     const project = this.requireProject(projectId);
+    const metadata = parseProjectMetadata(project);
 
     if (project.status === "archived") {
       throw new Error(`Archived project ${projectId} cannot be played.`);
     }
 
     const updatedProject =
-      project.status === "active"
+      project.status === "active" && metadata.executionState === "active"
         ? project
         : updateProjectMetadata(this.context, {
             executionState: "active",
@@ -41,6 +45,34 @@ export class ProjectExecutionManager {
       scope: "project",
     });
 
+    return updatedProject;
+  }
+
+  public async pauseProjectForCredit(projectId: string, reason: string): Promise<IProjectRecord> {
+    const project = this.requireProject(projectId);
+    const metadata = parseProjectMetadata(project);
+
+    if (project.status === "archived" || metadata.executionState === "waiting_for_credit") {
+      return project;
+    }
+
+    const updatedProject = updateProjectMetadata(this.context, {
+      executionState: "waiting_for_credit",
+      projectId,
+      status: "active",
+    });
+    const timestamp = new Date().toISOString();
+
+    upsertMemoryNote(this.context, {
+      bodyText: reason,
+      createdAt: timestamp,
+      id: `memory-credit-pause-${projectId}-${randomUUID()}`,
+      noteType: "note",
+      projectId,
+      title: "Paused for credits or quota",
+      updatedAt: timestamp,
+    });
+    await this.orchestrationController.requestProjectPause(projectId, reason);
     return updatedProject;
   }
 
@@ -121,6 +153,24 @@ export class ProjectExecutionManager {
 
     return project;
   }
+}
+
+export function detectCreditPauseReason(rawData: string): string | null {
+  const sanitizedData = rawData.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const matchingLine = sanitizedData
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) =>
+      /(insufficient credits|out of credits|credit balance|usage limit|quota exceeded|rate limit exceeded|billing)/i.test(
+        line,
+      ),
+    );
+
+  if (matchingLine === undefined || matchingLine.length === 0) {
+    return null;
+  }
+
+  return `Smithly paused project execution because a worker reported a credits or quota issue: ${matchingLine}`;
 }
 
 export function resolveProjectExecutionState(

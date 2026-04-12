@@ -51,6 +51,7 @@ export interface IPlanningOutputEntry {
 
 export interface IPlanningOutputEvent {
   readonly terminalKey: string;
+  readonly projectId: string;
   readonly rawData: string;
   readonly entries: readonly IPlanningOutputEntry[];
 }
@@ -438,6 +439,7 @@ export class PlanningSessionManager {
         const entries = this.persistOutput(runtimeSession, rawData);
         this.emitOutput({
           entries,
+          projectId: runtimeSession.projectId,
           rawData,
           terminalKey,
         });
@@ -456,6 +458,7 @@ export class PlanningSessionManager {
         this.appendSessionLog(closedSession.logFilePath, `${message}\n`);
         this.emitOutput({
           entries: this.persistOutput(closedSession, `${message}\n`, "system"),
+          projectId: closedSession.projectId,
           rawData: `\r\n${message}\r\n`,
           terminalKey,
         });
@@ -483,6 +486,7 @@ export class PlanningSessionManager {
       this.appendSessionLog(logFilePath, `${failureMessage}\n`);
       this.emitOutput({
         entries: this.persistStaticMessage(thread.id, workerSessionId, failureMessage, "system"),
+        projectId: input.projectId,
         rawData: `${failureMessage}\r\n`,
         terminalKey,
       });
