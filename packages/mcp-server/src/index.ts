@@ -21,6 +21,7 @@ import {
   createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
   ensureProjectPlanningThread,
+  explainWhyBacklogItemIsNext,
   finalizeBootstrapProject,
   getBacklogItemById,
   getBootstrapMvpPlan,
@@ -34,6 +35,8 @@ import {
   listProjects,
   listTaskRunsForProject,
   listWorkerSessionsForProject,
+  markBacklogItemStaleFromPlanning,
+  mergeDuplicateBacklogItemsFromPlanning,
   parseProjectMetadata,
   registerLocalProject,
   removePendingBacklogItemFromPlanning,
@@ -41,6 +44,7 @@ import {
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
   reviseBacklogItemFromPlanning,
+  splitBacklogItemFromPlanning,
   startCodingTask,
   upsertApproval,
   upsertBacklogItem,
@@ -771,6 +775,287 @@ export function createSmithlyMcpServer(
         content: [
           {
             text: `Removed pending backlog item ${backlogItem.title} from the active planning set.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "split_backlog_item",
+    {
+      description:
+        "Split one oversized pending backlog item into multiple smaller planning items and retire the original draft from the queue.",
+      inputSchema: {
+        backlogItemId: z.string().describe("Oversized backlog item to split."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the split."),
+        splitItems: z
+          .array(
+            z.object({
+              acceptanceCriteria: z
+                .array(z.string().min(1))
+                .optional()
+                .describe("Optional acceptance criteria for the split backlog item."),
+              priority: z
+                .number()
+                .int()
+                .optional()
+                .describe("Optional priority override for the split backlog item."),
+              readiness: z
+                .enum(["not_ready", "ready"])
+                .optional()
+                .describe("Optional readiness override for the split backlog item."),
+              reviewMode: z.enum(["human", "ai"]).optional().describe("Optional review mode."),
+              riskLevel: z
+                .enum(["low", "medium", "high"])
+                .optional()
+                .describe("Optional risk level."),
+              scopeSummary: z
+                .string()
+                .min(1)
+                .describe("Short scope summary for the split backlog item."),
+              status: z
+                .enum(["draft", "approved"])
+                .optional()
+                .describe("Optional status for the split backlog item."),
+              title: z.string().min(1).describe("Short title for the split backlog item."),
+            }),
+          )
+          .min(2)
+          .describe("Two or more smaller backlog items that replace the oversized item."),
+      },
+      outputSchema: {
+        originalBacklogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          readiness: z.string(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          scopeSummary: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+        splitBacklogItems: z.array(
+          z.object({
+            id: z.string(),
+            priority: z.number(),
+            readiness: z.string(),
+            reviewMode: z.string(),
+            riskLevel: z.string(),
+            scopeSummary: z.string(),
+            status: z.string(),
+            title: z.string(),
+          }),
+        ),
+      },
+    },
+    async ({ backlogItemId, noteText, splitItems }) => {
+      const projectId = requireProjectId(environment);
+      const result = splitBacklogItemFromPlanning(context, {
+        backlogItemId: requireBacklogItem(context, projectId, backlogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+        splitItems: splitItems.map((splitItem) => ({
+          ...(splitItem.acceptanceCriteria !== undefined
+            ? { acceptanceCriteria: splitItem.acceptanceCriteria }
+            : {}),
+          ...(splitItem.priority !== undefined ? { priority: splitItem.priority } : {}),
+          ...(splitItem.readiness !== undefined ? { readiness: splitItem.readiness } : {}),
+          ...(splitItem.reviewMode !== undefined ? { reviewMode: splitItem.reviewMode } : {}),
+          ...(splitItem.riskLevel !== undefined ? { riskLevel: splitItem.riskLevel } : {}),
+          scopeSummary: splitItem.scopeSummary,
+          ...(splitItem.status !== undefined ? { status: splitItem.status } : {}),
+          title: splitItem.title,
+        })),
+      });
+      const structuredContent = {
+        originalBacklogItem: summarizeBacklogItem(result.originalBacklogItem),
+        splitBacklogItems: result.splitBacklogItems.map((backlogItem) =>
+          summarizeBacklogItem(backlogItem),
+        ),
+      };
+
+      return {
+        content: [
+          {
+            text: `Split backlog item ${result.originalBacklogItem.title} into ${result.splitBacklogItems.length} smaller item(s).`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "merge_duplicate_backlog_items",
+    {
+      description:
+        "Merge duplicate pending backlog items into one retained item and cancel the duplicates after rolling their scope into the target.",
+      inputSchema: {
+        duplicateBacklogItemIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .describe("Duplicate backlog items that should be merged into the target."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional planning note recorded alongside the merge."),
+        targetBacklogItemId: z
+          .string()
+          .describe("Backlog item that should survive the duplicate merge."),
+      },
+      outputSchema: {
+        cancelledBacklogItems: z.array(
+          z.object({
+            id: z.string(),
+            priority: z.number(),
+            readiness: z.string(),
+            reviewMode: z.string(),
+            riskLevel: z.string(),
+            scopeSummary: z.string(),
+            status: z.string(),
+            title: z.string(),
+          }),
+        ),
+        mergedBacklogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          readiness: z.string(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          scopeSummary: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+      },
+    },
+    async ({ duplicateBacklogItemIds, noteText, targetBacklogItemId }) => {
+      const projectId = requireProjectId(environment);
+      const result = mergeDuplicateBacklogItemsFromPlanning(context, {
+        duplicateBacklogItemIds: duplicateBacklogItemIds.map((backlogItemId) => {
+          return requireBacklogItem(context, projectId, backlogItemId).id;
+        }),
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+        targetBacklogItemId: requireBacklogItem(context, projectId, targetBacklogItemId).id,
+      });
+      const structuredContent = {
+        cancelledBacklogItems: result.cancelledBacklogItems.map((backlogItem) =>
+          summarizeBacklogItem(backlogItem),
+        ),
+        mergedBacklogItem: summarizeBacklogItem(result.mergedBacklogItem),
+      };
+
+      return {
+        content: [
+          {
+            text: `Merged ${result.cancelledBacklogItems.length} duplicate backlog item(s) into ${result.mergedBacklogItem.title}.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "mark_backlog_item_stale",
+    {
+      description:
+        "Mark a pending backlog item as stale so it drops out of the active execution queue without touching completed work.",
+      inputSchema: {
+        backlogItemId: z.string().describe("Pending backlog item to mark stale."),
+        noteText: z
+          .string()
+          .optional()
+          .describe("Optional stale reason recorded alongside the change."),
+      },
+      outputSchema: {
+        backlogItem: z.object({
+          id: z.string(),
+          priority: z.number(),
+          readiness: z.string(),
+          reviewMode: z.string(),
+          riskLevel: z.string(),
+          scopeSummary: z.string(),
+          status: z.string(),
+          title: z.string(),
+        }),
+      },
+    },
+    async ({ backlogItemId, noteText }) => {
+      const projectId = requireProjectId(environment);
+      const backlogItem = markBacklogItemStaleFromPlanning(context, {
+        backlogItemId: requireBacklogItem(context, projectId, backlogItemId).id,
+        ...(noteText !== undefined ? { noteText } : {}),
+        ...(environment.threadId !== undefined ? { sourceThreadId: environment.threadId } : {}),
+      });
+      const structuredContent = {
+        backlogItem: summarizeBacklogItem(backlogItem),
+      };
+
+      return {
+        content: [
+          {
+            text: `Marked backlog item ${backlogItem.title} as stale.`,
+            type: "text",
+          },
+        ],
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "explain_backlog_priority",
+    {
+      description:
+        "Explain whether a backlog item is the next runnable task, using Smithly's current approval, readiness, blocker, and dependency rules.",
+      inputSchema: {
+        backlogItemId: z
+          .string()
+          .optional()
+          .describe("Backlog item to explain. Defaults to the attached backlog item when present."),
+      },
+      outputSchema: {
+        activeTaskRunId: z.string().nullable(),
+        backlogItemId: z.string(),
+        blockingReasons: z.array(z.string()),
+        explanation: z.string(),
+        higherPriorityRunnableBacklogItemIds: z.array(z.string()),
+        isNext: z.boolean(),
+        readyForExecution: z.boolean(),
+      },
+    },
+    async ({ backlogItemId }) => {
+      const projectId = requireProjectId(environment);
+      const explanation = explainWhyBacklogItemIsNext(context, {
+        backlogItemId: requireBacklogItem(
+          context,
+          projectId,
+          backlogItemId ?? environment.backlogItemId,
+        ).id,
+      });
+      const structuredContent = {
+        activeTaskRunId: explanation.activeTaskRunId,
+        backlogItemId: explanation.backlogItemId,
+        blockingReasons: [...explanation.blockingReasons],
+        explanation: explanation.explanation,
+        higherPriorityRunnableBacklogItemIds: [...explanation.higherPriorityRunnableBacklogItemIds],
+        isNext: explanation.isNext,
+        readyForExecution: explanation.readyForExecution,
+      };
+
+      return {
+        content: [
+          {
+            text: explanation.explanation,
             type: "text",
           },
         ],

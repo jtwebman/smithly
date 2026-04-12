@@ -1011,6 +1011,153 @@ describe("smithly mcp server", () => {
     context.db.close();
   });
 
+  it("splits, merges, marks stale work, and explains why a backlog item is next", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const oversizedBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Oversized pending task that should be split into smaller work.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Oversized pending task",
+    });
+    const duplicateTargetBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Canonical duplicate target.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Canonical duplicate target",
+    });
+    const duplicateBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Duplicate work to merge into the canonical target.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Duplicate merge item",
+    });
+    const staleBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Stale work that should drop out of the queue.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Stale backlog item",
+    });
+    const nextBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Highest-priority pending item that is approved and ready.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Next ready task",
+    });
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This task is ready to run next."],
+      backlogItemId: nextBacklogItem.id,
+      priority: 90,
+      readiness: "ready",
+      scopeSummary: nextBacklogItem.scopeSummary ?? "",
+      status: "approved",
+    });
+
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "project",
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.projectChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const splitResult = await client.callTool({
+      arguments: {
+        backlogItemId: oversizedBacklogItem.id,
+        noteText: "Split the oversized task into narrower slices.",
+        splitItems: [
+          {
+            scopeSummary: "First narrow split task.",
+            title: "Split task one",
+          },
+          {
+            scopeSummary: "Second narrow split task.",
+            title: "Split task two",
+          },
+        ],
+      },
+      name: "split_backlog_item",
+    });
+    const mergeResult = await client.callTool({
+      arguments: {
+        duplicateBacklogItemIds: [duplicateBacklogItem.id],
+        noteText: "Fold the duplicate into the canonical backlog item.",
+        targetBacklogItemId: duplicateTargetBacklogItem.id,
+      },
+      name: "merge_duplicate_backlog_items",
+    });
+    const staleResult = await client.callTool({
+      arguments: {
+        backlogItemId: staleBacklogItem.id,
+        noteText: "This path is stale after recent planning changes.",
+      },
+      name: "mark_backlog_item_stale",
+    });
+    const explainResult = await client.callTool({
+      arguments: {
+        backlogItemId: nextBacklogItem.id,
+      },
+      name: "explain_backlog_priority",
+    });
+
+    expect(splitResult.structuredContent).toMatchObject({
+      originalBacklogItem: {
+        id: oversizedBacklogItem.id,
+        status: "cancelled",
+      },
+      splitBacklogItems: [
+        expect.objectContaining({
+          title: "Split task one",
+        }),
+        expect.objectContaining({
+          title: "Split task two",
+        }),
+      ],
+    });
+    expect(mergeResult.structuredContent).toMatchObject({
+      cancelledBacklogItems: [
+        expect.objectContaining({
+          id: duplicateBacklogItem.id,
+          status: "cancelled",
+        }),
+      ],
+      mergedBacklogItem: {
+        id: duplicateTargetBacklogItem.id,
+      },
+    });
+    expect(staleResult.structuredContent).toMatchObject({
+      backlogItem: {
+        id: staleBacklogItem.id,
+        status: "cancelled",
+      },
+    });
+    expect(explainResult.structuredContent).toMatchObject({
+      activeTaskRunId: fixture.taskRun.id,
+      backlogItemId: nextBacklogItem.id,
+      isNext: true,
+      readyForExecution: true,
+    });
+    expect(explainResult.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("approved, ready, and unblocked"),
+        }),
+      ]),
+    );
+
+    await close();
+    context.db.close();
+  });
+
   it("persists approvals, blockers, memory notes, and verification or review requests", async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
 

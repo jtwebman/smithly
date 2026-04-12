@@ -168,7 +168,7 @@
 86. `done` Add task dependency links so items can explicitly block other tasks or be blocked by them, and reflect those links in readiness and scheduling
 87. `done` Add active-task protection so planning changes cannot silently mutate the running task scope without pause-and-replan or follow-up task creation
 88. `done` Add backlog-item-scoped planning chats that start from a selected draft or approved item but can also revise, split, add, remove, and reorder pending related tasks
-89. `todo` Add backlog hygiene tools for splitting oversized tasks, merging duplicates, marking stale work, and explaining why a task is next
+89. `done` Add backlog hygiene tools for splitting oversized tasks, merging duplicates, marking stale work, and explaining why a task is next
 90. `todo` Add Playwright coverage for project bootstrap, external MCP attach flows, project-level planning continuation, readiness gating, dependency links, approved-work reordering, and backlog-item-scoped planning flows
 
 ## Phase 15: Multi-Project Operation

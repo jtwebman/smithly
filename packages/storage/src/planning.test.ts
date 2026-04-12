@@ -23,13 +23,17 @@ import {
   createBootstrapBacklogItem,
   createDraftBacklogItemFromPlanning,
   ensureProjectPlanningThread,
+  explainWhyBacklogItemIsNext,
   finalizeBootstrapProject,
+  markBacklogItemStaleFromPlanning,
+  mergeDuplicateBacklogItemsFromPlanning,
   getBootstrapMvpPlan,
   removePendingBacklogItemFromPlanning,
   removeBacklogDependency,
   reorderPendingBacklogItems,
   reprioritizeBacklogItemForPlanning,
   reviseBacklogItemFromPlanning,
+  splitBacklogItemFromPlanning,
   startCodingTask,
   upsertBootstrapMvpPlan,
 } from "./planning.ts";
@@ -557,6 +561,251 @@ describe("planning mutations", () => {
         backlogItemId: fixture.backlogItem.id,
       }),
     ).toThrow("cannot be removed");
+
+    closeContext(context);
+  });
+
+  it("splits an oversized pending backlog item into smaller drafts and rewires dependencies", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const oversizedBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "One backlog item is trying to cover too much work.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Oversized planning item",
+    });
+    const blockedBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "This work is blocked by the oversized planning item.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocked by oversized item",
+    });
+
+    addBacklogDependency(context, {
+      blockedBacklogItemId: blockedBacklogItem.id,
+      blockingBacklogItemId: oversizedBacklogItem.id,
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+
+    const result = splitBacklogItemFromPlanning(context, {
+      backlogItemId: oversizedBacklogItem.id,
+      noteText: "Break the oversized task into two narrower slices.",
+      sourceThreadId: fixture.projectChatThread.id,
+      splitItems: [
+        {
+          scopeSummary: "First smaller slice from the oversized task.",
+          title: "Split slice one",
+        },
+        {
+          scopeSummary: "Second smaller slice from the oversized task.",
+          title: "Split slice two",
+        },
+      ],
+    });
+
+    expect(result.originalBacklogItem.status).toBe("cancelled");
+    expect(result.splitBacklogItems).toHaveLength(2);
+    expect(listBacklogItemsForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: result.splitBacklogItems[0]?.id,
+          title: "Split slice one",
+        }),
+        expect.objectContaining({
+          id: result.splitBacklogItems[1]?.id,
+          title: "Split slice two",
+        }),
+      ]),
+    );
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockedBacklogItemId: blockedBacklogItem.id,
+          blockingBacklogItemId: result.splitBacklogItems[0]?.id,
+        }),
+      ]),
+    );
+
+    closeContext(context);
+  });
+
+  it("merges duplicate pending backlog items into one retained item", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const targetBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Primary backlog item for duplicate merge coverage.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Canonical task",
+    });
+    const duplicateBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Duplicate scope that should be folded into the canonical task.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Duplicate task",
+    });
+    const downstreamBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "This task depends on the duplicate task today.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Downstream task",
+    });
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["Canonical acceptance criterion"],
+      backlogItemId: targetBacklogItem.id,
+      scopeSummary: targetBacklogItem.scopeSummary ?? "",
+      status: "draft",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["Duplicate acceptance criterion"],
+      backlogItemId: duplicateBacklogItem.id,
+      riskLevel: "high",
+      reviewMode: "human",
+      scopeSummary: duplicateBacklogItem.scopeSummary ?? "",
+      status: "draft",
+    });
+    addBacklogDependency(context, {
+      blockedBacklogItemId: downstreamBacklogItem.id,
+      blockingBacklogItemId: duplicateBacklogItem.id,
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+
+    const result = mergeDuplicateBacklogItemsFromPlanning(context, {
+      duplicateBacklogItemIds: [duplicateBacklogItem.id],
+      noteText: "Collapse duplicate scope into the canonical task.",
+      sourceThreadId: fixture.projectChatThread.id,
+      targetBacklogItemId: targetBacklogItem.id,
+    });
+    const storedMergedBacklogItem = getBacklogItemById(context, targetBacklogItem.id);
+
+    expect(result.cancelledBacklogItems).toEqual([
+      expect.objectContaining({
+        id: duplicateBacklogItem.id,
+        status: "cancelled",
+      }),
+    ]);
+    expect(storedMergedBacklogItem?.acceptanceCriteriaJson).toBe(
+      JSON.stringify(["Canonical acceptance criterion", "Duplicate acceptance criterion"]),
+    );
+    expect(storedMergedBacklogItem?.scopeSummary).toContain(
+      'Merged duplicate "Duplicate task": Duplicate scope that should be folded into the canonical task.',
+    );
+    expect(storedMergedBacklogItem?.riskLevel).toBe("high");
+    expect(listBacklogDependencyLinksForProject(context, fixture.project.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockedBacklogItemId: downstreamBacklogItem.id,
+          blockingBacklogItemId: targetBacklogItem.id,
+        }),
+      ]),
+    );
+
+    closeContext(context);
+  });
+
+  it("marks pending backlog work as stale without touching active tasks", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const staleBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Outdated pending work that should leave the queue.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Stale pending task",
+    });
+
+    const markedStaleBacklogItem = markBacklogItemStaleFromPlanning(context, {
+      backlogItemId: staleBacklogItem.id,
+      noteText: "This path is stale after the latest product decision.",
+      sourceThreadId: fixture.projectChatThread.id,
+    });
+
+    expect(markedStaleBacklogItem.status).toBe("cancelled");
+    expect(getBacklogItemById(context, staleBacklogItem.id)?.status).toBe("cancelled");
+    expect(() =>
+      markBacklogItemStaleFromPlanning(context, {
+        backlogItemId: fixture.backlogItem.id,
+      }),
+    ).toThrow("cannot mark stale");
+
+    closeContext(context);
+  });
+
+  it("explains why a backlog item is next based on runnable priority", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const nextBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Highest-priority pending item that is ready to run next.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Next pending task",
+    });
+    const lowerPriorityBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Lower-priority item that is still runnable.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Later pending task",
+    });
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This item is approved and ready."],
+      backlogItemId: nextBacklogItem.id,
+      priority: 80,
+      readiness: "ready",
+      scopeSummary: nextBacklogItem.scopeSummary ?? "",
+      status: "approved",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["This item is also runnable but lower priority."],
+      backlogItemId: lowerPriorityBacklogItem.id,
+      priority: 40,
+      readiness: "ready",
+      scopeSummary: lowerPriorityBacklogItem.scopeSummary ?? "",
+      status: "approved",
+    });
+
+    const explanation = explainWhyBacklogItemIsNext(context, {
+      backlogItemId: nextBacklogItem.id,
+    });
+
+    expect(explanation.isNext).toBe(true);
+    expect(explanation.readyForExecution).toBe(true);
+    expect(explanation.activeTaskRunId).toBe(fixture.taskRun.id);
+    expect(explanation.higherPriorityRunnableBacklogItemIds).toEqual([]);
+    expect(explanation.explanation).toContain("approved, ready, and unblocked");
+    expect(explanation.explanation).toContain(fixture.taskRun.id);
 
     closeContext(context);
   });

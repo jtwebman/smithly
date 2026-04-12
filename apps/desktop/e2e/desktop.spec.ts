@@ -888,6 +888,147 @@ test("task planning can add, reorder, and remove related pending tasks", async (
   }
 });
 
+test("task planning can run backlog hygiene tools and explain why a task is next", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-task-planning-hygiene-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Oversized task should be split"]),
+    createdAt: "2026-04-10T08:00:00.000Z",
+    id: "backlog-oversized-hygiene",
+    priority: 55,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Oversized backlog item for split coverage.",
+    status: "draft",
+    title: "Oversized hygiene task",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Canonical duplicate target"]),
+    createdAt: "2026-04-10T08:05:00.000Z",
+    id: "backlog-merge-target",
+    priority: 45,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Canonical duplicate target for merge coverage.",
+    status: "draft",
+    title: "Canonical hygiene task",
+    updatedAt: "2026-04-10T08:05:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Duplicate merge source"]),
+    createdAt: "2026-04-10T08:10:00.000Z",
+    id: "backlog-merge-duplicate",
+    priority: 44,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Duplicate backlog item that should merge away.",
+    status: "draft",
+    title: "Duplicate hygiene task",
+    updatedAt: "2026-04-10T08:10:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Stale work"]),
+    createdAt: "2026-04-10T08:15:00.000Z",
+    id: "backlog-stale-hygiene",
+    priority: 35,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "ai",
+    riskLevel: "medium",
+    scopeSummary: "Stale backlog item for cancellation coverage.",
+    status: "draft",
+    title: "Stale hygiene task",
+    updatedAt: "2026-04-10T08:15:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Approved and ready next task"]),
+    createdAt: "2026-04-10T08:20:00.000Z",
+    id: "backlog-next-hygiene",
+    priority: 90,
+    projectId: fixture.project.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Highest-priority runnable task after the active task clears.",
+    status: "approved",
+    title: "Next hygiene task",
+    updatedAt: "2026-04-10T08:20:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Bootstrap the desktop shell" })
+      .getByRole("button", { name: "Open Task Chat" })
+      .click();
+    await expect(window.locator("#planning-title")).toHaveText("Task planning");
+    await window.locator("#terminal .xterm-screen").click();
+
+    await window.keyboard.type(
+      "split backlog: backlog-oversized-hygiene | Split hygiene slice one => First split slice from the oversized task. ;; Split hygiene slice two => Second split slice from the oversized task. | Break the oversized task apart.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool split_backlog_item",
+    );
+    await expect(window.locator("#backlog-list")).toContainText("Split hygiene slice one");
+    await expect(window.locator("#backlog-list")).toContainText("Split hygiene slice two");
+    await expect(window.locator("#backlog-list strong").getByText("Oversized hygiene task", { exact: true })).toHaveCount(0);
+
+    await window.keyboard.type(
+      "merge duplicates: backlog-merge-target | backlog-merge-duplicate | Collapse the duplicate into the canonical task.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool merge_duplicate_backlog_items",
+    );
+    await expect(window.locator("#backlog-list")).toContainText("Canonical hygiene task");
+    await expect(window.locator("#backlog-list strong").getByText("Duplicate hygiene task", { exact: true })).toHaveCount(0);
+
+    await window.keyboard.type(
+      "mark stale: backlog-stale-hygiene | This stale path should leave the queue.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool mark_backlog_item_stale",
+    );
+    await expect(window.locator("#backlog-list strong").getByText("Stale hygiene task", { exact: true })).toHaveCount(0);
+
+    await window.keyboard.type("why next: backlog-next-hygiene");
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool explain_backlog_priority",
+    );
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      'Backlog item "Next hygiene task" is next because it is approved, ready, and unblocked.',
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("operator can keep multiple Claude panes open and switch between them", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,

@@ -92,6 +92,134 @@ reader.on("line", async (line) => {
     return;
   }
 
+  if (prompt.startsWith("split backlog:")) {
+    const [backlogItemId, splitItemsPart, notePart] = prompt
+      .slice("split backlog:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!backlogItemId || !splitItemsPart) {
+      console.log(
+        "claude error: split format is 'split backlog: backlog-id | Title A => Scope A ;; Title B => Scope B | Optional note'",
+      );
+      return;
+    }
+
+    const splitItems = splitItemsPart
+      .split(";;")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .map((part) => {
+        const [title, scopeSummary] = part.split("=>").map((value) => value.trim());
+
+        if (!title || !scopeSummary) {
+          return null;
+        }
+
+        return {
+          scopeSummary,
+          title,
+        };
+      })
+      .filter((item) => item !== null);
+
+    if (splitItems.length < 2) {
+      console.log(
+        "claude error: split backlog items must use at least two 'Title => Scope summary' entries separated by ';;'",
+      );
+      return;
+    }
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        backlogItemId,
+        ...(notePart ? { noteText: notePart } : {}),
+        splitItems,
+      },
+      name: "split_backlog_item",
+    });
+
+    console.log(`claude tool split_backlog_item: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
+  if (prompt.startsWith("merge duplicates:")) {
+    const [targetBacklogItemId, duplicateIdsPart, notePart] = prompt
+      .slice("merge duplicates:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!targetBacklogItemId || !duplicateIdsPart) {
+      console.log(
+        "claude error: merge format is 'merge duplicates: target-id | duplicate-a ; duplicate-b | Optional note'",
+      );
+      return;
+    }
+
+    const duplicateBacklogItemIds = duplicateIdsPart
+      .split(";")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        duplicateBacklogItemIds,
+        ...(notePart ? { noteText: notePart } : {}),
+        targetBacklogItemId,
+      },
+      name: "merge_duplicate_backlog_items",
+    });
+
+    console.log(`claude tool merge_duplicate_backlog_items: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
+  if (prompt.startsWith("mark stale:")) {
+    const [backlogItemId, notePart] = prompt
+      .slice("mark stale:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!backlogItemId) {
+      console.log("claude error: stale format is 'mark stale: backlog-id | Optional note'");
+      return;
+    }
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        backlogItemId,
+        ...(notePart ? { noteText: notePart } : {}),
+      },
+      name: "mark_backlog_item_stale",
+    });
+
+    console.log(`claude tool mark_backlog_item_stale: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
+  if (prompt.startsWith("why next:")) {
+    const backlogItemId = prompt.slice("why next:".length).trim();
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        ...(backlogItemId ? { backlogItemId } : {}),
+      },
+      name: "explain_backlog_priority",
+    });
+
+    console.log(`claude tool explain_backlog_priority: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
   if (prompt.startsWith("revise task:")) {
     const [
       scopeSummary,
