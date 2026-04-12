@@ -288,7 +288,7 @@ describe("ProjectSchedulingManager", () => {
     context.db.close();
   });
 
-  it("skips active projects that are waiting for credits", () => {
+  it("runs the idle backlog loop for active projects that are waiting for credits", () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
 
     temporaryDirectories.push(dataDirectory);
@@ -437,48 +437,72 @@ describe("ProjectSchedulingManager", () => {
     context.db.close();
   });
 
-  it("does not repeat the same idle backlog loop prompt once it has been recorded", () => {
+  it("runs the security-audit loop when an active project is otherwise idle", () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-repo-"));
 
-    temporaryDirectories.push(dataDirectory);
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
 
-    const fixture = createInitialSeedFixture();
     const context = createContext({
       config: createConfig({
         dataDirectory,
       }),
     });
-
-    seedInitialState(context, {
-      ...fixture,
-      project: {
-        ...fixture.project,
-        status: "active",
-      },
-      taskRun: {
-        ...fixture.taskRun,
-        completedAt: "2026-04-10T07:30:00.000Z",
-        status: "done",
-        updatedAt: "2026-04-10T07:30:00.000Z",
-      },
-      approval: {
-        ...fixture.approval,
-        decidedAt: "2026-04-10T07:10:00.000Z",
-        decisionBy: "human",
-        status: "approved",
-        updatedAt: "2026-04-10T07:10:00.000Z",
-      },
-      blocker: {
-        ...fixture.blocker,
-        resolutionNote: "No blocker remains for this scheduler test.",
-        resolvedAt: "2026-04-10T07:10:00.000Z",
-        status: "resolved",
-        updatedAt: "2026-04-10T07:10:00.000Z",
-      },
+    const project = registerLocalProject(context, {
+      name: "Security audit project",
+      repoPath,
     });
     updateProjectMetadata(context, {
-      executionState: "waiting_for_credit",
-      projectId: fixture.project.id,
+      projectId: project.id,
+      status: "active",
+    });
+    const startSession = vi.fn();
+    const ensureSession = vi.fn();
+    const submitInput = vi.fn();
+    const manager = new ProjectSchedulingManager(context, {
+      ensureSession,
+      startSession,
+    }, {
+      submitInput,
+    });
+
+    expect(manager.processActiveProjects()).toBe(true);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(ensureSession).not.toHaveBeenCalled();
+    expect(submitInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: project.id,
+        scope: "project",
+      }),
+    );
+    expect(submitInput.mock.calls[0]?.[0]?.bodyText).toContain(
+      "Run the default security-audit loop for this project.",
+    );
+    expect(submitInput.mock.calls[0]?.[0]?.bodyText).toContain("human review mode");
+
+    context.db.close();
+  });
+
+  it("does not repeat the same security-audit loop prompt once it has been recorded", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
+    const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-repo-"));
+
+    temporaryDirectories.push(dataDirectory, repoPath);
+    mkdirSync(join(repoPath, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const project = registerLocalProject(context, {
+      name: "Security audit project",
+      repoPath,
+    });
+    updateProjectMetadata(context, {
+      projectId: project.id,
+      status: "active",
     });
 
     const startSession = vi.fn();
@@ -489,22 +513,18 @@ describe("ProjectSchedulingManager", () => {
       upsertChatMessage(context, {
         bodyText: input.bodyText,
         createdAt: "2026-04-10T07:40:00.000Z",
-        id: "message-idle-loop-credit-wait",
+        id: "message-security-audit-loop",
         metadataJson: "{}",
         role: "human",
         threadId: planningThread.id,
       });
     });
-    const manager = new ProjectSchedulingManager(
-      context,
-      {
-        ensureSession,
-        startSession,
-      },
-      {
-        submitInput,
-      },
-    );
+    const manager = new ProjectSchedulingManager(context, {
+      ensureSession,
+      startSession,
+    }, {
+      submitInput,
+    });
 
     expect(manager.processActiveProjects()).toBe(true);
     expect(manager.processActiveProjects()).toBe(false);

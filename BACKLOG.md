@@ -177,7 +177,7 @@
 92. `done` Support paused, blocked, waiting-for-credit, and waiting-for-human states
 93. `done` Add project-level operator modes such as planning, ready to execute, actively executing, blocked on human, blocked on external dependency, and paused
 94. `done` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
-95. `todo` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
+95. `done` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
 96. `todo` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
 97. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
 98. `todo` Add quota and credit pause-resume handling

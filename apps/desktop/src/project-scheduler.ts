@@ -89,14 +89,14 @@ export class ProjectSchedulingManager {
       return false;
     }
 
-    if (executionState !== null && executionState !== "active") {
-      return this.processIdleBacklogLoop(projectId, executionState);
-    }
-
     const nextBacklogItem = selectNextRunnableBacklogItemForProject(this.context, projectId);
 
+    if (executionState !== null && executionState !== "active") {
+      return this.processPlanningLoops(projectId, executionState);
+    }
+
     if (nextBacklogItem === null) {
-      return false;
+      return this.processPlanningLoops(projectId, "active");
     }
 
     this.taskController.startSession({
@@ -108,37 +108,56 @@ export class ProjectSchedulingManager {
     return true;
   }
 
-  private processIdleBacklogLoop(
+  private processPlanningLoops(
     projectId: string,
-    executionState: "blocked" | "waiting_for_credit" | "waiting_for_human" | "paused",
+    executionState: "active" | "blocked" | "waiting_for_credit" | "waiting_for_human" | "paused",
   ): boolean {
-    if (
-      this.planningController === undefined ||
-      !["blocked", "waiting_for_credit", "waiting_for_human"].includes(executionState)
-    ) {
+    if (this.planningController === undefined) {
       return false;
     }
 
-    const prompt = this.buildIdleBacklogGenerationPrompt(
-      projectId,
-      executionState as "blocked" | "waiting_for_credit" | "waiting_for_human",
-    );
+    const prompts = this.buildPlanningLoopPrompts(projectId, executionState);
     const planningThread = ensureProjectPlanningThread(this.context, projectId);
-    const hasMatchingPrompt = listChatMessagesForThread(this.context, planningThread.id).some(
-      (message) => message.role === "human" && message.bodyText === prompt,
+    const existingPrompts = new Set(
+      listChatMessagesForThread(this.context, planningThread.id)
+        .filter((message) => message.role === "human")
+        .map((message) => message.bodyText),
     );
 
-    if (hasMatchingPrompt) {
-      return false;
+    for (const prompt of prompts) {
+      if (existingPrompts.has(prompt)) {
+        continue;
+      }
+
+      this.planningController.submitInput({
+        bodyText: prompt,
+        projectId,
+        scope: "project",
+      });
+
+      return true;
     }
 
-    this.planningController.submitInput({
-      bodyText: prompt,
-      projectId,
-      scope: "project",
-    });
+    return false;
+  }
 
-    return true;
+  private buildPlanningLoopPrompts(
+    projectId: string,
+    executionState: "active" | "blocked" | "waiting_for_credit" | "waiting_for_human" | "paused",
+  ): readonly string[] {
+    const prompts: string[] = [];
+
+    if (["blocked", "waiting_for_credit", "waiting_for_human"].includes(executionState)) {
+      prompts.push(
+        this.buildIdleBacklogGenerationPrompt(
+          projectId,
+          executionState as "blocked" | "waiting_for_credit" | "waiting_for_human",
+        ),
+      );
+    }
+
+    prompts.push(this.buildSecurityAuditPrompt());
+    return prompts;
   }
 
   private buildIdleBacklogGenerationPrompt(
@@ -176,6 +195,17 @@ export class ProjectSchedulingManager {
       "Instead, identify a small set of useful draft backlog items or draft refinements that can move the project forward while execution is waiting.",
       "Prefer reviewable work that reduces risk, prepares follow-on execution, or addresses likely unblockers.",
       "Use Smithly MCP tools to record the drafted work and explain briefly why each item helps.",
+    ].join(" ");
+  }
+
+  private buildSecurityAuditPrompt(): string {
+    return [
+      "Run the default security-audit loop for this project.",
+      "Review the full codebase for concrete security weaknesses, insecure defaults, secrets handling risks, authorization gaps, dependency exposure, and unsafe operational assumptions.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-value security follow-ups you find.",
+      "Each draft should explain the risk, the likely impact, and the smallest pragmatic remediation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
     ].join(" ");
   }
 }
