@@ -484,7 +484,7 @@ describe("ProjectSchedulingManager", () => {
     context.db.close();
   });
 
-  it("does not repeat the same security-audit loop prompt once it has been recorded", () => {
+  it("advances from the security-audit loop to the 2026 best-practices loop without repetition", () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
     const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-repo-"));
 
@@ -507,13 +507,15 @@ describe("ProjectSchedulingManager", () => {
 
     const startSession = vi.fn();
     const ensureSession = vi.fn();
+    let recordedPromptCount = 0;
     const submitInput = vi.fn((input: { readonly bodyText: string; readonly projectId: string }) => {
       const planningThread = ensureProjectPlanningThread(context, input.projectId);
+      recordedPromptCount += 1;
 
       upsertChatMessage(context, {
         bodyText: input.bodyText,
         createdAt: "2026-04-10T07:40:00.000Z",
-        id: "message-security-audit-loop",
+        id: `message-project-loop-${recordedPromptCount}`,
         metadataJson: "{}",
         role: "human",
         threadId: planningThread.id,
@@ -527,8 +529,15 @@ describe("ProjectSchedulingManager", () => {
     });
 
     expect(manager.processActiveProjects()).toBe(true);
+    expect(submitInput.mock.calls[0]?.[0]?.bodyText).toContain(
+      "Run the default security-audit loop for this project.",
+    );
+    expect(manager.processActiveProjects()).toBe(true);
+    expect(submitInput.mock.calls[1]?.[0]?.bodyText).toContain(
+      "Run the default pragmatic 2026 best-practices loop for this project.",
+    );
     expect(manager.processActiveProjects()).toBe(false);
-    expect(submitInput).toHaveBeenCalledTimes(1);
+    expect(submitInput).toHaveBeenCalledTimes(2);
 
     context.db.close();
   });

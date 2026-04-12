@@ -157,6 +157,7 @@ export class ProjectSchedulingManager {
     }
 
     prompts.push(this.buildSecurityAuditPrompt());
+    prompts.push(this.buildBestPracticesPrompt());
     return prompts;
   }
 
@@ -205,6 +206,17 @@ export class ProjectSchedulingManager {
       "Do not mutate approved backlog items or the scope of any active task.",
       "Draft a small set of human-reviewed backlog items for the highest-value security follow-ups you find.",
       "Each draft should explain the risk, the likely impact, and the smallest pragmatic remediation slice.",
+      "Use Smithly MCP tools to record the backlog items with human review mode.",
+    ].join(" ");
+  }
+
+  private buildBestPracticesPrompt(): string {
+    return [
+      "Run the default pragmatic 2026 best-practices loop for this project.",
+      "Review the current codebase against pragmatic 2026 engineering practices, including maintainability, testing depth, developer ergonomics, operational resilience, dependency hygiene, and workflow clarity.",
+      "Do not mutate approved backlog items or the scope of any active task.",
+      "Draft a small set of human-reviewed backlog items for the highest-leverage improvements you find.",
+      "Each draft should explain the current gap, the practical benefit of fixing it in 2026, and the smallest useful implementation slice.",
       "Use Smithly MCP tools to record the backlog items with human review mode.",
     ].join(" ");
   }

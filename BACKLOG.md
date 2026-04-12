@@ -178,7 +178,7 @@
 93. `done` Add project-level operator modes such as planning, ready to execute, actively executing, blocked on human, blocked on external dependency, and paused
 94. `done` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
 95. `done` Add a default security-audit loop that reviews the full codebase and drafts human-reviewed backlog items
-96. `todo` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
+96. `done` Add a default current-year best-practices loop that reviews the codebase against pragmatic 2026 best practices and drafts human-reviewed backlog items
 97. `todo` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
 98. `todo` Add quota and credit pause-resume handling
 99. `todo` Add dashboard summaries across all projects plus operator digest views for what changed, what is waiting, what is running, what is next, and what AI proposed
