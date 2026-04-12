@@ -244,6 +244,7 @@ interface CodexOutputEvent {
 interface DesktopUiStateSnapshot {
   readonly activePlanningPaneKey?: string;
   readonly activeCodexTaskRunId?: string;
+  readonly isFocusPaneMinified?: boolean;
   readonly isCodingVisible?: boolean;
   readonly isOrchestrationVisible?: boolean;
   readonly isProjectWorkspaceOpen?: boolean;
@@ -310,10 +311,16 @@ const appVersionNode = document.getElementById("app-version");
 const themeNode = document.getElementById("theme-mode");
 const dataDirectoryNode = document.getElementById("data-directory");
 const projectCountNode = document.getElementById("project-count");
+const dashboardPanelNode = document.getElementById("dashboard-panel");
 const dashboardDigestNode = document.getElementById("dashboard-digest");
 const projectListNode = document.getElementById("project-list");
 const projectWorkspaceNode = document.getElementById("project-workspace");
+const projectWorkspaceHeaderNode = document.getElementById("project-workspace-header");
 const projectWorkspaceTitleNode = document.getElementById("project-workspace-title");
+const focusShellNode = document.getElementById("focus-shell");
+const focusMainNode = document.getElementById("focus-main");
+const workspaceDetailsNode = document.getElementById("workspace-details");
+const focusProjectListNode = document.getElementById("focus-project-list");
 const closeProjectWorkspaceButton = document.getElementById(
   "close-project-workspace-button",
 ) as HTMLButtonElement | null;
@@ -455,6 +462,7 @@ let openCodexTaskRunIds: string[] = [];
 let isProjectWorkspaceOpen = false;
 let isOrchestrationVisible = false;
 let isCodingVisible = false;
+let isFocusPaneMinified = false;
 const terminalBuffers = new Map<string, string[]>();
 const codexTerminalBuffers = new Map<string, string[]>();
 let terminalResizeObserver: ResizeObserver | null = null;
@@ -568,6 +576,30 @@ function renderProjects(status: DesktopStatus): void {
       renderDesktopStatus(await window.smithlyDesktop.selectProject(project.id));
     });
     projectListNode.append(article);
+  }
+}
+
+function renderFocusProjectList(status: DesktopStatus): void {
+  if (focusProjectListNode === null) {
+    return;
+  }
+
+  focusProjectListNode.innerHTML = "";
+
+  for (const project of status.projects) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "focus-project-button";
+    button.dataset.selected = String(status.selectedProjectId === project.id);
+    button.innerHTML = `
+      <strong>${escapeHtml(project.name)}</strong>
+      <span>${escapeHtml(project.mode)}</span>
+    `;
+    button.addEventListener("click", async () => {
+      isProjectWorkspaceOpen = true;
+      renderDesktopStatus(await window.smithlyDesktop.selectProject(project.id));
+    });
+    focusProjectListNode.append(button);
   }
 }
 
@@ -1151,10 +1183,25 @@ function renderWorkspaceVisibility(status: DesktopStatus): void {
   const hasSelectedProject = status.selectedProject !== undefined;
   const hasBootstrapSession = status.bootstrapSession !== undefined;
   const showWorkspace = isProjectWorkspaceOpen && (hasSelectedProject || hasBootstrapSession);
-  const showOrchestration = showWorkspace && isOrchestrationVisible;
-  const showCoding = showWorkspace && isCodingVisible;
+  const hasOpenChatRail =
+    showWorkspace &&
+    (hasBootstrapSession || openPlanningPaneKeys.length > 0 || openCodexTaskRunIds.length > 0);
+  const showFocusMode = showWorkspace;
+  const showOrchestration = showFocusMode && isOrchestrationVisible;
+  const showCoding = showFocusMode && isCodingVisible;
+  const showFocusMain = showFocusMode && (showOrchestration || showCoding) && !isFocusPaneMinified;
+  const showWorkspaceDetails =
+    showWorkspace &&
+    !showOrchestration &&
+    !showCoding &&
+    !hasOpenChatRail;
 
+  dashboardPanelNode?.toggleAttribute("hidden", showFocusMode);
   projectWorkspaceNode?.toggleAttribute("hidden", !showWorkspace);
+  projectWorkspaceHeaderNode?.toggleAttribute("hidden", showFocusMode);
+  focusShellNode?.toggleAttribute("hidden", !showFocusMode);
+  focusMainNode?.toggleAttribute("hidden", !showFocusMain);
+  workspaceDetailsNode?.toggleAttribute("hidden", !showWorkspaceDetails);
   orchestrationShellNode?.toggleAttribute("hidden", !showOrchestration);
   codingShellNode?.toggleAttribute("hidden", !showCoding);
 
@@ -1174,16 +1221,16 @@ function renderWorkspaceVisibility(status: DesktopStatus): void {
   }
 
   if (showCodingButton !== null) {
-    showCodingButton.disabled = !hasSelectedProject;
+    showCodingButton.disabled = !hasSelectedProject || activeCodexTaskRunId === null;
   }
 
-  if (showOrchestration) {
+  if (showOrchestration && showFocusMain) {
     window.requestAnimationFrame(() => {
       refitVisibleTerminal(status);
     });
   }
 
-  if (showCoding) {
+  if (showCoding && showFocusMain) {
     window.requestAnimationFrame(() => {
       refitVisibleCodexTerminal(status);
     });
@@ -1360,7 +1407,11 @@ function renderCodexPaneTabs(status: DesktopStatus): void {
       <span>${escapeHtml(session?.status ?? "idle")}</span>
     `;
     button.addEventListener("click", () => {
+      isFocusPaneMinified = false;
+      isCodingVisible = true;
+      isOrchestrationVisible = false;
       activeCodexTaskRunId = taskRunId;
+      renderWorkspaceVisibility(currentStatus ?? status);
       renderCodexPane(currentStatus ?? status);
       void persistCurrentUiState();
     });
@@ -1413,7 +1464,11 @@ function renderPlanningPaneTabs(status: DesktopStatus): void {
         await focusBacklogItem(backlogItemId);
       }
 
+      isFocusPaneMinified = false;
+      isOrchestrationVisible = true;
+      isCodingVisible = false;
       activePlanningPaneKey = paneKey;
+      renderWorkspaceVisibility(currentStatus ?? status);
       renderPlanningPane(currentStatus ?? status);
       void persistCurrentUiState();
     });
@@ -1818,6 +1873,7 @@ function renderDesktopStatus(status: DesktopStatus): void {
   setNodeText(projectCountNode, String(status.projectCount));
   renderDashboardDigest(status);
   renderProjects(status);
+  renderFocusProjectList(status);
   renderWorkspaceVisibility(status);
   renderSelectedProject(status);
   setNodeText(shellStatusNode, "Shell ready");
@@ -2188,7 +2244,21 @@ memoryComposerForm?.addEventListener("submit", async (event) => {
 });
 
 showOrchestrationButton?.addEventListener("click", () => {
+  if (activePlanningPaneKey === null) {
+    if (currentStatus?.bootstrapSession !== undefined) {
+      void openBootstrapPane();
+      return;
+    }
+
+    if (currentStatus?.selectedProject !== undefined) {
+      void openPlanningPane("project");
+      return;
+    }
+  }
+
+  isFocusPaneMinified = false;
   isOrchestrationVisible = true;
+  isCodingVisible = false;
   currentTerminalSignature = "";
 
   if (currentStatus !== null) {
@@ -2200,7 +2270,9 @@ showOrchestrationButton?.addEventListener("click", () => {
 });
 
 showCodingButton?.addEventListener("click", () => {
+  isFocusPaneMinified = false;
   isCodingVisible = true;
+  isOrchestrationVisible = false;
   currentCodexTerminalSignature = "";
 
   if (currentStatus !== null) {
@@ -2212,7 +2284,7 @@ showCodingButton?.addEventListener("click", () => {
 });
 
 hideOrchestrationButton?.addEventListener("click", () => {
-  isOrchestrationVisible = false;
+  isFocusPaneMinified = true;
 
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
@@ -2222,7 +2294,7 @@ hideOrchestrationButton?.addEventListener("click", () => {
 });
 
 hideCodingButton?.addEventListener("click", () => {
-  isCodingVisible = false;
+  isFocusPaneMinified = true;
 
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
@@ -2235,6 +2307,7 @@ closeProjectWorkspaceButton?.addEventListener("click", () => {
   isProjectWorkspaceOpen = false;
   isOrchestrationVisible = false;
   isCodingVisible = false;
+  isFocusPaneMinified = false;
 
   if (currentStatus !== null) {
     renderWorkspaceVisibility(currentStatus);
@@ -2304,6 +2377,7 @@ async function restoreSavedUiState(savedUiState: DesktopUiStateSnapshot): Promis
   isProjectWorkspaceOpen = savedUiState.isProjectWorkspaceOpen ?? false;
   isOrchestrationVisible = savedUiState.isOrchestrationVisible ?? false;
   isCodingVisible = savedUiState.isCodingVisible ?? false;
+  isFocusPaneMinified = savedUiState.isFocusPaneMinified ?? false;
   openPlanningPaneKeys = [...(savedUiState.openPlanningPaneKeys ?? [])].filter(isSessionPaneKey);
   openCodexTaskRunIds = [...(savedUiState.openCodexTaskRunIds ?? [])].filter((value) => {
     return value.trim().length > 0;
@@ -2352,6 +2426,7 @@ async function persistUiState(status: DesktopStatus): Promise<void> {
   await window.smithlyDesktop.saveUiState({
     ...(activePlanningPaneKey !== null ? { activePlanningPaneKey } : {}),
     ...(activeCodexTaskRunId !== null ? { activeCodexTaskRunId } : {}),
+    isFocusPaneMinified,
     isCodingVisible,
     isOrchestrationVisible,
     isProjectWorkspaceOpen,
@@ -2474,6 +2549,11 @@ async function openPlanningPane(scope: PlanningScope, backlogItemId?: string): P
   }
 
   activePlanningPaneKey = paneKey;
+  isProjectWorkspaceOpen = true;
+  isFocusPaneMinified = false;
+  isOrchestrationVisible = true;
+  isCodingVisible = false;
+  currentTerminalSignature = "";
   void persistCurrentUiState();
   renderPlanningPending(scope);
   renderDesktopStatus(await window.smithlyDesktop.ensurePlanningSession(scope, backlogItemId));
@@ -2489,7 +2569,9 @@ async function openBootstrapPane(): Promise<void> {
 
   activePlanningPaneKey = paneKey;
   isProjectWorkspaceOpen = true;
+  isFocusPaneMinified = false;
   isOrchestrationVisible = true;
+  isCodingVisible = false;
   currentTerminalSignature = "";
   void persistCurrentUiState();
   renderPlanningPending("bootstrap");
@@ -2510,6 +2592,8 @@ async function startCodexTask(backlogItemId: string): Promise<void> {
   }
 
   isCodingVisible = true;
+  isOrchestrationVisible = false;
+  isFocusPaneMinified = false;
   if (!openCodexTaskRunIds.includes(newestSession.taskRunId)) {
     openCodexTaskRunIds = [...openCodexTaskRunIds, newestSession.taskRunId];
   }

@@ -264,13 +264,94 @@
       }
 
       .workspace-shell[hidden],
-      .orchestration-shell[hidden] {
+      .orchestration-shell[hidden],
+      .focus-shell[hidden],
+      .focus-main[hidden],
+      .workspace-details[hidden] {
         display: none;
       }
 
       .workspace-shell {
         display: grid;
         gap: 24px;
+      }
+
+      .focus-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .focus-main {
+        min-height: 0;
+      }
+
+      .focus-main .panel--terminal {
+        min-height: calc(100vh - 140px);
+      }
+
+      .focus-rail {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .focus-rail__section {
+        display: grid;
+        gap: 10px;
+      }
+
+      .focus-rail__section h3 {
+        margin: 0;
+        font-size: 0.88rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+      }
+
+      .focus-rail__controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .focus-project-list,
+      .focus-session-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .focus-project-button,
+      .focus-session-list .session-tab,
+      .focus-session-list .session-tab-close {
+        width: 100%;
+      }
+
+      .focus-project-button {
+        display: grid;
+        gap: 4px;
+        padding: 12px 14px;
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--panel-strong);
+        cursor: pointer;
+      }
+
+      .focus-project-button[data-selected="true"] {
+        border-color: var(--accent-strong);
+        background: var(--status-active);
+      }
+
+      .focus-project-button strong {
+        font-size: 0.95rem;
+      }
+
+      .focus-project-button span {
+        color: var(--muted);
+        font-size: 0.84rem;
       }
 
       .scope-toggle button {
@@ -572,6 +653,7 @@
       @media (max-width: 1280px) {
         .dashboard-digest__summary,
         .dashboard-digest__sections,
+        .focus-shell,
         .workspace-tertiary {
           grid-template-columns: 1fr;
         }
@@ -604,7 +686,7 @@
   </head>
   <body>
     <main class="workspace">
-      <section class="panel">
+      <section id="dashboard-panel" class="panel">
         <div class="project-toolbar">
           <div class="panel-header">
             <div>
@@ -626,7 +708,7 @@
       </section>
 
       <section id="project-workspace" class="workspace-shell" hidden>
-        <section class="panel">
+        <section id="project-workspace-header" class="panel">
           <div class="panel-header">
             <div>
               <h2 id="project-workspace-title">Project workspace</h2>
@@ -634,22 +716,12 @@
                 Upcoming work, completed work, approvals, and blockers for the selected project.
               </p>
             </div>
-            <div class="detail-actions">
-              <button id="show-orchestration-button" class="secondary-button" type="button">
-                Show Orchestration
-              </button>
-              <button id="show-coding-button" class="secondary-button" type="button">
-                Show Coding
-              </button>
-              <button id="close-project-workspace-button" class="secondary-button" type="button">
-                Back To Projects
-              </button>
-            </div>
+            <p>Use the focused rail to switch chats, projects, or return to the dashboard.</p>
           </div>
         </section>
 
-        <section class="workspace">
-          <section class="workspace-grid">
+        <section id="focus-shell" class="focus-shell" hidden>
+          <div id="focus-main" class="focus-main" hidden>
             <div id="orchestration-shell" class="panel panel--terminal orchestration-shell" hidden>
               <div class="panel-header">
                 <div>
@@ -663,15 +735,10 @@
                   <button id="project-archive-button" type="button">Archive</button>
                   <button id="project-reactivate-button" type="button">Reactivate</button>
                   <button id="hide-orchestration-button" class="secondary-button" type="button">
-                    Hide
+                    Minify
                   </button>
                 </div>
               </div>
-              <div class="scope-toggle">
-                <button id="project-planning-button" type="button">Plan / Approve More</button>
-                <button id="task-planning-button" type="button">Task Planning</button>
-              </div>
-              <div id="planning-pane-tabs" class="stack"></div>
               <div id="terminal"></div>
               <p id="terminal-caption" class="terminal-caption">Claude TUI attaches here.</p>
             </div>
@@ -684,19 +751,56 @@
                 </div>
                 <div class="detail-actions">
                   <button id="hide-coding-button" class="secondary-button" type="button">
-                    Hide
+                    Minify
                   </button>
                 </div>
               </div>
-              <div id="coding-pane-tabs" class="stack"></div>
               <div id="codex-terminal"></div>
               <p id="coding-caption" class="terminal-caption">Codex TUI attaches here.</p>
               <p id="coding-status" class="terminal-caption">
                 Start a coding task to attach Codex.
               </p>
             </div>
-          </section>
+          </div>
 
+          <aside class="panel focus-rail">
+            <div class="focus-rail__section">
+              <h3>Workspace</h3>
+              <div class="focus-rail__controls">
+                <button id="show-orchestration-button" class="secondary-button" type="button">
+                  Claude
+                </button>
+                <button id="show-coding-button" class="secondary-button" type="button">
+                  Codex
+                </button>
+                <button id="close-project-workspace-button" class="secondary-button" type="button">
+                  Dashboard
+                </button>
+              </div>
+            </div>
+
+            <div class="focus-rail__section">
+              <h3>Claude Chats</h3>
+              <div class="scope-toggle">
+                <button id="project-planning-button" type="button">Plan / Approve More</button>
+                <button id="task-planning-button" type="button">Task Planning</button>
+              </div>
+              <div id="planning-pane-tabs" class="focus-session-list"></div>
+            </div>
+
+            <div class="focus-rail__section">
+              <h3>Codex Chats</h3>
+              <div id="coding-pane-tabs" class="focus-session-list"></div>
+            </div>
+
+            <div class="focus-rail__section">
+              <h3>Projects</h3>
+              <div id="focus-project-list" class="focus-project-list"></div>
+            </div>
+          </aside>
+        </section>
+
+        <section id="workspace-details" class="workspace" hidden>
           <section class="workspace-secondary">
             <div class="panel">
               <div class="panel-header">

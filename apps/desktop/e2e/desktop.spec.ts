@@ -134,16 +134,15 @@ test("add project opens a bootstrap Claude session rooted at the operator home d
     await window.locator("#open-project-creator-button").click();
 
     await expect(window.locator("#project-workspace")).toBeVisible();
+    await expect(window.locator("#dashboard-panel")).toBeHidden();
+    await expect(window.locator("#focus-shell")).toBeVisible();
+    await expect(window.locator("#focus-main")).toBeVisible();
     await expect(window.locator("#orchestration-shell")).toBeVisible();
-    await expect(window.locator("#project-workspace-title")).toHaveText(
-      "Project bootstrap workspace",
-    );
     await expect(window.locator("#project-detail-title")).toHaveText("Project bootstrap");
-    await expect(window.locator("#planning-title")).toHaveText("Project bootstrap");
-    await expect(window.locator("#planning-status")).toContainText("bootstrap session running");
     await expect(window.locator("#terminal-caption")).toContainText(
       "Use Claude to discuss the idea, choose a name, pick a folder, and shape the first plan.",
     );
+    await expect(window.locator("#planning-pane-tabs")).toContainText("Project Bootstrap");
 
     await window.locator("#terminal .xterm-screen").click();
     await window.keyboard.type("I want to build a new product planning tool.");
@@ -151,6 +150,14 @@ test("add project opens a bootstrap Claude session rooted at the operator home d
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "claude ack: I want to build a new product planning tool.",
     );
+
+    await window.getByRole("button", { name: "Minify" }).click();
+    await expect(window.locator("#focus-main")).toBeHidden();
+    await expect(window.locator("#planning-pane-tabs")).toContainText("Project Bootstrap");
+
+    await window.locator("#planning-pane-tabs .session-tab").click();
+    await expect(window.locator("#focus-main")).toBeVisible();
+    await expect(window.locator("#orchestration-shell")).toBeVisible();
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }
@@ -409,7 +416,7 @@ test("desktop shell shows the seeded dashboard without auto-attaching a Claude s
     );
     await expect(window.locator("#project-list")).toContainText("paused");
     await expect(window.locator("#planning-status")).toContainText(
-      "Project execution is waiting on human input or approval before work can continue.",
+      "Project execution is paused. Click Play to start hidden orchestration or open a Claude pane manually.",
     );
     await expect(window.locator("#terminal-caption")).toContainText(
       "Open a Claude pane to attach a planning session.",
