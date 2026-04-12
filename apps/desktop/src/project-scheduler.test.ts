@@ -157,6 +157,121 @@ describe("ProjectSchedulingManager", () => {
     context.db.close();
   });
 
+  it("processes multiple active projects independently in one scheduling pass", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-multi-"));
+    const readyRepoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-ready-"));
+    const waitingRepoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-waiting-"));
+
+    temporaryDirectories.push(dataDirectory, readyRepoPath, waitingRepoPath);
+    mkdirSync(join(readyRepoPath, ".git"));
+    mkdirSync(join(waitingRepoPath, ".git"));
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        status: "active",
+      },
+      approval: {
+        ...fixture.approval,
+        decidedAt: "2026-04-10T07:10:00.000Z",
+        decisionBy: "human",
+        status: "approved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+      blocker: {
+        ...fixture.blocker,
+        resolutionNote: "No blocker remains for this scheduler test.",
+        resolvedAt: "2026-04-10T07:10:00.000Z",
+        status: "resolved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+    });
+
+    const readyProject = registerLocalProject(context, {
+      name: "Ready project",
+      repoPath: readyRepoPath,
+    });
+    updateProjectMetadata(context, {
+      projectId: readyProject.id,
+      status: "active",
+    });
+    const readyThread = ensureProjectPlanningThread(context, readyProject.id);
+    const readyBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: readyProject.id,
+      scopeSummary: "Runnable work for the second active project.",
+      sourceThreadId: readyThread.id,
+      title: "Second project runnable task",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["Approved and ready"],
+      backlogItemId: readyBacklogItem.id,
+      priority: 91,
+      readiness: "ready",
+      scopeSummary: readyBacklogItem.scopeSummary ?? "",
+      status: "approved",
+    });
+
+    const waitingProject = registerLocalProject(context, {
+      name: "Waiting project",
+      repoPath: waitingRepoPath,
+    });
+    updateProjectMetadata(context, {
+      projectId: waitingProject.id,
+      status: "active",
+    });
+    upsertApproval(context, {
+      createdAt: "2026-04-10T08:00:00.000Z",
+      detail: "Waiting on operator input before coding resumes.",
+      id: "approval-multi-project-waiting",
+      projectId: waitingProject.id,
+      requestedBy: "claude",
+      status: "pending",
+      title: "Need operator input",
+      updatedAt: "2026-04-10T08:00:00.000Z",
+    });
+
+    const startSession = vi.fn();
+    const ensureSession = vi.fn();
+    const submitInput = vi.fn();
+    const manager = new ProjectSchedulingManager(
+      context,
+      {
+        ensureSession,
+        startSession,
+      },
+      {
+        submitInput,
+      },
+    );
+
+    expect(manager.processActiveProjects()).toBe(true);
+    expect(ensureSession).toHaveBeenCalledWith(fixture.taskRun.id);
+    expect(startSession).toHaveBeenCalledWith({
+      backlogItemId: readyBacklogItem.id,
+      projectId: readyProject.id,
+      summaryText: `Start Codex work for the next runnable backlog item: ${readyBacklogItem.title}.`,
+    });
+    expect(submitInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: waitingProject.id,
+        scope: "project",
+      }),
+    );
+    expect(submitInput.mock.calls[0]?.[0]?.bodyText).toContain(
+      "Run the default idle backlog-generation loop for this project.",
+    );
+
+    context.db.close();
+  });
+
   it("skips paused projects and work that is not yet runnable", () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
     const repoPath = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-repo-"));

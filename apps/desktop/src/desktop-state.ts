@@ -524,6 +524,10 @@ export function resolveProjectMode(
     return "archived";
   }
 
+  if (projectStatus === "paused" || executionState === "paused") {
+    return "paused";
+  }
+
   if (executionState === "waiting_for_credit") {
     return "waiting for credit";
   }
@@ -559,10 +563,6 @@ export function resolveProjectMode(
     })
   ) {
     return "planning";
-  }
-
-  if (projectStatus === "paused" || executionState === "paused") {
-    return "paused";
   }
 
   return "planning";

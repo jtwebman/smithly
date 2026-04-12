@@ -182,7 +182,7 @@
 97. `done` Add UI so operators can enable, disable, edit, reorder, and add custom backlog-generation loops such as research or market scans
 98. `done` Add quota and credit pause-resume handling
 99. `done` Add dashboard summaries across all projects plus operator digest views for what changed, what is waiting, what is running, what is next, and what AI proposed
-100.  `todo` Add tests for multi-project scheduling behavior, project modes, and backlog-generation loops
+100.  `done` Add tests for multi-project scheduling behavior, project modes, and backlog-generation loops
 
 ## Future Expansion Notes
 

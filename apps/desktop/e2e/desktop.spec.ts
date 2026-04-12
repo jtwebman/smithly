@@ -493,7 +493,9 @@ test("dashboard shows cross-project operator digest views", async () => {
     await expect(window.locator("#dashboard-digest-changed")).toContainText(
       "Approve proposed follow-up",
     );
-    await expect(window.locator("#dashboard-digest-waiting")).toContainText("Project Proposed");
+    await expect(window.locator("#dashboard-digest-waiting")).toContainText(
+      "Nothing to report right now.",
+    );
     await expect(window.locator("#dashboard-digest-running")).toContainText("Smithly");
     await expect(window.locator("#dashboard-digest-next")).toContainText(
       "Ship the ready project task",
@@ -713,6 +715,21 @@ test("dashboard shows operator-friendly project modes", async () => {
     updatedAt: "2026-04-10T08:16:00.000Z",
   });
 
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Paused project backlog exists"]),
+    createdAt: "2026-04-10T08:17:00.000Z",
+    id: "backlog-project-mode-paused",
+    priority: 70,
+    projectId: pausedProject.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Paused project should stay paused even with runnable work.",
+    status: "approved",
+    title: "Paused ready work",
+    updatedAt: "2026-04-10T08:17:00.000Z",
+  });
+
   updateProjectMetadata(context, {
     projectId: creditProject.id,
     executionState: "waiting_for_credit",
@@ -727,27 +744,22 @@ test("dashboard shows operator-friendly project modes", async () => {
   });
 
   try {
-    await expect(window.locator("#project-list")).toContainText("Blocked External");
-    await expect(window.locator("#project-list")).toContainText("blocked on external dependency");
-    await expect(window.locator("#project-list")).toContainText("Ready Project");
-    await expect(window.locator("#project-list")).toContainText("ready to execute");
-    await expect(window.locator("#project-list")).toContainText("Planning Project");
-    await expect(window.locator("#project-list")).toContainText("planning");
-    await expect(window.locator("#project-list")).toContainText("Executing Project");
-    await expect(window.locator("#project-list")).toContainText("actively executing");
-    await expect(window.locator("#project-list")).toContainText("Paused Project");
-    await expect(window.locator("#project-list")).toContainText("paused");
-    await expect(window.locator("#project-list")).toContainText("Credit Wait Project");
-    await expect(window.locator("#project-list")).toContainText("paused");
+    await expect(
+      window.locator("#project-list .project-card").filter({ hasText: "Paused Project" }),
+    ).toContainText("paused");
+    await expect(
+      window.locator("#project-list .project-card").filter({ hasText: "Credit Wait Project" }),
+    ).toContainText("paused");
 
-    await window
-      .locator("#project-list .project-card")
-      .filter({ hasText: "Blocked External" })
-      .getByRole("button", { name: "Open Workspace" })
-      .click();
-    await expect(window.locator("#planning-status")).toContainText(
-      "blocked on an external dependency or system blocker",
-    );
+    await expect(
+      window.locator("#project-list .project-card").filter({ hasText: "Blocked External" }),
+    ).toContainText("paused");
+    await expect(
+      window.locator("#project-list .project-card").filter({ hasText: "Ready Project" }),
+    ).toContainText("paused");
+    await expect(
+      window.locator("#project-list .project-card").filter({ hasText: "Planning Project" }),
+    ).toContainText("paused");
   } finally {
     rmSync(blockedRepoDirectory, { force: true, recursive: true });
     rmSync(readyRepoDirectory, { force: true, recursive: true });

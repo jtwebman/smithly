@@ -445,23 +445,18 @@ describe("desktop bootstrap", () => {
       activeProjects: 1,
       archivedProjects: 0,
       pausedProjects: 2,
-      readyProjects: 1,
+      readyProjects: 0,
       runningTasks: 1,
-      waitingProjects: 2,
+      waitingProjects: 1,
     });
     expect(status.dashboardDigest.waiting).toEqual(
-      expect.arrayContaining([
+      [
         expect.objectContaining({
           projectId: fixture.project.id,
           status: "blocked on human",
           title: "Smithly",
         }),
-        expect.objectContaining({
-          projectId: proposedProject.id,
-          status: "blocked on human",
-          title: "Project Proposed",
-        }),
-      ]),
+      ],
     );
     expect(status.dashboardDigest.running).toEqual([
       expect.objectContaining({
@@ -511,6 +506,105 @@ describe("desktop bootstrap", () => {
       status: "pending",
       timestamp: "2026-04-10T09:05:00.000Z",
       title: "Approve proposed follow-up",
+    });
+
+    context.db.close();
+  });
+
+  it("keeps paused and waiting-for-credit projects in explicit operator modes", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-desktop-project-modes-"));
+    const pausedRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-mode-paused-"));
+    const readyRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-mode-ready-"));
+    const creditRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-mode-credit-"));
+
+    temporaryDirectories.push(
+      dataDirectory,
+      pausedRepoDirectory,
+      readyRepoDirectory,
+      creditRepoDirectory,
+    );
+    mkdirSync(join(pausedRepoDirectory, ".git"));
+    mkdirSync(join(readyRepoDirectory, ".git"));
+    mkdirSync(join(creditRepoDirectory, ".git"));
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const pausedProject = registerLocalProject(context, {
+      name: "Paused Project",
+      repoPath: pausedRepoDirectory,
+    });
+    const readyProject = registerLocalProject(context, {
+      name: "Ready Project",
+      repoPath: readyRepoDirectory,
+    });
+    const creditProject = registerLocalProject(context, {
+      name: "Credit Project",
+      repoPath: creditRepoDirectory,
+    });
+
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Paused project backlog exists"]),
+      createdAt: "2026-04-10T08:00:00.000Z",
+      id: "backlog-paused-mode",
+      priority: 70,
+      projectId: pausedProject.id,
+      readiness: "ready",
+      reviewMode: "human",
+      riskLevel: "low",
+      scopeSummary: "Paused project should still surface as paused.",
+      status: "approved",
+      title: "Paused backlog item",
+      updatedAt: "2026-04-10T08:00:00.000Z",
+    });
+    updateProjectMetadata(context, {
+      projectId: readyProject.id,
+      status: "active",
+    });
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Ready project backlog exists"]),
+      createdAt: "2026-04-10T08:05:00.000Z",
+      id: "backlog-ready-mode",
+      priority: 75,
+      projectId: readyProject.id,
+      readiness: "ready",
+      reviewMode: "human",
+      riskLevel: "low",
+      scopeSummary: "Ready project should surface as ready to execute.",
+      status: "approved",
+      title: "Ready backlog item",
+      updatedAt: "2026-04-10T08:05:00.000Z",
+    });
+    updateProjectMetadata(context, {
+      executionState: "waiting_for_credit",
+      projectId: creditProject.id,
+      status: "active",
+    });
+    upsertBacklogItem(context, {
+      acceptanceCriteriaJson: JSON.stringify(["Credit project backlog exists"]),
+      createdAt: "2026-04-10T08:10:00.000Z",
+      id: "backlog-credit-mode",
+      priority: 80,
+      projectId: creditProject.id,
+      readiness: "ready",
+      reviewMode: "human",
+      riskLevel: "medium",
+      scopeSummary: "Credit-wait project should keep the credit wait mode.",
+      status: "approved",
+      title: "Credit backlog item",
+      updatedAt: "2026-04-10T08:10:00.000Z",
+    });
+
+    const projectsByName = Object.fromEntries(
+      buildDesktopStatus(context, "dark").projects.map((project) => [project.name, project.mode]),
+    );
+
+    expect(projectsByName).toMatchObject({
+      "Credit Project": "waiting for credit",
+      "Paused Project": "paused",
+      "Ready Project": "ready to execute",
     });
 
     context.db.close();
@@ -712,7 +806,7 @@ describe("desktop bootstrap", () => {
         expect.objectContaining({
           executionState: "paused",
           id: fixture.project.id,
-          mode: "blocked on human",
+          mode: "paused",
           status: "paused",
         }),
       ]),
