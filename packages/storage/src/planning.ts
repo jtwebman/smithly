@@ -412,6 +412,14 @@ export function explainWhyBacklogItemIsNext(
   };
 }
 
+export function selectNextRunnableBacklogItemForProject(
+  context: IContext,
+  projectId: string,
+): IBacklogItemRecord | null {
+  requireProject(projectId, context);
+  return listRunnablePendingBacklogItems(context, projectId)[0] ?? null;
+}
+
 export function removePendingBacklogItemFromPlanning(
   context: IContext,
   input: IRemovePendingBacklogItemInput,

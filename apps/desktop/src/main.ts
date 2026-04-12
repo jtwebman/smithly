@@ -39,6 +39,7 @@ import { CodexSessionManager } from "./codex-session.ts";
 import { SmithlyMcpService } from "./mcp-service.ts";
 import { PlanningSessionManager, type PlanningScope } from "./planning-session.ts";
 import { ProjectExecutionManager } from "./project-execution.ts";
+import { ProjectSchedulingManager } from "./project-scheduler.ts";
 import { ReviewManager } from "./review-manager.ts";
 import { TaskMergeManager } from "./task-merge-manager.ts";
 import { updateReviewRunDecision } from "./task-review-policy.ts";
@@ -50,6 +51,7 @@ let codexSessionManager: CodexSessionManager | null = null;
 let verificationManager: VerificationManager | null = null;
 let reviewManager: ReviewManager | null = null;
 let projectExecutionManager: ProjectExecutionManager | null = null;
+let projectSchedulingManager: ProjectSchedulingManager | null = null;
 let taskMergeManager: TaskMergeManager | null = null;
 let blockerRoutingManager: BlockerRoutingManager | null = null;
 let bootstrapSessionManager: BootstrapSessionManager | null = null;
@@ -57,6 +59,7 @@ let mcpService: SmithlyMcpService | null = null;
 let selectedProjectId: string | undefined;
 let selectedBacklogItemId: string | undefined;
 let isAppQuitting = false;
+let isProjectSchedulingQueued = false;
 
 export interface IDesktopUiStateSnapshot {
   readonly activePlanningPaneKey?: string;
@@ -82,6 +85,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   planningSessionManager = createPlanningSessionManager(storageContext);
   bootstrapSessionManager = createBootstrapSessionManager(storageContext);
   codexSessionManager = createCodexSessionManager(storageContext);
+  projectSchedulingManager = createProjectSchedulingManager(storageContext);
   verificationManager = createVerificationManager(storageContext);
   taskMergeManager = createTaskMergeManager(storageContext);
   reviewManager = createReviewManager(storageContext);
@@ -236,22 +240,9 @@ function registerDesktopHandlers(context: IStorageContext): void {
 
   ipcMain.removeHandler("smithly:project-play");
   ipcMain.handle("smithly:project-play", (_event, projectId: string): IDesktopStatus => {
-    updateProjectMetadata(context, {
-      projectId,
-      status: "active",
-    });
+    requireProjectExecutionManager().playProject(projectId);
     selectedProjectId = projectId;
-
-    setTimeout(() => {
-      try {
-        requirePlanningSessionManager().ensureSession({
-          projectId,
-          scope: "project",
-        });
-      } finally {
-        broadcastDesktopStatus(context);
-      }
-    }, 0);
+    queueProjectScheduling(context);
 
     return buildCurrentDesktopStatus(context);
   });
@@ -561,6 +552,17 @@ function createProjectExecutionManager(context: IStorageContext): ProjectExecuti
   });
 }
 
+function createProjectSchedulingManager(context: IStorageContext): ProjectSchedulingManager {
+  return new ProjectSchedulingManager(context, {
+    ensureSession(taskRunId) {
+      requireCodexSessionManager().ensureSession(taskRunId);
+    },
+    startSession(input) {
+      return requireCodexSessionManager().startSession(input);
+    },
+  });
+}
+
 function createReviewManager(context: IStorageContext): ReviewManager {
   return new ReviewManager(context, {
     mergeManager: requireTaskMergeManager(),
@@ -586,6 +588,23 @@ function broadcastDesktopStatus(context: IStorageContext): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("smithly:desktop-status-updated", buildCurrentDesktopStatus(context));
   }
+
+  queueProjectScheduling(context);
+}
+
+function queueProjectScheduling(context: IStorageContext): void {
+  if (projectSchedulingManager === null || isProjectSchedulingQueued || isAppQuitting) {
+    return;
+  }
+
+  isProjectSchedulingQueued = true;
+  setTimeout(() => {
+    isProjectSchedulingQueued = false;
+
+    if (projectSchedulingManager?.processActiveProjects()) {
+      broadcastDesktopStatus(context);
+    }
+  }, 0);
 }
 
 function requirePlanningSessionManager(): PlanningSessionManager {
@@ -957,6 +976,7 @@ if (typeof app?.on === "function") {
         verificationManager = null;
         reviewManager = null;
         projectExecutionManager = null;
+        projectSchedulingManager = null;
         taskMergeManager = null;
         blockerRoutingManager = null;
         storageContext?.db.close();

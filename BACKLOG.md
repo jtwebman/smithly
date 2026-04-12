@@ -173,7 +173,7 @@
 
 ## Phase 15: Multi-Project Operation
 
-91. `todo` Implement project scheduling and runnable-work selection across running projects with exactly one active coding task at a time per project
+91. `done` Implement project scheduling and runnable-work selection across running projects with exactly one active coding task at a time per project
 92. `todo` Support paused, blocked, waiting-for-credit, and waiting-for-human states
 93. `todo` Add project-level operator modes such as planning, ready to execute, actively executing, blocked on human, blocked on external dependency, and paused
 94. `todo` Add default idle backlog-generation loops so blocked or waiting projects still produce useful work
