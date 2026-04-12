@@ -2134,7 +2134,7 @@ function getPlanningPaneLabel(status: DesktopStatus | null, paneKey: SessionPane
   }
 
   if (scope === "project") {
-    return "Project Chat";
+    return "Plan / Approve More";
   }
 
   return target?.backlogItemTitle ? `Task: ${target.backlogItemTitle}` : "Task Chat";

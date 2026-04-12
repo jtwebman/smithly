@@ -404,6 +404,30 @@ test("operator can interact with the project planning TUI through xterm", async 
   }
 });
 
+test("plan and approve more opens project planning with compact project context", async () => {
+  const { dataDirectory, electronApp, window } = await launchDesktop({
+    seedInitialState: true,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await expect(window.locator("#project-planning-button")).toHaveText("Plan / Approve More");
+
+    await window.locator("#project-planning-button").click();
+
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
+    await expect(window.locator("#planning-history")).toContainText("Project context summary:");
+    await expect(window.locator("#planning-history")).toContainText("Active task context:");
+    await expect(window.locator("#planning-history")).toContainText(
+      "Approved work ready for planning/review:",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("project play starts hidden orchestration and pause drains it safely", async () => {
   const localRepoDirectory = mkdtempSync(join(tmpdir(), "smithly-project-play-"));
   mkdirSync(join(localRepoDirectory, ".git"));

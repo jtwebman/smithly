@@ -22,6 +22,7 @@ import {
   getBacklogItemById,
   getProjectById,
   listApprovalsForProject,
+  listBacklogItemsForProject,
   listBlockersForProject,
   listChatMessagesForThread,
   listChatThreadsForProject,
@@ -111,6 +112,11 @@ export class PlanningSessionManager {
 
   public ensureSession(input: IEnsurePlanningSessionInput): void {
     const thread = this.requirePlanningThread(input);
+
+    if (input.scope === "project") {
+      this.refreshProjectPlanningContext(thread, input.projectId);
+    }
+
     const existingSession = this.sessions.get(thread.id);
 
     if (existingSession !== undefined) {
@@ -277,6 +283,77 @@ export class PlanningSessionManager {
     return pauseRequest;
   }
 
+  private refreshProjectPlanningContext(thread: IChatThreadRecord, projectId: string): void {
+    if (thread.kind !== "project_planning") {
+      return;
+    }
+
+    const timestamp = this.now().toISOString();
+
+    upsertChatMessage(this.context, {
+      bodyText: this.buildProjectPlanningContextSummary(projectId),
+      createdAt: timestamp,
+      id: `message-project-context-${projectId}`,
+      metadataJson: JSON.stringify({
+        kind: "project_context_summary",
+      }),
+      role: "system",
+      threadId: thread.id,
+    });
+    upsertChatThread(this.context, {
+      ...thread,
+      updatedAt: timestamp,
+    });
+  }
+
+  private buildProjectPlanningContextSummary(projectId: string): string {
+    const project = getProjectById(this.context, projectId);
+
+    if (project === null) {
+      throw new Error(`Missing project ${projectId}`);
+    }
+
+    const backlogItems = listBacklogItemsForProject(this.context, projectId);
+    const backlogItemTitles = new Map(
+      backlogItems.map((backlogItem) => [backlogItem.id, backlogItem.title] as const),
+    );
+    const activeTaskRuns = listTaskRunsForProject(this.context, projectId).filter((taskRun) => {
+      return ["awaiting_review", "blocked", "queued", "running"].includes(taskRun.status);
+    });
+    const approvedBacklogItems = backlogItems.filter(
+      (backlogItem) => backlogItem.status === "approved",
+    );
+    const draftBacklogItems = backlogItems.filter((backlogItem) => backlogItem.status === "draft");
+    const pendingApprovals = listApprovalsForProject(this.context, projectId).filter((approval) => {
+      return approval.status === "pending";
+    });
+    const summarizeTitles = (items: readonly { readonly title: string }[]): string => {
+      return (
+        items
+          .slice(0, 3)
+          .map((item) => item.title)
+          .join("; ") || "none"
+      );
+    };
+    const activeTaskSummary =
+      activeTaskRuns.length === 0
+        ? "none"
+        : activeTaskRuns
+            .slice(0, 3)
+            .map((taskRun) => {
+              return `${backlogItemTitles.get(taskRun.backlogItemId) ?? taskRun.backlogItemId} (${taskRun.status})`;
+            })
+            .join("; ");
+
+    return [
+      "Project context summary:",
+      `Project: ${project.name} (status: ${project.status})`,
+      `Active task context: ${activeTaskSummary}`,
+      `Approved work ready for planning/review: ${approvedBacklogItems.length} | ${summarizeTitles(approvedBacklogItems)}`,
+      `Draft backlog needing clarification: ${draftBacklogItems.length} | ${summarizeTitles(draftBacklogItems)}`,
+      `Pending approvals: ${pendingApprovals.length}`,
+    ].join("\n");
+  }
   private spawnPlanningSession(
     input: IEnsurePlanningSessionInput,
     thread: IChatThreadRecord,
