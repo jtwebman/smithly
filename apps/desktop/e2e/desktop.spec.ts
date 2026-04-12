@@ -181,6 +181,7 @@ test("completed bootstrap state restores into the managed project workspace with
     id: "backlog-bootstrap-handoff",
     priority: 80,
     projectId: finalizedProject.id,
+    readiness: "ready",
     reviewMode: "human",
     riskLevel: "medium",
     scopeSummary: "Carry the finalized bootstrap plan into the normal project workspace.",
@@ -420,9 +421,8 @@ test("plan and approve more opens project planning with compact project context"
     await expect(window.locator("#planning-title")).toHaveText("Project planning");
     await expect(window.locator("#planning-history")).toContainText("Project context summary:");
     await expect(window.locator("#planning-history")).toContainText("Active task context:");
-    await expect(window.locator("#planning-history")).toContainText(
-      "Approved work ready for planning/review:",
-    );
+    await expect(window.locator("#planning-history")).toContainText("Approved and ready work:");
+    await expect(window.locator("#planning-history")).toContainText("Approved but not ready:");
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }

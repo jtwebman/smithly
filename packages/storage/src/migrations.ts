@@ -28,6 +28,7 @@ function defineMigration(sqlFile: string): MigrationDefinition {
 
 export const MIGRATIONS: readonly MigrationDefinition[] = [
   defineMigration("packages/storage/migrations/260410000000_initial_smithly.sql"),
+  defineMigration("packages/storage/migrations/260411000000_add_backlog_readiness.sql"),
 ];
 
 export const CURRENT_DATABASE_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

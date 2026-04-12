@@ -71,6 +71,7 @@ describe("task review policy", () => {
     reviseBacklogItemFromPlanning(context, {
       acceptanceCriteria: ["Operator approval decides final done state."],
       backlogItemId: backlogItem.id,
+      readiness: "ready",
       reviewMode: "human",
       scopeSummary: "Hold this task for operator review.",
       status: "approved",
@@ -187,6 +188,7 @@ describe("task review policy", () => {
     reviseBacklogItemFromPlanning(context, {
       acceptanceCriteria: ["Peer review completes automatically."],
       backlogItemId: backlogItem.id,
+      readiness: "ready",
       reviewMode: "ai",
       scopeSummary: "Use ai review for this task.",
       status: "approved",
@@ -298,6 +300,7 @@ describe("task review policy", () => {
     reviseBacklogItemFromPlanning(context, {
       acceptanceCriteria: ["Parent task must merge first."],
       backlogItemId: parentBacklogItem.id,
+      readiness: "ready",
       reviewMode: "human",
       scopeSummary: "Parent work must merge before children proceed.",
       status: "approved",
@@ -305,6 +308,7 @@ describe("task review policy", () => {
     reviseBacklogItemFromPlanning(context, {
       acceptanceCriteria: ["Wait until the parent pull request merges."],
       backlogItemId: childBacklogItem.id,
+      readiness: "ready",
       scopeSummary: "Child work depends on the parent merge.",
       status: "approved",
     });

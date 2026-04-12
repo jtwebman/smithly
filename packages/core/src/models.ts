@@ -6,6 +6,7 @@ export type BacklogItemStatus =
   | "blocked"
   | "done"
   | "cancelled";
+export type BacklogItemReadiness = "not_ready" | "ready";
 export type RiskLevel = "low" | "medium" | "high";
 export type ReviewMode = "human" | "ai";
 export type WorkerKind = "claude" | "codex";
@@ -68,6 +69,7 @@ export interface IBacklogItemRecord {
   readonly parentBacklogItemId?: string;
   readonly title: string;
   readonly status: BacklogItemStatus;
+  readonly readiness: BacklogItemReadiness;
   readonly priority: number;
   readonly scopeSummary?: string;
   readonly acceptanceCriteriaJson: string;

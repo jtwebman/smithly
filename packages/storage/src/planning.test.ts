@@ -104,6 +104,7 @@ describe("planning mutations", () => {
     );
 
     expect(backlogItems).toHaveLength(2);
+    expect(createdBacklogItem.readiness).toBe("not_ready");
     expect(createdBacklogItem.status).toBe("draft");
     expect(createdBacklogItem.title).toBe("Add Smithly MCP draft backlog creation");
     expect(taskPlanningThread?.kind).toBe("task_planning");
@@ -132,6 +133,7 @@ describe("planning mutations", () => {
       backlogItemId: fixture.backlogItem.id,
       noteText: "Keep the first write path scoped to backlog metadata only.",
       priority: 95,
+      readiness: "ready",
       reviewMode: "ai",
       riskLevel: "high",
       scopeSummary: "Use MCP-backed planning actions for backlog creation and revision.",
@@ -145,6 +147,7 @@ describe("planning mutations", () => {
       "Use MCP-backed planning actions for backlog creation and revision.",
     );
     expect(revisedBacklogItem.priority).toBe(95);
+    expect(revisedBacklogItem.readiness).toBe("ready");
     expect(revisedBacklogItem.reviewMode).toBe("ai");
     expect(revisedBacklogItem.riskLevel).toBe("high");
     expect(revisedBacklogItem.status).toBe("approved");
@@ -183,6 +186,13 @@ describe("planning mutations", () => {
       sourceThreadId: fixture.projectChatThread.id,
       title: "Fresh Codex task",
     });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The backlog item is approved and ready for Codex execution."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Use a fresh backlog item for Codex task startup.",
+      status: "approved",
+    });
 
     const firstTaskRun = startCodingTask(context, {
       backlogItemId: createdBacklogItem.id,
@@ -206,6 +216,47 @@ describe("planning mutations", () => {
         );
       }),
     ).toHaveLength(1);
+
+    closeContext(context);
+  });
+
+  it("rejects execution until a backlog item is approved and ready", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-planning-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Hold execution until planning makes this task ready.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Not ready yet",
+    });
+
+    expect(() =>
+      startCodingTask(context, {
+        backlogItemId: createdBacklogItem.id,
+      }),
+    ).toThrow("cannot start execution");
+
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["Planning has clarified the task."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Hold execution until planning makes this task ready.",
+      status: "approved",
+    });
+
+    expect(() =>
+      startCodingTask(context, {
+        backlogItemId: createdBacklogItem.id,
+      }),
+    ).not.toThrow();
 
     closeContext(context);
   });
@@ -289,6 +340,7 @@ describe("planning mutations", () => {
     });
 
     expect(getBacklogItemById(context, backlogItem.id)?.status).toBe("approved");
+    expect(getBacklogItemById(context, backlogItem.id)?.readiness).toBe("ready");
     expect(approvalResult.approval.status).toBe("approved");
     expect(listApprovalsForProject(context, project.id)).toEqual(
       expect.arrayContaining([

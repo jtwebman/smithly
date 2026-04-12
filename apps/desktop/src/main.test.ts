@@ -344,6 +344,7 @@ describe("desktop bootstrap", () => {
       id: "backlog-follow-up",
       priority: 70,
       projectId: fixture.project.id,
+      readiness: "not_ready",
       reviewMode: "ai",
       riskLevel: "low",
       scopeSummary: "Handle another narrow desktop follow-up.",

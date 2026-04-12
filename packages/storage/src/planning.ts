@@ -8,6 +8,7 @@ import type {
   IContext,
   IMemoryNoteRecord,
   ITaskRunRecord,
+  IBlockerRecord,
   ReviewMode,
   RiskLevel,
   WorkerKind,
@@ -17,6 +18,7 @@ import {
   getBacklogItemById,
   getProjectById,
   listBacklogItemsForProject,
+  listBlockersForProject,
   listChatThreadsForProject,
   listMemoryNotesForProject,
   listTaskRunsForProject,
@@ -42,6 +44,7 @@ export interface IReviseBacklogItemInput {
   readonly acceptanceCriteria: readonly string[];
   readonly noteText?: string;
   readonly priority?: number;
+  readonly readiness?: IBacklogItemRecord["readiness"];
   readonly reviewMode?: ReviewMode;
   readonly riskLevel?: RiskLevel;
   readonly sourceThreadId?: string;
@@ -51,6 +54,7 @@ export interface IReviseBacklogItemInput {
 export interface IStartCodingTaskInput {
   readonly backlogItemId: string;
   readonly assignedWorker?: WorkerKind;
+  readonly initialStatus?: "queued" | "running";
   readonly summaryText?: string;
 }
 
@@ -99,6 +103,7 @@ export function createDraftBacklogItemFromPlanning(
     id: backlogItemId,
     priority: 10,
     projectId: input.projectId,
+    readiness: "not_ready",
     reviewMode: "human",
     riskLevel: "low",
     scopeSummary: input.scopeSummary,
@@ -157,6 +162,7 @@ export function reviseBacklogItemFromPlanning(
     ...backlogItem,
     acceptanceCriteriaJson: JSON.stringify(normalizedAcceptanceCriteria),
     ...(input.priority !== undefined ? { priority: input.priority } : {}),
+    ...(input.readiness !== undefined ? { readiness: input.readiness } : {}),
     ...(input.reviewMode !== undefined ? { reviewMode: input.reviewMode } : {}),
     ...(input.riskLevel !== undefined ? { riskLevel: input.riskLevel } : {}),
     scopeSummary: input.scopeSummary,
@@ -210,17 +216,21 @@ export function startCodingTask(context: IContext, input: IStartCodingTaskInput)
     return existingTaskRun;
   }
 
+  assertBacklogItemReadyForExecution(context, backlogItem);
+
   const timestamp = new Date().toISOString();
+  const initialStatus = input.initialStatus ?? "queued";
   const taskRun: ITaskRunRecord = {
     assignedWorker,
     backlogItemId: backlogItem.id,
     createdAt: timestamp,
     id: `taskrun-${randomUUID()}`,
     projectId: backlogItem.projectId,
+    ...(initialStatus === "running" ? { startedAt: timestamp } : {}),
     ...(input.summaryText?.trim()
       ? { summaryText: input.summaryText.trim() }
       : { summaryText: `Start ${assignedWorker} work for ${backlogItem.title}.` }),
-    status: "queued",
+    status: initialStatus,
     updatedAt: timestamp,
   };
 
@@ -372,6 +382,7 @@ export function approveBootstrapBacklogItem(
   const timestamp = new Date().toISOString();
   const approvedBacklogItem: IBacklogItemRecord = {
     ...backlogItem,
+    readiness: "ready",
     status: "approved",
     updatedAt: timestamp,
   };
@@ -500,4 +511,50 @@ function requireApprovedBootstrapBacklogItems(context: IContext, projectId: stri
   }
 
   return projectBacklogItems;
+}
+
+function assertBacklogItemReadyForExecution(
+  context: IContext,
+  backlogItem: IBacklogItemRecord,
+): void {
+  const blockingReasons: string[] = [];
+
+  if (backlogItem.status !== "approved") {
+    blockingReasons.push(`status is ${backlogItem.status}`);
+  }
+
+  if (backlogItem.readiness !== "ready") {
+    blockingReasons.push(`readiness is ${backlogItem.readiness}`);
+  }
+
+  const openBlockers = listExecutionBlockers(context, backlogItem);
+
+  if (openBlockers.length > 0) {
+    blockingReasons.push(
+      `${openBlockers.length} open blocker${openBlockers.length === 1 ? "" : "s"} must be cleared`,
+    );
+  }
+
+  if (blockingReasons.length > 0) {
+    throw new Error(
+      `Backlog item ${backlogItem.id} cannot start execution until ${blockingReasons.join(", ")}.`,
+    );
+  }
+}
+
+function listExecutionBlockers(
+  context: IContext,
+  backlogItem: IBacklogItemRecord,
+): IBlockerRecord[] {
+  return listBlockersForProject(context, backlogItem.projectId).filter((blocker) => {
+    if (blocker.status !== "open") {
+      return false;
+    }
+
+    if (blocker.taskRunId !== undefined) {
+      return false;
+    }
+
+    return blocker.backlogItemId === undefined || blocker.backlogItemId === backlogItem.id;
+  });
 }

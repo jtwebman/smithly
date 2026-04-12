@@ -67,6 +67,7 @@ export function createInitialSeedFixture(): ISeedFixture {
       id: "backlog-bootstrap-ui",
       priority: 90,
       projectId: "project-smithly",
+      readiness: "ready",
       reviewMode: "human",
       riskLevel: "medium",
       scopeSummary: "Create the first desktop shell and show one managed project.",

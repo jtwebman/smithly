@@ -295,6 +295,7 @@ export function createSmithlyMcpServer(
         draftBacklogCount: z.number(),
         hasMvpPlan: z.boolean(),
         mvpPlan: z.string().nullable(),
+        readyBacklogCount: z.number(),
         project: z.object({
           id: z.string(),
           name: z.string(),
@@ -317,6 +318,8 @@ export function createSmithlyMcpServer(
           .length,
         hasMvpPlan: mvpPlan !== null,
         mvpPlan: mvpPlan?.bodyText ?? null,
+        readyBacklogCount: backlogItems.filter((backlogItem) => backlogItem.readiness === "ready")
+          .length,
         project: summarizeProject(project),
       };
 
@@ -397,6 +400,7 @@ export function createSmithlyMcpServer(
         backlogItem: z.object({
           id: z.string(),
           priority: z.number(),
+          readiness: z.string(),
           reviewMode: z.string(),
           riskLevel: z.string(),
           status: z.string(),
@@ -644,6 +648,7 @@ export function createSmithlyMcpServer(
           z.object({
             id: z.string(),
             priority: z.number(),
+            readiness: z.string(),
             reviewMode: z.string(),
             riskLevel: z.string(),
             scopeSummary: z.string(),
@@ -756,37 +761,23 @@ export function createSmithlyMcpServer(
         projectId,
         backlogItemId ?? environment.backlogItemId,
       );
-      const now = new Date().toISOString();
-      const taskRunId = `taskrun-${randomUUID()}`;
-      const taskRunStatus = status ?? "queued";
-
-      upsertBacklogItem(context, {
-        ...backlogItem,
-        status: "in_progress",
-        updatedAt: now,
-      });
-      upsertTaskRun(context, {
+      const taskRun = startCodingTask(context, {
         assignedWorker,
         backlogItemId: backlogItem.id,
-        createdAt: now,
-        id: taskRunId,
-        projectId,
+        ...(status !== undefined ? { initialStatus: status } : {}),
         ...(summaryText !== undefined ? { summaryText } : {}),
-        ...(taskRunStatus === "running" ? { startedAt: now } : {}),
-        status: taskRunStatus,
-        updatedAt: now,
       });
       const structuredContent = {
-        assignedWorker,
-        backlogItemId: backlogItem.id,
-        status: taskRunStatus,
-        taskRunId,
+        assignedWorker: taskRun.assignedWorker,
+        backlogItemId: taskRun.backlogItemId,
+        status: taskRun.status,
+        taskRunId: taskRun.id,
       };
 
       return {
         content: [
           {
-            text: `Claimed backlog item ${backlogItem.title} as ${taskRunId} for ${assignedWorker}.`,
+            text: `Claimed backlog item ${backlogItem.title} as ${taskRun.id} for ${taskRun.assignedWorker}.`,
             type: "text",
           },
         ],
@@ -936,6 +927,7 @@ export function createSmithlyMcpServer(
           .optional()
           .describe("Optional operator note to append to the planning thread."),
         priority: z.number().int().min(0).max(100).optional().describe("Updated backlog priority."),
+        readiness: z.enum(["not_ready", "ready"]).optional().describe("Updated readiness state."),
         reviewMode: z.enum(["human", "ai"]).optional().describe("Updated review mode."),
         riskLevel: z.enum(["low", "medium", "high"]).optional().describe("Updated risk level."),
         scopeSummary: z.string().min(1).describe("Revised scope summary for the backlog item."),
@@ -948,6 +940,7 @@ export function createSmithlyMcpServer(
         acceptanceCriteriaCount: z.number(),
         backlogItemId: z.string(),
         priority: z.number(),
+        readiness: z.string(),
         reviewMode: z.string(),
         riskLevel: z.string(),
         status: z.string(),
@@ -958,6 +951,7 @@ export function createSmithlyMcpServer(
       acceptanceCriteria,
       noteText,
       priority,
+      readiness,
       reviewMode,
       riskLevel,
       scopeSummary,
@@ -975,6 +969,7 @@ export function createSmithlyMcpServer(
         backlogItemId,
         ...(noteText !== undefined ? { noteText } : {}),
         ...(priority !== undefined ? { priority } : {}),
+        ...(readiness !== undefined ? { readiness } : {}),
         ...(reviewMode !== undefined ? { reviewMode } : {}),
         ...(riskLevel !== undefined ? { riskLevel } : {}),
         scopeSummary,
@@ -985,6 +980,7 @@ export function createSmithlyMcpServer(
         acceptanceCriteriaCount: acceptanceCriteria.length,
         backlogItemId: revisedBacklogItem.id,
         priority: revisedBacklogItem.priority,
+        readiness: revisedBacklogItem.readiness,
         reviewMode: revisedBacklogItem.reviewMode,
         riskLevel: revisedBacklogItem.riskLevel,
         status: revisedBacklogItem.status,
@@ -1794,6 +1790,7 @@ function summarizeBacklogItem(backlogItem: IBacklogItemRecord) {
   return {
     id: backlogItem.id,
     priority: backlogItem.priority,
+    readiness: backlogItem.readiness,
     reviewMode: backlogItem.reviewMode,
     riskLevel: backlogItem.riskLevel,
     scopeSummary: backlogItem.scopeSummary ?? "",

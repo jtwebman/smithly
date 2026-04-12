@@ -78,7 +78,148 @@ describe("ensureDatabase", () => {
         name: "initial_smithly",
         version: 260410000000,
       },
+      {
+        appliedAt: expect.any(String),
+        name: "add_backlog_readiness",
+        version: 260411000000,
+      },
     ]);
+  });
+
+  it("migrates existing backlog items onto the readiness field", () => {
+    const tempDirectory = mkdtempSync(join(tmpdir(), "smithly-db-"));
+    const databasePath = join(tempDirectory, "smithly.sqlite");
+
+    temporaryDirectories.push(tempDirectory);
+
+    ensureDatabase({
+      databasePath,
+      migrations: [MIGRATIONS[0] ?? (() => {
+        throw new Error("Missing initial migration");
+      })()],
+    });
+
+    const database = new DatabaseSync(databasePath);
+
+    try {
+      database
+        .prepare(
+          `
+            INSERT INTO projects (
+              id,
+              name,
+              repo_path,
+              status,
+              default_branch,
+              metadata_json,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run(
+          "project-migration",
+          "Migration Fixture",
+          "/tmp/migration-fixture",
+          "active",
+          "main",
+          '{"metadata":{},"verificationCommands":[],"approvalPolicy":{"requireApprovalForNewBacklogItems":true,"requireApprovalForScopeChanges":true,"requireApprovalForHighRiskTasks":true}}',
+          "2026-04-10T00:00:00.000Z",
+          "2026-04-10T00:00:00.000Z",
+        );
+      database
+        .prepare(
+          `
+            INSERT INTO backlog_items (
+              id,
+              project_id,
+              parent_backlog_item_id,
+              title,
+              status,
+              priority,
+              scope_summary,
+              acceptance_criteria_json,
+              risk_level,
+              review_mode,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run(
+          "backlog-approved",
+          "project-migration",
+          null,
+          "Approved work",
+          "approved",
+          50,
+          "Approved before readiness existed.",
+          "[]",
+          "medium",
+          "human",
+          "2026-04-10T00:00:00.000Z",
+          "2026-04-10T00:00:00.000Z",
+        );
+      database
+        .prepare(
+          `
+            INSERT INTO backlog_items (
+              id,
+              project_id,
+              parent_backlog_item_id,
+              title,
+              status,
+              priority,
+              scope_summary,
+              acceptance_criteria_json,
+              risk_level,
+              review_mode,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run(
+          "backlog-draft",
+          "project-migration",
+          null,
+          "Draft work",
+          "draft",
+          10,
+          "Still needs clarification.",
+          "[]",
+          "low",
+          "human",
+          "2026-04-10T00:00:00.000Z",
+          "2026-04-10T00:00:00.000Z",
+        );
+    } finally {
+      database.close();
+    }
+
+    const result = ensureDatabase({ databasePath });
+    const migrated = new DatabaseSync(databasePath, { readOnly: true });
+
+    expect(result.schemaVersionBefore).toBe(260410000000);
+    expect(result.schemaVersionAfter).toBe(CURRENT_DATABASE_VERSION);
+
+    try {
+      expect(
+        migrated
+          .prepare("SELECT readiness FROM backlog_items WHERE id = ?")
+          .get("backlog-approved"),
+      ).toEqual({ readiness: "ready" });
+      expect(
+        migrated
+          .prepare("SELECT readiness FROM backlog_items WHERE id = ?")
+          .get("backlog-draft"),
+      ).toEqual({ readiness: "not_ready" });
+    } finally {
+      migrated.close();
+    }
   });
 
   it("restores the original database when a later migration fails", () => {
@@ -87,7 +228,7 @@ describe("ensureDatabase", () => {
     const failingMigration: MigrationDefinition = {
       name: "broken",
       sqlFile: "packages/storage/migrations/260410000001_broken.sql",
-      version: 260410000001,
+      version: 260411000001,
     };
 
     temporaryDirectories.push(tempDirectory);
@@ -109,6 +250,6 @@ describe("ensureDatabase", () => {
     ).toThrow(SmithlyMigrationError);
 
     expect(readDatabaseVersion(databasePath)).toBe(CURRENT_DATABASE_VERSION);
-    expect(listAppliedMigrations(databasePath)).toHaveLength(1);
+    expect(listAppliedMigrations(databasePath)).toHaveLength(2);
   });
 });

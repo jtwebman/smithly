@@ -16,6 +16,7 @@ import {
   listTaskRunsForProject,
   listVerificationRunsForTask,
   listWorkerSessionsForProject,
+  reviseBacklogItemFromPlanning,
   seedInitialState,
 } from "@smithly/storage";
 
@@ -56,6 +57,13 @@ describe("CodexSessionManager", () => {
       scopeSummary: "Use a fresh backlog item for Codex session startup.",
       sourceThreadId: fixture.projectChatThread.id,
       title: "Fresh Codex session task",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The task is approved and ready for execution."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Use a fresh backlog item for Codex session startup.",
+      status: "approved",
     });
 
     const fakePty = createFakePty();
@@ -166,6 +174,13 @@ describe("CodexSessionManager", () => {
       sourceThreadId: fixture.projectChatThread.id,
       title: "Failing Codex session task",
     });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The task is approved and ready for execution."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Exercise the Codex failure path.",
+      status: "approved",
+    });
 
     const fakePty = createFakePty();
     const fakeTaskGitManager = createFakeTaskGitManager();
@@ -223,6 +238,13 @@ describe("CodexSessionManager", () => {
       scopeSummary: "Exercise the Codex cancellation path.",
       sourceThreadId: fixture.projectChatThread.id,
       title: "Cancelled Codex session task",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The task is approved and ready for execution."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Exercise the Codex cancellation path.",
+      status: "approved",
     });
 
     const fakePty = createFakePty();
@@ -289,6 +311,13 @@ describe("CodexSessionManager", () => {
       scopeSummary: "Exercise the Codex pause path.",
       sourceThreadId: fixture.projectChatThread.id,
       title: "Paused Codex session task",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The task is approved and ready for execution."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Exercise the Codex pause path.",
+      status: "approved",
     });
 
     const fakePty = createFakePty();

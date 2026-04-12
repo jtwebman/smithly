@@ -101,6 +101,7 @@ export function listBacklogItemsForProject(
         parent_backlog_item_id AS parentBacklogItemId,
         title,
         status,
+        readiness,
         priority,
         scope_summary AS scopeSummary,
         acceptance_criteria_json AS acceptanceCriteriaJson,
@@ -129,6 +130,7 @@ export function getBacklogItemById(
         parent_backlog_item_id AS parentBacklogItemId,
         title,
         status,
+        readiness,
         priority,
         scope_summary AS scopeSummary,
         acceptance_criteria_json AS acceptanceCriteriaJson,
@@ -153,6 +155,7 @@ export function upsertBacklogItem(context: IContext, backlogItem: IBacklogItemRe
         parent_backlog_item_id,
         title,
         status,
+        readiness,
         priority,
         scope_summary,
         acceptance_criteria_json,
@@ -161,12 +164,13 @@ export function upsertBacklogItem(context: IContext, backlogItem: IBacklogItemRe
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         project_id = excluded.project_id,
         parent_backlog_item_id = excluded.parent_backlog_item_id,
         title = excluded.title,
         status = excluded.status,
+        readiness = excluded.readiness,
         priority = excluded.priority,
         scope_summary = excluded.scope_summary,
         acceptance_criteria_json = excluded.acceptance_criteria_json,
@@ -181,6 +185,7 @@ export function upsertBacklogItem(context: IContext, backlogItem: IBacklogItemRe
       backlogItem.parentBacklogItemId ?? null,
       backlogItem.title,
       backlogItem.status,
+      backlogItem.readiness,
       backlogItem.priority,
       backlogItem.scopeSummary ?? null,
       backlogItem.acceptanceCriteriaJson,
@@ -843,6 +848,7 @@ function mapBacklogItem(row: Record<string, unknown>): IBacklogItemRecord {
     id: stringFromRow(row.id, "id"),
     priority: numberFromRow(row.priority, "priority"),
     projectId: stringFromRow(row.projectId, "projectId"),
+    readiness: stringFromRow(row.readiness, "readiness") as IBacklogItemRecord["readiness"],
     reviewMode: stringFromRow(row.reviewMode, "reviewMode") as IBacklogItemRecord["reviewMode"],
     riskLevel: stringFromRow(row.riskLevel, "riskLevel") as IBacklogItemRecord["riskLevel"],
     status: stringFromRow(row.status, "status") as IBacklogItemRecord["status"],

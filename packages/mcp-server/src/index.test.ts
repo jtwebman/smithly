@@ -18,6 +18,7 @@ import {
   listReviewRunsForTask,
   listTaskRunsForProject,
   listVerificationRunsForTask,
+  reviseBacklogItemFromPlanning,
   seedInitialState,
 } from "@smithly/storage";
 
@@ -354,6 +355,7 @@ describe("smithly mcp server", () => {
       backlogItem: {
         id: expect.any(String),
         priority: 85,
+        readiness: "not_ready",
         reviewMode: "human",
         riskLevel: "medium",
         status: "draft",
@@ -371,6 +373,7 @@ describe("smithly mcp server", () => {
       draftBacklogCount: 0,
       hasMvpPlan: true,
       mvpPlan: expect.stringContaining("narrow MVP"),
+      readyBacklogCount: 1,
       project: {
         id: projectId,
         name: "Bootstrap Flow",
@@ -386,6 +389,7 @@ describe("smithly mcp server", () => {
     expect(listBacklogItemsForProject(context, projectId)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          readiness: "ready",
           status: "approved",
           title: "Bootstrap first backlog item",
         }),
@@ -471,6 +475,7 @@ describe("smithly mcp server", () => {
         ],
         noteText: "Track the first revision path through the task planning thread.",
         priority: 95,
+        readiness: "ready",
         reviewMode: "ai",
         riskLevel: "high",
         scopeSummary: "Revise the selected backlog item through Smithly MCP.",
@@ -491,6 +496,7 @@ describe("smithly mcp server", () => {
       acceptanceCriteriaCount: 2,
       backlogItemId: fixture.backlogItem.id,
       priority: 95,
+      readiness: "ready",
       reviewMode: "ai",
       riskLevel: "high",
       status: "approved",
@@ -541,6 +547,7 @@ describe("smithly mcp server", () => {
       backlogItems: [
         expect.objectContaining({
           id: fixture.backlogItem.id,
+          readiness: "ready",
           status: "approved",
           title: fixture.backlogItem.title,
         }),
@@ -550,14 +557,14 @@ describe("smithly mcp server", () => {
     expect(claimResult.structuredContent).toMatchObject({
       assignedWorker: "codex",
       backlogItemId: fixture.backlogItem.id,
-      status: "queued",
-      taskRunId: expect.any(String),
+      status: "running",
+      taskRunId: fixture.taskRun.id,
     });
     expect(listBacklogItemsForProject(context, fixture.project.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: fixture.backlogItem.id,
-          status: "in_progress",
+          status: "approved",
         }),
       ]),
     );
@@ -566,8 +573,8 @@ describe("smithly mcp server", () => {
         expect.objectContaining({
           assignedWorker: "codex",
           backlogItemId: fixture.backlogItem.id,
-          status: "queued",
-          summaryText: "Claim the next approved task for execution.",
+          status: "running",
+          summaryText: "Scaffold the first desktop shell with one project dashboard card.",
         }),
       ]),
     );
@@ -592,6 +599,13 @@ describe("smithly mcp server", () => {
       scopeSummary: "Create a fresh Codex task from MCP.",
       sourceThreadId: fixture.projectChatThread.id,
       title: "Fresh MCP Codex task",
+    });
+    reviseBacklogItemFromPlanning(context, {
+      acceptanceCriteria: ["The task is approved and ready before Codex starts."],
+      backlogItemId: createdBacklogItem.id,
+      readiness: "ready",
+      scopeSummary: "Create a fresh Codex task from MCP.",
+      status: "approved",
     });
     const server = createSmithlyMcpServer(context, {
       attachScope: "backlog_item",
@@ -644,6 +658,53 @@ describe("smithly mcp server", () => {
         }),
       ]),
     });
+
+    await close();
+    context.db.close();
+  });
+
+  it("rejects task claims until work is approved and ready", async () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-mcp-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+    const fixture = seedInitialState(context);
+    const createdBacklogItem = createDraftBacklogItemFromPlanning(context, {
+      projectId: fixture.project.id,
+      scopeSummary: "Keep this task out of execution until planning is complete.",
+      sourceThreadId: fixture.projectChatThread.id,
+      title: "Blocked by readiness",
+    });
+    const server = createSmithlyMcpServer(context, {
+      attachScope: "backlog_item",
+      backlogItemId: createdBacklogItem.id,
+      dataDirectory,
+      projectId: fixture.project.id,
+      threadId: fixture.taskChatThread.id,
+    });
+    const { client, close } = await connectClient(server);
+
+    const claimResult = await client.callTool({
+      arguments: {
+        assignedWorker: "codex",
+        backlogItemId: createdBacklogItem.id,
+      },
+      name: "claim_backlog_item",
+    });
+
+    expect(claimResult.isError).toBe(true);
+    expect(claimResult.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("cannot start execution"),
+        }),
+      ]),
+    );
 
     await close();
     context.db.close();

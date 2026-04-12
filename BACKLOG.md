@@ -163,7 +163,7 @@
 81. `done` Let the bootstrap session draft an MVP plan, break it into backlog items, review early items with the operator, and approve selected work before the project enters the main dashboard
 82. `done` Add UI so a completed bootstrap chat turns into a normal managed project workspace with preserved planning history
 83. `done` Add a `Plan / Approve More` project action that opens a Claude planning session with project context, active task context, and compact backlog/approved-work summaries
-84. `todo` Add task readiness state distinct from approval state, and require `approved`, `ready`, and cleared blocking dependencies before execution can start
+84. `done` Add task readiness state distinct from approval state, and require `approved`, `ready`, and cleared blocking dependencies before execution can start
 85. `todo` Add MCP and storage support so Claude can reprioritize and reorder pending work safely during planning flows without reordering the active task or completed work
 86. `todo` Add task dependency links so items can explicitly block other tasks or be blocked by them, and reflect those links in readiness and scheduling
 87. `todo` Add active-task protection so planning changes cannot silently mutate the running task scope without pause-and-replan or follow-up task creation

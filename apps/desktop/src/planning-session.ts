@@ -320,8 +320,12 @@ export class PlanningSessionManager {
     const activeTaskRuns = listTaskRunsForProject(this.context, projectId).filter((taskRun) => {
       return ["awaiting_review", "blocked", "queued", "running"].includes(taskRun.status);
     });
-    const approvedBacklogItems = backlogItems.filter(
-      (backlogItem) => backlogItem.status === "approved",
+    const approvedBacklogItems = backlogItems.filter((backlogItem) => backlogItem.status === "approved");
+    const readyApprovedBacklogItems = approvedBacklogItems.filter(
+      (backlogItem) => backlogItem.readiness === "ready",
+    );
+    const notReadyApprovedBacklogItems = approvedBacklogItems.filter(
+      (backlogItem) => backlogItem.readiness !== "ready",
     );
     const draftBacklogItems = backlogItems.filter((backlogItem) => backlogItem.status === "draft");
     const pendingApprovals = listApprovalsForProject(this.context, projectId).filter((approval) => {
@@ -349,7 +353,8 @@ export class PlanningSessionManager {
       "Project context summary:",
       `Project: ${project.name} (status: ${project.status})`,
       `Active task context: ${activeTaskSummary}`,
-      `Approved work ready for planning/review: ${approvedBacklogItems.length} | ${summarizeTitles(approvedBacklogItems)}`,
+      `Approved and ready work: ${readyApprovedBacklogItems.length} | ${summarizeTitles(readyApprovedBacklogItems)}`,
+      `Approved but not ready: ${notReadyApprovedBacklogItems.length} | ${summarizeTitles(notReadyApprovedBacklogItems)}`,
       `Draft backlog needing clarification: ${draftBacklogItems.length} | ${summarizeTitles(draftBacklogItems)}`,
       `Pending approvals: ${pendingApprovals.length}`,
     ].join("\n");
