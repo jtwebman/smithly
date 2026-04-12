@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { _electron as electron } from "playwright";
 
 import { createConfig } from "@smithly/core";
@@ -18,6 +21,11 @@ import {
   upsertMemoryNote,
   updateProjectMetadata,
 } from "@smithly/storage";
+
+import {
+  createSmithlyMcpBridgeHeaders,
+  resolveSmithlyMcpBridgeConfig,
+} from "../../../packages/mcp-server/src/bridge.ts";
 
 function createBaseEnv(dataDirectory: string, themePreference?: "dark" | "light" | "system") {
   return {
@@ -89,6 +97,28 @@ async function closeDesktop(
   if (options.cleanup ?? true) {
     rmSync(dataDirectory, { force: true, recursive: true });
   }
+}
+
+async function connectExternalMcpClient(environment: Record<string, string | undefined>) {
+  const config = resolveSmithlyMcpBridgeConfig(environment);
+  const client = new Client({
+    name: "smithly-playwright-external-client",
+    version: "0.1.0",
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(config.endpointUrl), {
+    requestInit: {
+      headers: createSmithlyMcpBridgeHeaders(config),
+    },
+  });
+
+  await client.connect(transport as Transport);
+
+  return {
+    client,
+    close: async () => {
+      await transport.close();
+    },
+  };
 }
 
 test("add project opens a bootstrap Claude session rooted at the operator home directory", async () => {
@@ -673,6 +703,79 @@ test("project planning can reprioritize and reorder pending backlog items throug
   }
 });
 
+test("project planning can reorder approved backlog items without touching the active task", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-approved-reorder-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["First approved pending item"]),
+    createdAt: "2026-04-10T07:20:00.000Z",
+    id: "backlog-approved-first",
+    priority: 60,
+    projectId: fixture.project.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "First approved pending item for reorder coverage.",
+    status: "approved",
+    title: "Approved pending first",
+    updatedAt: "2026-04-10T07:20:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Second approved pending item"]),
+    createdAt: "2026-04-10T07:25:00.000Z",
+    id: "backlog-approved-second",
+    priority: 50,
+    projectId: fixture.project.id,
+    readiness: "ready",
+    reviewMode: "ai",
+    riskLevel: "low",
+    scopeSummary: "Second approved pending item for reorder coverage.",
+    status: "approved",
+    title: "Approved pending second",
+    updatedAt: "2026-04-10T07:25:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window.locator("#project-planning-button").click();
+    await expect(window.locator("#planning-title")).toHaveText("Project planning");
+    await window.locator("#terminal .xterm-screen").click();
+    await window.keyboard.type(
+      "reorder pending: backlog-approved-second ; backlog-approved-first | Put the second approved item first.",
+    );
+    await window.keyboard.press("Enter");
+
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool reorder_pending_backlog_items",
+    );
+    await expect(window.locator("#backlog-list .list-card").nth(1)).toContainText(
+      "Approved pending second",
+    );
+    await expect(window.locator("#backlog-list .list-card").nth(2)).toContainText(
+      "Approved pending first",
+    );
+    await expect(window.locator("#backlog-list .list-card").nth(0)).toContainText(
+      "Bootstrap the desktop shell",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
 test("operator can switch to task planning and attach a task-scoped Claude session", async () => {
   const { dataDirectory, electronApp, window } = await launchDesktop({
     seedInitialState: true,
@@ -702,6 +805,102 @@ test("operator can switch to task planning and attach a task-scoped Claude sessi
     );
     await expect(window.locator("#terminal .xterm-rows")).toContainText(
       "focused backlog item: backlog-bootstrap-ui",
+    );
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("task planning blocks coding until readiness and dependency gates are cleared", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-task-planning-gates-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["This task is approved but not ready"]),
+    createdAt: "2026-04-10T07:20:00.000Z",
+    id: "backlog-not-ready-gate",
+    priority: 70,
+    projectId: fixture.project.id,
+    readiness: "not_ready",
+    reviewMode: "human",
+    riskLevel: "medium",
+    scopeSummary: "Approved work that is still not ready for execution.",
+    status: "approved",
+    title: "Not ready gate task",
+    updatedAt: "2026-04-10T07:20:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Blocking dependency task"]),
+    createdAt: "2026-04-10T07:25:00.000Z",
+    id: "backlog-dependency-blocker",
+    priority: 65,
+    projectId: fixture.project.id,
+    readiness: "ready",
+    reviewMode: "human",
+    riskLevel: "low",
+    scopeSummary: "Blocking dependency that must finish first.",
+    status: "approved",
+    title: "Dependency blocker task",
+    updatedAt: "2026-04-10T07:25:00.000Z",
+  });
+  upsertBacklogItem(context, {
+    acceptanceCriteriaJson: JSON.stringify(["Blocked dependency task"]),
+    createdAt: "2026-04-10T07:30:00.000Z",
+    id: "backlog-dependency-blocked",
+    priority: 64,
+    projectId: fixture.project.id,
+    readiness: "ready",
+    reviewMode: "ai",
+    riskLevel: "medium",
+    scopeSummary: "Task that should stay blocked until its dependency is done.",
+    status: "approved",
+    title: "Dependency blocked task",
+    updatedAt: "2026-04-10T07:30:00.000Z",
+  });
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await window.locator("#show-orchestration-button").click();
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "Bootstrap the desktop shell" })
+      .getByRole("button", { name: "Open Task Chat" })
+      .click();
+    await expect(window.locator("#planning-title")).toHaveText("Task planning");
+    await window.locator("#terminal .xterm-screen").click();
+
+    await window.keyboard.type("start coding: backlog-not-ready-gate | Try to start not-ready work.");
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "readiness is not_ready",
+    );
+
+    await window.keyboard.type(
+      "add dependency: backlog-dependency-blocked | backlog-dependency-blocker | Keep the blocked item waiting.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "claude tool add_backlog_dependency",
+    );
+
+    await window.keyboard.type(
+      "start coding: backlog-dependency-blocked | Try to start dependency-blocked work.",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.locator("#terminal .xterm-rows")).toContainText(
+      "dependencies are not cleared",
     );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
@@ -883,6 +1082,94 @@ test("task planning can add, reorder, and remove related pending tasks", async (
 
     await expect(window.locator("#backlog-list")).toContainText("Existing related draft");
     await expect(window.locator("#backlog-list")).not.toContainText("Removable related draft");
+  } finally {
+    await closeDesktop(electronApp, dataDirectory);
+  }
+});
+
+test("external MCP attach flows can mutate the live desktop project state", async () => {
+  const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-external-mcp-ui-"));
+  const context = createContext({
+    config: createConfig({
+      dataDirectory,
+    }),
+  });
+  const fixture = createInitialSeedFixture();
+
+  seedInitialState(context, fixture);
+  context.db.close();
+
+  const { electronApp, window } = await launchDesktop({
+    dataDirectory,
+    themePreference: "dark",
+  });
+
+  try {
+    await window.locator("#project-list .project-card button[data-project-id]").first().click();
+    await expect(window.locator("#project-workspace")).toBeVisible();
+
+    const projectClientConnection = await connectExternalMcpClient({
+      SMITHLY_ATTACH_SCOPE: "project",
+      SMITHLY_DATA_DIRECTORY: dataDirectory,
+      SMITHLY_PROJECT_ID: fixture.project.id,
+    });
+    const createResult = await projectClientConnection.client.callTool({
+      arguments: {
+        scopeSummary: "Drafted through an external MCP project attach.",
+        title: "External attach draft",
+      },
+      name: "create_draft_backlog_item",
+    });
+    await projectClientConnection.close();
+
+    const createdBacklogItemId = (
+      createResult.structuredContent as {
+        backlogItemId: string;
+      }
+    ).backlogItemId;
+
+    await expect(window.locator("#backlog-list")).toContainText("External attach draft");
+
+    const backlogClientConnection = await connectExternalMcpClient({
+      SMITHLY_ATTACH_SCOPE: "backlog_item",
+      SMITHLY_BACKLOG_ITEM_ID: createdBacklogItemId,
+      SMITHLY_DATA_DIRECTORY: dataDirectory,
+      SMITHLY_PROJECT_ID: fixture.project.id,
+    });
+    const attachContextResource = await backlogClientConnection.client.readResource({
+      uri: "smithly://attach/current",
+    });
+    await backlogClientConnection.client.callTool({
+      arguments: {
+        acceptanceCriteria: [
+          "External attach can revise the selected backlog item.",
+          "Desktop UI refreshes the externally updated backlog state.",
+        ],
+        readiness: "ready",
+        scopeSummary: "Revised through a backlog-scoped external MCP attach.",
+        status: "approved",
+      },
+      name: "revise_backlog_item",
+    });
+    await backlogClientConnection.close();
+
+    expect(
+      attachContextResource.contents[0] && "text" in attachContextResource.contents[0]
+        ? attachContextResource.contents[0].text
+        : "",
+    ).toContain('"attachScope": "backlog_item"');
+    await window
+      .locator("#backlog-list .list-card")
+      .filter({ hasText: "External attach draft" })
+      .getByRole("button", { name: "Focus" })
+      .click();
+    await expect(window.locator("#selected-backlog-status")).toHaveText("approved");
+    await expect(window.locator("#selected-backlog-scope")).toHaveText(
+      "Revised through a backlog-scoped external MCP attach.",
+    );
+    await expect(window.locator("#selected-backlog-criteria")).toContainText(
+      "External attach can revise the selected backlog item.",
+    );
   } finally {
     await closeDesktop(electronApp, dataDirectory);
   }

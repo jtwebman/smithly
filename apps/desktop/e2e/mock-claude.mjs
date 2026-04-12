@@ -220,6 +220,56 @@ reader.on("line", async (line) => {
     return;
   }
 
+  if (prompt.startsWith("add dependency:")) {
+    const [blockedBacklogItemId, blockingBacklogItemId, notePart] = prompt
+      .slice("add dependency:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    if (!blockedBacklogItemId || !blockingBacklogItemId) {
+      console.log(
+        "claude error: dependency format is 'add dependency: blocked-id | blocking-id | Optional note'",
+      );
+      return;
+    }
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        blockedBacklogItemId,
+        blockingBacklogItemId,
+        ...(notePart ? { noteText: notePart } : {}),
+      },
+      name: "add_backlog_dependency",
+    });
+
+    console.log(`claude tool add_backlog_dependency: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
+  if (prompt.startsWith("start coding:")) {
+    const [backlogItemId, summaryText] = prompt
+      .slice("start coding:".length)
+      .split("|")
+      .map((part) => {
+        return part.trim();
+      });
+
+    const client = await getClient();
+    const result = await client.callTool({
+      arguments: {
+        ...(backlogItemId ? { backlogItemId } : {}),
+        ...(summaryText ? { summaryText } : {}),
+      },
+      name: "start_coding_task",
+    });
+
+    console.log(`claude tool start_coding_task: ${result.content[0]?.text ?? "ok"}`);
+    return;
+  }
+
   if (prompt.startsWith("revise task:")) {
     const [
       scopeSummary,
