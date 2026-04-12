@@ -1,4 +1,10 @@
 export type ProjectStatus = "active" | "paused" | "archived";
+export type ProjectExecutionState =
+  | "active"
+  | "paused"
+  | "blocked"
+  | "waiting_for_credit"
+  | "waiting_for_human";
 export type BacklogItemStatus =
   | "draft"
   | "approved"
@@ -48,6 +54,7 @@ export interface IProjectApprovalPolicy {
 
 export interface IProjectMetadata {
   readonly approvalPolicy: IProjectApprovalPolicy;
+  readonly executionState: ProjectExecutionState;
   readonly metadata: Readonly<Record<string, string>>;
   readonly verificationCommands: readonly string[];
 }

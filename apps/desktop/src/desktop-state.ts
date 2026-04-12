@@ -26,6 +26,7 @@ export interface IDesktopProjectSummary {
     readonly requireApprovalForScopeChanges: boolean;
   };
   readonly approvalPolicySummary: string;
+  readonly executionState: string;
   readonly id: string;
   readonly metadataEntries: Readonly<Record<string, string>>;
   readonly metadataSummary: string;
@@ -158,6 +159,7 @@ export function buildDesktopStatus(
       approvalPolicy: metadata.approvalPolicy,
       approvalPolicySummary: formatApprovalPolicySummary(metadata.approvalPolicy),
       backlogCount,
+      executionState: metadata.executionState,
       id: project.id,
       metadataEntries: metadata.metadata,
       metadataSummary: formatMetadataSummary(metadata.metadata),

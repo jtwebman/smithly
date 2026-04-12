@@ -59,6 +59,7 @@ describe("project registration", () => {
         requireApprovalForNewBacklogItems: true,
         requireApprovalForScopeChanges: true,
       },
+      executionState: "paused",
       metadata: {
         owner: "jt",
       },
@@ -138,6 +139,7 @@ describe("project registration", () => {
         requireApprovalForScopeChanges: true,
       },
       defaultBranch: "main",
+      executionState: "waiting_for_credit",
       metadata: {
         owner: "jt",
         runtime: "desktop",
@@ -152,6 +154,7 @@ describe("project registration", () => {
         requireApprovalForNewBacklogItems: false,
         requireApprovalForScopeChanges: true,
       },
+      executionState: "waiting_for_credit",
       metadata: {
         owner: "jt",
         runtime: "desktop",
@@ -204,9 +207,28 @@ describe("project registration", () => {
         requireApprovalForNewBacklogItems: true,
         requireApprovalForScopeChanges: true,
       },
+      executionState: "paused",
       metadata: {
         themePreference: "system",
       },
+      verificationCommands: ["npm run check"],
+    });
+  });
+
+  it("falls back to active execution state for legacy active projects without explicit metadata", () => {
+    expect(
+      parseProjectMetadata({
+        metadataJson: '{"verificationCommand":"npm run check"}',
+        status: "active",
+      }),
+    ).toEqual({
+      approvalPolicy: {
+        requireApprovalForHighRiskTasks: true,
+        requireApprovalForNewBacklogItems: true,
+        requireApprovalForScopeChanges: true,
+      },
+      executionState: "active",
+      metadata: {},
       verificationCommands: ["npm run check"],
     });
   });

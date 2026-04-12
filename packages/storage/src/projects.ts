@@ -7,6 +7,7 @@ import type {
   IProjectApprovalPolicy,
   IProjectMetadata,
   IProjectRecord,
+  ProjectExecutionState,
 } from "@smithly/core";
 
 import { getProjectById, listProjects, upsertProject } from "./data.ts";
@@ -22,6 +23,7 @@ export interface IRegisterLocalProjectInput {
 export interface IUpdateProjectMetadataInput {
   readonly approvalPolicy?: Partial<IProjectApprovalPolicy>;
   readonly defaultBranch?: string;
+  readonly executionState?: ProjectExecutionState;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly name?: string;
   readonly projectId: string;
@@ -42,6 +44,7 @@ export const DEFAULT_PROJECT_APPROVAL_POLICY: IProjectApprovalPolicy = {
   requireApprovalForNewBacklogItems: true,
   requireApprovalForScopeChanges: true,
 };
+export const DEFAULT_PROJECT_EXECUTION_STATE: ProjectExecutionState = "paused";
 
 export function registerLocalProject(
   context: IContext,
@@ -68,6 +71,7 @@ export function registerLocalProject(
     id: `project-${randomUUID()}`,
     metadataJson: serializeProjectMetadata({
       approvalPolicy: normalizeApprovalPolicy(input.approvalPolicy),
+      executionState: DEFAULT_PROJECT_EXECUTION_STATE,
       metadata: normalizeMetadataEntries(input.metadata),
       verificationCommands: normalizeVerificationCommands(input.verificationCommands),
     }),
@@ -83,7 +87,7 @@ export function registerLocalProject(
 }
 
 export function parseProjectMetadata(
-  project: Pick<IProjectRecord, "metadataJson">,
+  project: Pick<IProjectRecord, "metadataJson"> & Partial<Pick<IProjectRecord, "status">>,
 ): IProjectMetadata {
   const parsedJson = parseJsonObject(project.metadataJson);
   const metadataSource =
@@ -99,6 +103,10 @@ export function parseProjectMetadata(
 
   return {
     approvalPolicy: normalizeApprovalPolicy(parsedJson.approvalPolicy),
+    executionState: normalizeExecutionState(
+      parsedJson.executionState,
+      project.status !== undefined ? { status: project.status } : undefined,
+    ),
     metadata: normalizeMetadataEntries(metadataSource),
     verificationCommands,
   };
@@ -107,6 +115,7 @@ export function parseProjectMetadata(
 export function serializeProjectMetadata(metadata: IProjectMetadata): string {
   return JSON.stringify({
     approvalPolicy: normalizeApprovalPolicy(metadata.approvalPolicy),
+    executionState: normalizeExecutionState(metadata.executionState),
     metadata: normalizeMetadataEntries(metadata.metadata),
     verificationCommands: normalizeVerificationCommands(metadata.verificationCommands),
   });
@@ -147,6 +156,8 @@ export function updateProjectMetadata(
       approvalPolicy: normalizeApprovalPolicy(
         input.approvalPolicy ?? parseProjectMetadata(project).approvalPolicy,
       ),
+      executionState:
+        input.executionState ?? parseProjectMetadata(project).executionState,
       metadata: normalizeMetadataEntries(input.metadata ?? parseProjectMetadata(project).metadata),
       verificationCommands: normalizeVerificationCommands(
         input.verificationCommands ?? parseProjectMetadata(project).verificationCommands,
@@ -226,6 +237,22 @@ function normalizeApprovalPolicy(
         ? resolvedApprovalPolicy.requireApprovalForScopeChanges
         : DEFAULT_PROJECT_APPROVAL_POLICY.requireApprovalForScopeChanges,
   };
+}
+
+function normalizeExecutionState(
+  executionState: unknown,
+  project?: Pick<IProjectRecord, "status">,
+): ProjectExecutionState {
+  switch (executionState) {
+    case "active":
+    case "paused":
+    case "blocked":
+    case "waiting_for_credit":
+    case "waiting_for_human":
+      return executionState;
+    default:
+      return project?.status === "active" ? "active" : DEFAULT_PROJECT_EXECUTION_STATE;
+  }
 }
 
 function normalizeMetadataEntries(

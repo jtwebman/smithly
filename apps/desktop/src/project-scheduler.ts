@@ -7,6 +7,8 @@ import {
   type IStorageContext,
 } from "@smithly/storage";
 
+import { resolveProjectExecutionState } from "./project-execution.ts";
+
 const ACTIVE_CODING_TASK_STATUSES = new Set<ITaskRunRecord["status"]>([
   "queued",
   "running",
@@ -53,7 +55,7 @@ export class ProjectSchedulingManager {
   private processProject(projectId: string): boolean {
     const project = getProjectById(this.context, projectId);
 
-    if (project === null || project.status !== "active") {
+    if (project === null || resolveProjectExecutionState(this.context, projectId) !== "active") {
       return false;
     }
 

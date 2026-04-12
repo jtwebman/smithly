@@ -1,7 +1,10 @@
-import type { IProjectRecord } from "@smithly/core";
+import type { IApprovalRecord, IBlockerRecord, IProjectRecord, ProjectExecutionState } from "@smithly/core";
 import {
   getProjectById,
+  listApprovalsForProject,
+  listBlockersForProject,
   listProjects,
+  parseProjectMetadata,
   updateProjectMetadata,
   type IStorageContext,
 } from "@smithly/storage";
@@ -28,6 +31,7 @@ export class ProjectExecutionManager {
       project.status === "active"
         ? project
         : updateProjectMetadata(this.context, {
+            executionState: "active",
             projectId,
             status: "active",
           });
@@ -51,6 +55,7 @@ export class ProjectExecutionManager {
       project.status === "paused"
         ? project
         : updateProjectMetadata(this.context, {
+            executionState: "paused",
             projectId,
             status: "paused",
           });
@@ -86,6 +91,27 @@ export class ProjectExecutionManager {
     }
   }
 
+  public reconcileExecutionStates(): boolean {
+    let changed = false;
+
+    for (const project of listProjects(this.context)) {
+      const executionState = resolveProjectExecutionState(this.context, project.id);
+      const metadata = parseProjectMetadata(project);
+
+      if (metadata.executionState === executionState) {
+        continue;
+      }
+
+      updateProjectMetadata(this.context, {
+        executionState,
+        projectId: project.id,
+      });
+      changed = true;
+    }
+
+    return changed;
+  }
+
   private requireProject(projectId: string): IProjectRecord {
     const project = getProjectById(this.context, projectId);
 
@@ -95,4 +121,60 @@ export class ProjectExecutionManager {
 
     return project;
   }
+}
+
+export function resolveProjectExecutionState(
+  context: IStorageContext,
+  projectId: string,
+): ProjectExecutionState {
+  const project = getProjectById(context, projectId);
+
+  if (project === null) {
+    throw new Error(`Missing project ${projectId}`);
+  }
+
+  if (project.status !== "active") {
+    return "paused";
+  }
+
+  const metadata = parseProjectMetadata(project);
+
+  if (metadata.executionState === "waiting_for_credit") {
+    return "waiting_for_credit";
+  }
+
+  const openBlockers = listBlockersForProject(context, projectId).filter((blocker) => {
+    return blocker.status === "open";
+  });
+  const pendingApprovals = listApprovalsForProject(context, projectId).filter((approval) => {
+    return approval.status === "pending";
+  });
+
+  if (hasWaitingForHumanState(openBlockers, pendingApprovals)) {
+    return "waiting_for_human";
+  }
+
+  if (hasBlockedState(openBlockers)) {
+    return "blocked";
+  }
+
+  return "active";
+}
+
+function hasWaitingForHumanState(
+  openBlockers: readonly IBlockerRecord[],
+  pendingApprovals: readonly IApprovalRecord[],
+): boolean {
+  return (
+    pendingApprovals.length > 0 ||
+    openBlockers.some((blocker) => {
+      return blocker.blockerType === "human" || blocker.blockerType === "policy";
+    })
+  );
+}
+
+function hasBlockedState(openBlockers: readonly IBlockerRecord[]): boolean {
+  return openBlockers.some((blocker) => {
+    return ["helper_model", "system"].includes(blocker.blockerType);
+  });
 }

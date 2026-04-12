@@ -226,6 +226,7 @@ function registerDesktopHandlers(context: IStorageContext): void {
     "smithly:project-set-status",
     (_event, projectId: string, status: "paused" | "archived"): IDesktopStatus => {
       updateProjectMetadata(context, {
+        ...(status === "paused" ? { executionState: "paused" as const } : {}),
         projectId,
         status,
       });
@@ -585,6 +586,10 @@ function createBlockerRoutingManager(context: IStorageContext): BlockerRoutingMa
 }
 
 function broadcastDesktopStatus(context: IStorageContext): void {
+  if (projectExecutionManager?.reconcileExecutionStates()) {
+    queueProjectScheduling(context);
+  }
+
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("smithly:desktop-status-updated", buildCurrentDesktopStatus(context));
   }
@@ -923,6 +928,7 @@ export function recoverProjectExecutionStates(context: IStorageContext, now = ne
     }
 
     updateProjectMetadata(context, {
+      executionState: "paused",
       projectId: project.id,
       status: "paused",
     });

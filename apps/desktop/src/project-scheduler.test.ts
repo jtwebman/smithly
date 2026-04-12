@@ -14,6 +14,7 @@ import {
   seedInitialState,
   registerLocalProject,
   updateProjectMetadata,
+  upsertApproval,
 } from "@smithly/storage";
 
 import { ProjectSchedulingManager } from "./project-scheduler.ts";
@@ -43,6 +44,20 @@ describe("ProjectSchedulingManager", () => {
 
     seedInitialState(context, {
       ...fixture,
+      approval: {
+        ...fixture.approval,
+        decidedAt: "2026-04-10T07:10:00.000Z",
+        decisionBy: "human",
+        status: "approved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+      blocker: {
+        ...fixture.blocker,
+        resolutionNote: "No blocker remains for this scheduler test.",
+        resolvedAt: "2026-04-10T07:10:00.000Z",
+        status: "resolved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
       project: {
         ...fixture.project,
         repoPath,
@@ -104,6 +119,20 @@ describe("ProjectSchedulingManager", () => {
 
     seedInitialState(context, {
       ...fixture,
+      approval: {
+        ...fixture.approval,
+        decidedAt: "2026-04-10T07:10:00.000Z",
+        decisionBy: "human",
+        status: "approved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+      blocker: {
+        ...fixture.blocker,
+        resolutionNote: "No blocker remains for this scheduler test.",
+        resolvedAt: "2026-04-10T07:10:00.000Z",
+        status: "resolved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
       project: {
         ...fixture.project,
         status: "active",
@@ -172,6 +201,129 @@ describe("ProjectSchedulingManager", () => {
     const changed = manager.processActiveProjects();
 
     expect(changed).toBe(false);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(ensureSession).not.toHaveBeenCalled();
+
+    context.db.close();
+  });
+
+  it("skips active projects that are waiting for human input", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        status: "active",
+      },
+      taskRun: {
+        ...fixture.taskRun,
+        completedAt: "2026-04-10T07:30:00.000Z",
+        status: "done",
+        updatedAt: "2026-04-10T07:30:00.000Z",
+      },
+      approval: {
+        ...fixture.approval,
+        decidedAt: "2026-04-10T07:10:00.000Z",
+        decisionBy: "human",
+        status: "approved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+      blocker: {
+        ...fixture.blocker,
+        resolutionNote: "No blocker remains for this scheduler test.",
+        resolvedAt: "2026-04-10T07:10:00.000Z",
+        status: "resolved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+    });
+    upsertApproval(context, {
+      backlogItemId: fixture.backlogItem.id,
+      createdAt: "2026-04-10T07:35:00.000Z",
+      detail: "Operator approval is still pending.",
+      id: "approval-scheduler-waiting-human",
+      projectId: fixture.project.id,
+      requestedBy: "claude",
+      status: "pending",
+      title: "Need operator approval",
+      updatedAt: "2026-04-10T07:35:00.000Z",
+    });
+
+    const startSession = vi.fn();
+    const ensureSession = vi.fn();
+    const manager = new ProjectSchedulingManager(context, {
+      ensureSession,
+      startSession,
+    });
+
+    expect(manager.processActiveProjects()).toBe(false);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(ensureSession).not.toHaveBeenCalled();
+
+    context.db.close();
+  });
+
+  it("skips active projects that are waiting for credits", () => {
+    const dataDirectory = mkdtempSync(join(tmpdir(), "smithly-project-scheduler-"));
+
+    temporaryDirectories.push(dataDirectory);
+
+    const fixture = createInitialSeedFixture();
+    const context = createContext({
+      config: createConfig({
+        dataDirectory,
+      }),
+    });
+
+    seedInitialState(context, {
+      ...fixture,
+      project: {
+        ...fixture.project,
+        status: "active",
+      },
+      taskRun: {
+        ...fixture.taskRun,
+        completedAt: "2026-04-10T07:30:00.000Z",
+        status: "done",
+        updatedAt: "2026-04-10T07:30:00.000Z",
+      },
+      approval: {
+        ...fixture.approval,
+        decidedAt: "2026-04-10T07:10:00.000Z",
+        decisionBy: "human",
+        status: "approved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+      blocker: {
+        ...fixture.blocker,
+        resolutionNote: "No blocker remains for this scheduler test.",
+        resolvedAt: "2026-04-10T07:10:00.000Z",
+        status: "resolved",
+        updatedAt: "2026-04-10T07:10:00.000Z",
+      },
+    });
+    updateProjectMetadata(context, {
+      executionState: "waiting_for_credit",
+      projectId: fixture.project.id,
+    });
+
+    const startSession = vi.fn();
+    const ensureSession = vi.fn();
+    const manager = new ProjectSchedulingManager(context, {
+      ensureSession,
+      startSession,
+    });
+
+    expect(manager.processActiveProjects()).toBe(false);
     expect(startSession).not.toHaveBeenCalled();
     expect(ensureSession).not.toHaveBeenCalled();
 
